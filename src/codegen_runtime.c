@@ -8,7 +8,7 @@ struct BPPArmFrame {
     BLValue *globals, *registers, *locals, *args;
     unsigned char *global_initialized, *local_initialized;
     size_t register_count, local_count;
-    size_t reserved;
+    void *call_output_scratch;
 };
 static void *allocate(size_t n, size_t size) {
     if (size && n > SIZE_MAX / size) { fputs("B++: frame allocation overflow\n", stderr); exit(1); }
@@ -70,6 +70,8 @@ int bpp_a_run(BPPArmProc entry, const char *path, size_t count, int print_result
 }
 
 _Static_assert(sizeof(BPPArmFrame) == BPP_CG_HEADER_BYTES, "private frame header layout changed");
+_Static_assert(offsetof(BPPArmFrame, call_output_scratch) == BPP_CG_CALL_OUTPUT_OFFSET,
+    "private call output scratch offset changed");
 _Static_assert(sizeof(BLValue) == BPP_CG_VALUE_BYTES && offsetof(BLValue, tag) == 0 && offsetof(BLValue, as) == 8,
     "private value layout changed");
 BPPArmFrame *bpp_n_enter(BLRuntime *vm, BLValue *g, unsigned char *gi,

@@ -1,46 +1,78 @@
 #!/bin/sh
 set -eu
-
-BIN="$1"
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-
-pass() {
-    printf 'ok - %s\n' "$1"
+compiler=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
+task_dir=$(mktemp -d)
+trap 'rm -rf "$task_dir"' EXIT HUP INT TERM
+count=0
+bpp() { "$compiler" --backend "${BPP_TEST_BACKEND:-c}" "$@"; }
+native_case() {
+    count=$((count + 1))
+    printf '%s\n' "$2" > "$task_dir/case.bpp"
+    bpp --print-result -o "$task_dir/program" "$task_dir/case.bpp"
+    actual=$("$task_dir/program")
+    if [ "$actual" != "$3" ]; then printf 'FAIL %s: got <%s>, expected <%s>\n' "$1" "$actual" "$3"; exit 1; fi
 }
-
-fail() {
-    printf 'not ok - %s\n' "$1" >&2
-    exit 1
+compile_error() {
+    count=$((count + 1))
+    printf '%s\n' "$2" > "$task_dir/error.bpp"
+    if bpp --check "$task_dir/error.bpp" > "$task_dir/out" 2> "$task_dir/err"; then echo "FAIL $1: expected compilation error"; exit 1; fi
+    if ! LC_ALL=C grep -F "$3" "$task_dir/err" >/dev/null; then cat "$task_dir/err"; echo "FAIL $1"; exit 1; fi
 }
-
-out=$("$BIN" --print-result "$ROOT/tests/basic_return.bl")
-[ "$out" = "5" ] || fail "basic return prints 5"
-pass "basic return"
-
-out=$("$BIN" "$ROOT/string_array_memory.bl")
-expected='alpha
-beta
-gamma'
-[ "$out" = "$expected" ] || fail "string_array_memory output"
-pass "string array memory"
-
-"$BIN" --check "$ROOT/tests/basic_return.bl" >/dev/null
-pass "check mode"
-
-if "$BIN" "$ROOT/tests/parse_fail.bl" >/tmp/bl_parse_out.txt 2>/tmp/bl_parse_err.txt; then
-    fail "parse failure should return non-zero"
-fi
-grep -q "expected ')'" /tmp/bl_parse_err.txt || fail "parse error message"
-pass "parse error"
-
-if "$BIN" "$ROOT/tests/runtime_assert_fail.bl" >/tmp/bl_runtime_out.txt 2>/tmp/bl_runtime_err.txt; then
-    fail "assert failure should return non-zero"
-fi
-grep -q "assertion failed" /tmp/bl_runtime_err.txt || fail "assert error message"
-pass "runtime assert error"
-
-if "$BIN" "$ROOT/tests/runtime_type_fail.bl" >/tmp/bl_type_out.txt 2>/tmp/bl_type_err.txt; then
-    fail "type failure should return non-zero"
-fi
-grep -q "array_len expects array" /tmp/bl_type_err.txt || fail "type error message"
-pass "runtime type error"
+runtime_error() {
+    count=$((count + 1))
+    printf '%s\n' "$2" > "$task_dir/error.bpp"
+    bpp -o "$task_dir/program" "$task_dir/error.bpp"
+    if "$task_dir/program" > "$task_dir/out" 2> "$task_dir/err"; then echo "FAIL $1: expected runtime error"; exit 1; fi
+    if ! LC_ALL=C grep -F "$3" "$task_dir/err" >/dev/null; then cat "$task_dir/err"; echo "FAIL $1"; exit 1; fi
+}
+native_case recursion 'return fact(6); define proc fact(n) { if(n <= 1) {return 1;} else {return n * fact(n - 1);} }' '720'
+native_case loop 'new int x=0; while(x<1000){x=x+1;} return x;' '1000'
+native_case shadow 'new int x=8; define proc f(x){return x+1;} return f(4)+x;' '13'
+native_case strings 'new String s="ab"; new String t="cd"; new String u=String.concat(s,t); assert(String.cmp(u,"abcd")==0); return String.length(u);' '4'
+native_case buffer 'new ptr b=malloc 4; b[0]=65; new ptr alias=b; free b; assert(len(alias)==0); b=realloc b 4; b[0]=66; return b[0];' '66'
+native_case arrays 'new Array a=Array.new(3); Array.set(a,0,"a"); Array.set(a,1,"b"); Array.set(a,2,"c"); Array.grow(a,1); assert(Array.get(a,0)=="a"); Array.grow(a,4); Array.set(a,3,"d"); new Array alias=a; free a; assert(Array.length(alias)==0); Array.grow(a,2); Array.set(a,0,"e"); return Array.get(a,0);' 'e'
+native_case selfassign 'new String s="x"; s=s; new Array a=Array.new(1); Array.set(a,0,s); Array.set(a,0,Array.get(a,0)); delete s; return string_new(Array.get(a,0));' 'x'
+native_case branch 'new int x=1; if(!x){x=9;} else {x=3;} return (x%2)+(x/2)+(x!=0)+(x>=3)+(x>2)+(x==3);' '6'
+native_case cleanup 'define proc f(n){new String s="x"; while(n>0){s=s+"y"; n=n-1;} return s;} return string_new(f(100));' "x$(printf '%100s' '' | tr ' ' y)"
+native_case signed_arithmetic 'assert(-7/3 == -2); assert(-7%3 == -1); assert(7%-3 == 1); assert(-4*-3 == 12); return -7-3;' '-10'
+native_case many_arguments 'return many(1,2,3,4,5,6,7,8,9); define proc many(a,b,c,d,e,f,g,h,i){return a+b+c+d+e+f+g+h+i;}' '45'
+native_case object_truth 'new String s=""; new ptr b=malloc 0; assert(!s == 0); if(b){return 7;} return 0;' '7'
+native_case overwrite_kind 'new int x=0; while(x<5){new int value="object"; value=x; x=x+1;} return value;' '4'
+native_case live_across_call 'define proc f(n){println(n);return n*2;} return (1+2)+f(3);' '3
+9'
+native_case live_across_builtin 'return (2+3)+len("abc"+"de");' '10'
+native_case register_pressure 'return (1+2)*(3+4)+(5+6)*(7+8);' '186'
+native_case mixed_call_results 'define proc f(n){if(n){return 7;}return "ab";} new int i=0; new int n=0; while(i<10){n=n+len(string_new(f(i%2)));i=i+1;} return n;' '15'
+native_case wide_call_pressure 'define proc sum(a,b,c,d,e){return a+b+c+d+e;} return sum((1+2)*(3+4),(5+6)*(7+8),(9+10)*(11+12),(13+14)*(15+16),(17+18)*(19+20));' '2825'
+native_case deferred_return 'return ((10-3)*6)/2;' '21'
+native_case deferred_dynamic 'new int x=0; new String s="a"; while(x<6){s=s+"b";x=x+1;} assert(s=="abbbbbb"); return string_new(s);' 'abbbbbb'
+runtime_error deferred_error 'define proc f(a,b){new String s="owned";return (a+1)/(b-1);} return f(2,1);' 'division by zero'
+# Local imports still expand before parsing, and duplicate imports load once.
+printf '%s\n' 'define proc imported(n){return n*2;}' > "$task_dir/lib.bl"
+native_case imports 'import "lib.bl"; 
+import "lib.bl";
+return imported(4);' '8'
+compile_error old_keyword 'define fn f(){return 1;}' 'expected macro or proc'
+compile_error unknown 'return missing;' 'undefined variable'
+compile_error arity 'define proc f(a){return a;} return f();' 'expected 1 arguments'
+compile_error duplicate 'new int x=1; new int x=2;' 'duplicate declaration'
+compile_error nested 'if(1){define proc f(){return 1;}}' 'direct program children'
+runtime_error division 'return 1/0;' 'division by zero'
+runtime_error overflow 'return 9223372036854775807 + 1;' 'integer overflow'
+runtime_error minimum 'return (-9223372036854775807 - 1)/-1;' 'integer overflow'
+runtime_error subtract_overflow 'return (-9223372036854775807 - 1) - 1;' 'integer overflow'
+runtime_error multiply_overflow 'return 9223372036854775807 * 2;' 'integer overflow'
+runtime_error negate_overflow 'return -(-9223372036854775807 - 1);' 'integer overflow'
+runtime_error modulo_overflow 'return (-9223372036854775807 - 1)%-1;' 'integer overflow'
+runtime_error bounds 'new ptr b=malloc 1; return b[1];' 'buffer index out of bounds'
+runtime_error uninitialized 'if(0){new int x=1;} return x;' 'uninitialized variable'
+runtime_error cleanup_error 'define proc f(){new String s="allocated"; new Array a=Array.new(1); Array.set(a,0,s); return 1/0;} return f();' 'division by zero'
+# Output modes and output-path protection.
+bpp --emit-ir -o "$task_dir/out.ir" "$task_dir/case.bpp"
+grep -F 'call f1' "$task_dir/out.ir" >/dev/null
+bpp --emit-c -o "$task_dir/out.c" "$task_dir/case.bpp"
+grep -F 'bpp_f1' "$task_dir/out.c" >/dev/null
+bpp --emit-asm -o "$task_dir/out.s" "$task_dir/case.bpp"
+grep -F '.globl _main' "$task_dir/out.s" >/dev/null
+if bpp --emit-c -o "$task_dir/./case.bpp" "$task_dir/case.bpp" >/dev/null 2>&1; then echo 'FAIL source overwrite'; exit 1; fi
+printf 'Passed %s native and diagnostic cases, plus output-mode checks\n' "$count"

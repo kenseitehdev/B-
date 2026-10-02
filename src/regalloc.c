@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+const unsigned char bpp_payload_regs[BPP_PAYLOAD_REG_COUNT] = {23, 25, 27, 28};
+
 static void *array(size_t n, size_t size) {
     if (size && n > SIZE_MAX / size) return NULL;
     return calloc(n ? n : 1, size);
@@ -116,16 +118,18 @@ int bpp_reg_plan_create(const BLIRFunction *fn, BPPRegPlan *p) {
             uses(i, live);
         }
     }
-    /* Greedy weighted two-color allocation; uncolored values retain stack loads. */
+    /* Greedy weighted allocation; uncolored values retain stack loads. */
     for (size_t j = 0; j < n; ++j) {
         size_t best = BL_IR_NONE;
         for (size_t r = 0; r < n; ++r) if (!visited[r] && (best == BL_IR_NONE || weight[r] > weight[best])) best = r;
         if (best == BL_IR_NONE || !weight[best]) break;
         visited[best] = 1;
         unsigned mask = 0;
-        for (size_t r = 0; r < n; ++r) if (has(graph + best * words, r) && p->physical[r]) mask |= 1u << (p->physical[r] - 27);
-        if (!(mask & 1)) p->physical[best] = 27;
-        else if (!(mask & 2)) p->physical[best] = 28;
+        for (size_t r = 0; r < n; ++r) if (has(graph + best * words, r) && p->physical[r])
+            for (unsigned color = 0; color < BPP_PAYLOAD_REG_COUNT; ++color)
+                if (p->physical[r] == bpp_payload_regs[color]) mask |= 1u << color;
+        for (unsigned color = 0; color < BPP_PAYLOAD_REG_COUNT; ++color)
+            if (!(mask & (1u << color))) { p->physical[best] = bpp_payload_regs[color]; break; }
         if (p->physical[best]) ++p->cached_count;
     }
 done:

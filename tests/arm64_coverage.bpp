@@ -1,0 +1,23 @@
+new int x = 0;
+new String s = "ab";
+new ptr b = malloc 4;
+b[0] = 65;
+new Array a = Array.new(2);
+Array.set(a,0,s);
+while (x < 3) {
+    x = x + 1;
+    if (x == 2) { println(string_new(b)); } else { println(s); }
+}
+assert((x-1)*2/2%2 == 0);
+assert(!0);
+assert(x != 0);
+assert(x <= 3);
+assert(x >= 3);
+assert(x > 2);
+assert(-1 < 0);
+println(many(1,2,3,4,5,6,7,8,9));
+free b;
+delete s;
+free a;
+return x;
+define proc many(a,b,c,d,e,f,g,h,i) { return a+b+c+d+e+f+g+h+i; }

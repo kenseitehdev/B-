@@ -5,6 +5,7 @@
 #define BPP_CODEGEN_ABI_REVISION 0
 #define BPP_CG_HEADER_BYTES 80u
 #define BPP_CG_VALUE_BYTES 16u
+#define BPP_CG_CALL_OUTPUT_OFFSET 72u
 typedef struct BPPArmFrame BPPArmFrame;
 typedef struct { size_t params, registers, locals, call_args; } BPPNativeLayout;
 typedef void (*BPPArmProc)(BLRuntime *, BLValue *, unsigned char *, const BLValue *, BLValue *);

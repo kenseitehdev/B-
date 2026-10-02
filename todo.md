@@ -1,8 +1,6 @@
-1. codegen
-2. ABI
-3. assembler
-4. linker
-5. buildFile
-6. xf static lib for bl
-7. debugger
-8. sanitizers
+1. assembler
+2. linker
+3. buildFile
+4. xf static lib for bl
+5. debugger
+6. sanitizers
