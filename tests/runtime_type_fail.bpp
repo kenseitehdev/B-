@@ -1,0 +1,3 @@
+new ptr raw = malloc 4;
+array_len(raw);
+return 0;

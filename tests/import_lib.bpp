@@ -1,0 +1,12 @@
+import {String}
+
+new String a = "abc";
+new String b = "def";
+new String c = String.concat(a, b);
+
+println(String.length(c));
+println(String.cmp(c, "abcdef"));
+free a;
+free b;
+free c;
+return 0;

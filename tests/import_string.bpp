@@ -1,0 +1,22 @@
+import {String}
+
+new String a = "abc";
+new String b = "def";
+new String c = String.concat(a, b);
+
+println(c);
+println(String.length(c));
+println(String.cmp(c, "abcdef"));
+
+assert(String.length(a) == 3);
+assert(String.length(c) == 6);
+assert(String.cmp(c, "abcdef") == 0);
+
+free a;
+delete a;
+free b;
+delete b;
+free c;
+delete c;
+
+return 0;

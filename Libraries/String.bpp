@@ -1,0 +1,5 @@
+define macro "String" "ptr";
+
+#define fn String.concat "native";
+#define fn String.cmp "native";
+#define fn String.length "native";

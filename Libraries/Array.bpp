@@ -1,0 +1,7 @@
+define macro "Array" "array";
+
+#define fn Array.new "native";
+#define fn Array.grow "native";
+#define fn Array.set "native";
+#define fn Array.get "native";
+#define fn Array.length "native";

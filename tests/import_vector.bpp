@@ -1,0 +1,24 @@
+import {Vector}
+
+new Vector v = Vector.new(2);
+Vector.push(v, 7);
+Vector.push(v, 8);
+Vector.push(v, 9);
+
+println(Vector.get(v, 0));
+println(Vector.get(v, 1));
+println(Vector.get(v, 2));
+println(Vector.length(v));
+println(Vector.capacity(v));
+
+assert(Vector.length(v) == 3);
+assert(Vector.get(v, 0) == 7);
+assert(Vector.get(v, 1) == 8);
+assert(Vector.get(v, 2) == 9);
+assert(Vector.capacity(v) >= 3);
+
+Vector.set(v, 1, 80);
+assert(Vector.get(v, 1) == 80);
+
+delete v;
+return 0;

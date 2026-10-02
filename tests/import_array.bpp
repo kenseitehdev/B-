@@ -1,0 +1,25 @@
+import {Array}
+
+new Array xs = Array.new(3);
+Array.set(xs, 0, 10);
+Array.set(xs, 1, 20);
+Array.set(xs, 2, 30);
+
+println(Array.get(xs, 1));
+println(Array.length(xs));
+
+assert(Array.get(xs, 0) == 10);
+assert(Array.get(xs, 1) == 20);
+assert(Array.get(xs, 2) == 30);
+assert(Array.length(xs) == 3);
+
+xs = Array.grow(xs, 5);
+Array.set(xs, 3, 40);
+Array.set(xs, 4, 50);
+
+assert(Array.length(xs) == 5);
+assert(Array.get(xs, 3) == 40);
+assert(Array.get(xs, 4) == 50);
+
+delete xs;
+return 0;

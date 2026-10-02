@@ -1,0 +1,27 @@
+import {Tensor}
+
+new Tensor t = Tensor.new(6, 2);
+Tensor.setDim(t, 0, 2);
+Tensor.setDim(t, 1, 3);
+
+Tensor.flatSet(t, 0, 11);
+Tensor.flatSet(t, 1, 22);
+Tensor.flatSet(t, 2, 33);
+Tensor.flatSet(t, 3, 44);
+Tensor.flatSet(t, 4, 55);
+Tensor.flatSet(t, 5, 66);
+
+println(Tensor.rank(t));
+println(Tensor.dim(t, 0));
+println(Tensor.dim(t, 1));
+println(Tensor.flatGet(t, 4));
+
+assert(Tensor.rank(t) == 2);
+assert(Tensor.dim(t, 0) == 2);
+assert(Tensor.dim(t, 1) == 3);
+assert(Tensor.length(t) == 6);
+assert(Tensor.flatGet(t, 0) == 11);
+assert(Tensor.flatGet(t, 5) == 66);
+
+delete t;
+return 0;

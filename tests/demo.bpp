@@ -1,0 +1,5 @@
+new int x = 0;
+while (x < 10) { x = x + 1; }
+println(step(x));
+define proc step(n) { return n + 1; }
+return x;
