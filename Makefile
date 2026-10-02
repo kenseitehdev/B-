@@ -32,7 +32,7 @@ LDFLAGS ?=
 LDLIBS ?=
 OBJDIR := build/$(BUILD_MODE)/obj
 BIN := bin/$(BUILD_MODE)/bpp
-SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/emit_c.c src/emit_arm64.c
+SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/emit_c.c src/emit_arm64.c src/regalloc.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
 .PHONY: all debug tsan release check check-arm64 clean
@@ -53,10 +53,14 @@ $(BIN): $(OBJS) $(RUNTIME_OBJS)
 	$(CC) $(LDFLAGS) $(MODE_FLAGS) -o "$@" $(OBJS) $(LDLIBS)
 check-arm64: $(BIN)
 	BPP_TEST_BACKEND=arm64 sh tests/run_tests.sh ./$(BIN)
-check: $(BIN) $(OBJDIR)/test_ir $(OBJDIR)/test_codegen_runtime
+check: $(BIN) $(OBJDIR)/test_ir $(OBJDIR)/test_codegen_runtime $(OBJDIR)/test_regalloc
 	./$(OBJDIR)/test_ir
 	./$(OBJDIR)/test_codegen_runtime
+	./$(OBJDIR)/test_regalloc
 	sh tests/run_tests.sh ./$(BIN)
+$(OBJDIR)/test_regalloc: tests/test_regalloc.c src/regalloc.c include/regalloc.h include/ir.h Makefile
+	mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -UNDEBUG tests/test_regalloc.c src/regalloc.c -o "$@"
 $(OBJDIR)/test_codegen_runtime: tests/test_codegen_runtime.c $(RUNTIME_OBJS) include/codegen_abi.h Makefile
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -UNDEBUG tests/test_codegen_runtime.c $(RUNTIME_OBJS) -o "$@"
 $(OBJDIR)/test_ir: tests/test_ir.c src/ir.c include/ir.h include/parser.h include/lexer.h Makefile
