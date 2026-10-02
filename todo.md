@@ -4,5 +4,5 @@
 4. linker
 5. buildFile
 6. xf static lib for bl
-6. debugger
-7. sanitizing
+7. debugger
+8. sanitizers
