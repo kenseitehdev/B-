@@ -1,0 +1,32 @@
+define macro "SysArgv" "ptr";
+
+#define proc sys_fork "native";
+#define proc sys_execve "native";
+#define proc sys_wait "native";
+
+proc run_system_sh(command_string) {
+    // Invoke a fork interrupt split
+    new int pid = sys_fork();
+    
+    if (pid == 0) {
+        // --- Child Context Execution ---
+        new String binary = "/bin/sh";
+        new String flag = "-c";
+        
+        // Build a continuous pointer array block for the shell's argv
+        new SysArgv args = array_new(4);
+        array_set(args, 0, binary);
+        array_set(args, 1, flag);
+        array_set(args, 2, command_string); // Raw command payload
+        array_set(args, 3, 0);              // Null terminate the array block
+        
+        // Transmit raw images to the kernel space
+        sys_execve(binary, args, 0);
+    }
+    
+    // --- Parent Context Execution ---
+    new ptr status = malloc 4;
+    sys_wait(pid, status, 0);
+    free status;
+    delete status;
+}

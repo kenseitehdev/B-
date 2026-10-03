@@ -6,8 +6,17 @@
 #include <string.h>
 #include <limits.h>
 
-typedef struct {FILE *out;const BLIRFunction *fn;BPPRegPlan plan;size_t f,b,k,locals,flags,args,bytes,maxargs;int win;unsigned char *dirty,*before,*kind,*constant;long long *value;} X;
-static const char *cache(unsigned p){static const char *r[]={"%rbx","%r13","%r14","%r15"};return p?r[p-20]:NULL;}
+typedef struct {FILE *out;const BLIRFunction *fn;BPPRegPlan plan;size_t f,b,k,locals,flags,args,bytes,maxargs,alloc,saved_count;int win;unsigned saved[10];unsigned char *dirty,*before,*kind,*constant;long long *value;} X;
+static const char *cache(const X *e,unsigned p){static char name[16];const BPPRegisterInfo *r=bpp_target_register(e->win?BPP_WINDOWS_X64:BPP_LINUX_X64,p);if(!r)return "%rax";snprintf(name,sizeof name,"%%%s",r->name);return name;}
+static size_t save_set(X *e){
+    e->saved[e->saved_count++]=5; /* rbp is the stable frame base. */
+    e->saved[e->saved_count++]=12; /* r12 is the B++ runtime frame. */
+    unsigned allocated[BPP_MAX_ALLOCATABLE_REGS];size_t n=bpp_reg_saved_set(&e->plan,allocated,BPP_MAX_ALLOCATABLE_REGS);
+    for(size_t i=0;i<n;++i){int seen=0;for(size_t j=0;j<e->saved_count;++j)if(e->saved[j]==allocated[i])seen=1;if(!seen)e->saved[e->saved_count++]=allocated[i];}
+    /* rbp must be pushed first; keep the remaining save order stable. */
+    for(size_t i=2;i<e->saved_count;++i)for(size_t j=i;j>2&&e->saved[j]<e->saved[j-1];--j){unsigned t=e->saved[j];e->saved[j]=e->saved[j-1];e->saved[j-1]=t;}
+    return e->saved_count;
+}
 static size_t cell(X *e,size_t r){return BPP_CG_HEADER_BYTES+e->plan.cell[r]*16;}
 static void arg(X *e,unsigned n,const char *source,int address){
     static const char *unixregs[]={"%rdi","%rsi","%rdx","%rcx","%r8","%r9"};
@@ -23,19 +32,20 @@ static void def(X *e,const char *name){local(e,name);
     fputs(":\n",e->out);}
 static void jump(X *e,const char *op,const char *name){fprintf(e->out,"    %s ",op);local(e,name);fputc('\n',e->out);}
 static void payload(X *e,size_t r,const char *dst){
-    if(e->plan.physical[r])fprintf(e->out,"    movq %s, %s\n",cache(e->plan.physical[r]),dst);
+    if(e->plan.physical[r])fprintf(e->out,"    movq %s, %s\n",cache(e,e->plan.physical[r]),dst);
     else fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,dst);
 }
 static void flush(X *e,unsigned char *dirty,int clear){for(size_t r=0;r<e->fn->register_count;++r)if(dirty[r]){
-    fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e->plan.physical[r]),cell(e,r)+8);
+    fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,e->plan.physical[r]),cell(e,r)+8);
     if(clear)dirty[r]=0;
 }}
 static void cached(X *e,size_t r,const char *source){unsigned p=e->plan.physical[r];
     if(!p)return;
-    for(size_t a=0;a<e->fn->register_count;++a)if(a!=r&&e->dirty[a]&&e->plan.physical[a]==p){fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(p),cell(e,a)+8);e->dirty[a]=0;}
-    fprintf(e->out,"    movq %s, %s\n",source,cache(p));
+    for(size_t a=0;a<e->fn->register_count;++a)if(a!=r&&e->dirty[a]&&e->plan.physical[a]==p){fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,a)+8);e->dirty[a]=0;}
+    fprintf(e->out,"    movq %s, %s\n",source,cache(e,p));
 }
-static void reload(X *e,size_t r){if(r!=BL_IR_NONE&&e->plan.physical[r])fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,cache(e->plan.physical[r]));}
+static void reload(X *e,size_t r){if(r!=BL_IR_NONE&&e->plan.physical[r])fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,cache(e,e->plan.physical[r]));}
+static void restore_live_after(X *e){for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_after(&e->plan,e->b,e->k,r)&&e->plan.physical[r])reload(e,r);}
 static void guard(X *e,size_t r){if(e->kind[r]==BPP_KIND_INT)return;fprintf(e->out,"    cmpl $1, %zu(%%r12)\n",cell(e,r));jump(e,"jne","slow");}
 static void result(X *e,size_t r,int tag){
     fprintf(e->out,"    cmpl $2, %zu(%%r12)\n",cell(e,r));jump(e,"jne","write");
@@ -43,6 +53,7 @@ static void result(X *e,size_t r,int tag){
     fputs("    movq %r10, 104(%r12)\n",e->out);
     arg(e,0,"%r12",0);number(e,1,r);call(e,"bpp_a_destination");
     fputs("    movq 104(%r12), %r10\n",e->out);
+    restore_live_after(e);
     def(e,"write");fprintf(e->out,"    movl $%d, %zu(%%r12)\n",tag,cell(e,r));
     if(e->plan.physical[r]){cached(e,r,"%r10");e->dirty[r]=(unsigned char)(tag==1);}
     else if(tag==1)fprintf(e->out,"    movq %%r10, %zu(%%r12)\n",cell(e,r)+8);
@@ -115,8 +126,10 @@ static void slow(X *e,const BLIRInst *i,int conditional){flush(e,conditional?e->
     fputs("    movq %rax, 72(%r12)\n",e->out);arg(e,0,"%r12",0);call(e,"bpp_a_args");
             arg(e,3,"%rax",0);arg(e,0,"0(%r12)",0);arg(e,1,"8(%r12)",0);arg(e,2,"40(%r12)",0);arg(e,4,"72(%r12)",0);fprintf(e->out,"    call L_proc_%zu\n",i->a);}
     }else{number(e,1,i->op);number(e,2,i->dst);number(e,3,i->a);number(e,4,i->b);number(e,5,i->c);number(e,6,(uint64_t)i->line);number(e,7,(uint64_t)i->column);call(e,"bpp_a_op");}
-    reload(e,i->op==BL_IR_RELEASE?i->a:i->dst);arg(e,0,"%r12",0);call(e,"bpp_a_failed");
-    fputs("    testl %eax, %eax\n",e->out);jump(e,"je","done");fprintf(e->out,"    jmp L_fail_%zu\n",e->f);
+    arg(e,0,"%r12",0);call(e,"bpp_a_failed");
+    fputs("    testl %eax, %eax\n",e->out);jump(e,"je","post_call");fprintf(e->out,"    jmp L_fail_%zu\n",e->f);def(e,"post_call");
+    restore_live_after(e);
+    jump(e,"jmp","done");
 }
 static void literal(FILE *o,const char *name,const char *s){fprintf(o,"%s:\n    .byte ",name);for(const unsigned char *p=(const unsigned char *)s;*p;++p)fprintf(o,"%u,",(unsigned)*p);
     fputs("0\n",o);}
@@ -127,7 +140,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     if(!all)return 0;
     int ok=1;size_t failed_fn=0;
     for(size_t f=0;f<m->function_count;++f){X *e=&all[f];e->out=o;e->win=win;e->f=f;e->fn=&m->functions[f];
-        if(!bpp_reg_plan_create_for(e->fn,&e->plan,4)){snprintf(m->error,sizeof m->error,"x86-64 register allocation failed in function '%s'",e->fn->name);ok=0;
+        if(!bpp_reg_plan_create_target(e->fn,&e->plan,target)){snprintf(m->error,sizeof m->error,"x86-64 register allocation failed in function '%s'",e->fn->name);ok=0;
     break;}
         if(!bpp_reg_plan_validate(e->fn,&e->plan)){snprintf(m->error,sizeof m->error,"x86-64 register-map verifier failed in function '%s'",e->fn->name);ok=0;
     break;}
@@ -138,8 +151,10 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
         if(e->plan.cell_count>INT_MAX/16||e->fn->local_count>INT_MAX/32||e->maxargs>INT_MAX/16){failed_fn=f;ok=0;
     break;}
         e->locals=BPP_CG_HEADER_BYTES+e->plan.cell_count*16;e->flags=e->locals+e->fn->local_count*16;e->args=(e->flags+e->fn->local_count+15)&~(size_t)15;e->bytes=e->args+e->maxargs*16;
-        if(e->bytes>(size_t)INT_MAX-72){failed_fn=f;ok=0;
+        if(e->bytes>(size_t)INT_MAX-128){failed_fn=f;ok=0;
     break;}
+        e->saved_count=0;save_set(e);
+        e->alloc=e->bytes+((e->saved_count&1)?80:72);
     }
     if(!ok&&!m->error[0])snprintf(m->error,sizeof m->error,"x86-64 frame planning failed or exceeded 2 GiB in function '%s'",m->functions[failed_fn].name);
     if(ok){
@@ -150,19 +165,18 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
         else fputs("    .cfi_startproc\n    pushq %rbp\n    .cfi_def_cfa_offset 16\n    .cfi_offset %rbp, -16\n    movq %rsp, %rbp\n    .cfi_def_cfa_register %rbp\n",o);
         arg(e,0,"L_proc_0(%rip)",1);arg(e,1,"L_path(%rip)",1);number(e,2,m->global_count);number(e,3,(uint64_t)print);call(e,"bpp_a_run");
         if(win)fputs("    addq $40, %rsp\n    ret\n    .seh_endproc\n",o);else fputs("    popq %rbp\n    .cfi_def_cfa %rsp, 8\n    ret\n    .cfi_endproc\n",o);
-        for(size_t f=0;f<m->function_count;++f){e=&all[f];size_t alloc=e->bytes+72;fprintf(o,".p2align 4\nL_proc_%zu:\n",f);
+        for(size_t f=0;f<m->function_count;++f){e=&all[f];size_t alloc=e->alloc;fprintf(o,".p2align 4\nL_proc_%zu:\n",f);
             if(win)fprintf(o,"    .seh_proc L_proc_%zu\n",f);else fputs("    .cfi_startproc\n",o);
-            static const char *saved[]={"%rbp","%rbx","%r12","%r13","%r14","%r15"};
-            for(unsigned s=0;s<6;++s){fprintf(o,"    pushq %s\n",saved[s]);
-    if(win)fprintf(o,"    .seh_pushreg %s\n",saved[s]);else{
+            for(size_t s=0;s<e->saved_count;++s){const char *name=cache(e,e->saved[s]);fprintf(o,"    pushq %s\n",name);
+    if(win)fprintf(o,"    .seh_pushreg %s\n",name);else{
                 if(s==0)fputs("    .cfi_def_cfa_offset 16\n    .cfi_offset %rbp, -16\n    movq %rsp, %rbp\n    .cfi_def_cfa_register %rbp\n",o);
-                else fprintf(o,"    .cfi_offset %s, -%u\n",saved[s],16+s*8);
+                else fprintf(o,"    .cfi_offset %s, -%zu\n",name,16+s*8);
             }}
-            if(win){fprintf(o,"    movq $%zu, %%rax\n    call ___chkstk_ms\n    subq %%rax, %%rsp\n    .seh_stackalloc %zu\n    .seh_endprologue\n",alloc,alloc);fprintf(o,"    movq %zu(%%rsp), %%rbp\n",alloc+48+40);}
-            else{fputs("    movq %r8, -48(%rbp)\n",o);size_t remaining=alloc;while(remaining>=4096){fputs("    subq $4096, %rsp\n    movb $0, (%rsp)\n",o);remaining-=4096;}if(remaining)fprintf(o,"    subq $%zu, %%rsp\n",remaining);}
+            if(win){fprintf(o,"    movq $%zu, %%rax\n    call ___chkstk_ms\n    subq %%rax, %%rsp\n    .seh_stackalloc %zu\n    .seh_endprologue\n",alloc,alloc);fprintf(o,"    movq %zu(%%rsp), %%rbp\n",alloc+e->saved_count*8+40);}
+            else{fprintf(o,"    movq %%r8, -%zu(%%rbp)\n",e->saved_count*8);size_t remaining=alloc;while(remaining>=4096){fputs("    subq $4096, %rsp\n    movb $0, (%rsp)\n",o);remaining-=4096;}if(remaining)fprintf(o,"    subq $%zu, %%rsp\n",remaining);}
             fputs("    leaq 64(%rsp), %r12\n",o);char layout[80];snprintf(layout,sizeof layout,"L_layout_%zu(%%rip)",f);arg(e,4,layout,1);arg(e,5,"%r12",0);call(e,"bpp_n_enter");
-            if(win)fputs("    movq %rbp, 96(%r12)\n",o);else fputs("    movq -48(%rbp), %rax\n    movq %rax, 96(%r12)\n",o);
-            if(m->instrument_native){char caller[64];if(win)snprintf(caller,sizeof caller,"%zu(%%rsp)",alloc+48);else snprintf(caller,sizeof caller,"8(%%rbp)");arg(e,0,caller,0);call(e,"bpp_a_trace_enter");}
+            if(win)fputs("    movq %rbp, 96(%r12)\n",o);else fprintf(o,"    movq -%zu(%%rbp), %%rax\n    movq %%rax, 96(%%r12)\n",e->saved_count*8);
+            if(m->instrument_native){char caller[64];if(win)snprintf(caller,sizeof caller,"%zu(%%rsp)",alloc+e->saved_count*8);else snprintf(caller,sizeof caller,"8(%%rbp)");arg(e,0,caller,0);call(e,"bpp_a_trace_enter");}
             for(size_t b=0;b<e->fn->block_count;++b){e->b=b;memset(e->kind,0,e->fn->register_count);memset(e->constant,0,e->fn->register_count);fprintf(o,"L_f%zu_b%zu:\n",f,b);
                 for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_in(&e->plan,b,r))reload(e,r);
                 for(size_t k=0;k<e->fn->blocks[b].count;++k){e->k=k;const BLIRInst *i=&e->fn->blocks[b].insts[k];
@@ -180,8 +194,8 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
             }
             fprintf(o,"L_fail_%zu:\n",f);number(e,1,UINT64_MAX);fprintf(o,"L_cleanup_%zu:\n",f);arg(e,0,"%r12",0);arg(e,2,"96(%r12)",0);call(e,"bpp_a_leave");
             if(m->instrument_native)call(e,"bpp_a_trace_exit");
-            fprintf(o,"    addq $%zu, %%rsp\n",alloc);for(unsigned s=6;s-- >0;){fprintf(o,"    popq %s\n",saved[s]);
-    if(!win)fprintf(o,"    .cfi_restore %s\n",saved[s]);}
+            fprintf(o,"    addq $%zu, %%rsp\n",alloc);for(size_t s=e->saved_count;s-- >0;){const char *name=cache(e,e->saved[s]);fprintf(o,"    popq %s\n",name);
+    if(!win)fprintf(o,"    .cfi_restore %s\n",name);}
             if(!win)fputs("    .cfi_def_cfa %rsp, 8\n",o);
     fputs("    ret\n",o);
     fputs(win?"    .seh_endproc\n":"    .cfi_endproc\n",o);

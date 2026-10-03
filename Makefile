@@ -39,7 +39,7 @@ EXE :=
 PROJECT_DIR := $(CURDIR)
 endif
 BIN := bin/$(BUILD_MODE)/bpp$(EXE)
-SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/target.c src/optimize.c src/emit_x64.c src/locations.c
+SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/optimize.c src/emit_x64.c src/locations.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
 .PHONY: all debug tsan release check check-native check-arm64 check-msabi check-targets check-differential check-stress check-asan-hook benchmark test targets clean
@@ -83,9 +83,9 @@ check: $(BIN) $(OBJDIR)/test_ir$(EXE) $(OBJDIR)/test_codegen_runtime$(EXE) $(OBJ
 	./$(OBJDIR)/test_regalloc$(EXE)
 	./$(OBJDIR)/test_optimize$(EXE)
 	sh tests/run_tests.sh ./$(BIN)
-$(OBJDIR)/test_regalloc$(EXE): tests/test_regalloc.c src/regalloc.c include/regalloc.h include/ir.h Makefile
+$(OBJDIR)/test_regalloc$(EXE): tests/test_regalloc.c src/regalloc.c src/registers.c include/regalloc.h include/target.h include/ir.h Makefile
 	mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -UNDEBUG tests/test_regalloc.c src/regalloc.c -o "$@"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -UNDEBUG tests/test_regalloc.c src/regalloc.c src/registers.c -o "$@"
 $(OBJDIR)/test_codegen_runtime$(EXE): tests/test_codegen_runtime.c $(RUNTIME_OBJS) include/codegen_abi.h Makefile
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -UNDEBUG tests/test_codegen_runtime.c $(RUNTIME_OBJS) -o "$@"
 $(OBJDIR)/test_ir$(EXE): tests/test_ir.c src/ir.c include/ir.h include/parser.h include/lexer.h Makefile

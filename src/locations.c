@@ -10,7 +10,7 @@ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
     fputs(",\"functions\":[",o);
     for(size_t f=0;f<m->function_count;++f){BPPRegPlan p;
     const BPPBackendCapabilities *cap=bpp_target_capabilities(t);
-    if(!cap||!bpp_reg_plan_create_for(&m->functions[f],&p,cap->payload_registers)){
+    if(!cap||!bpp_reg_plan_create_target(&m->functions[f],&p,t)){
         snprintf(m->error,sizeof m->error,"location-map register allocation failed in function '%s'",m->functions[f].name);return 0;
     }
     if(!bpp_reg_plan_validate(&m->functions[f],&p)){
@@ -31,12 +31,9 @@ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
 void bpp_asm_source(FILE *o,const BLIRModule *m){if(!m->debug_path)return;fputs(".file 1 ",o);quote(o,m->debug_path?m->debug_path:m->path);fputc('\n',o);}
 void bpp_asm_location(FILE *o,const BLIRInst *i){if(i->line>0)fprintf(o,"    .loc 1 %d %d\n",i->line,i->column>0?i->column:0);}
 static const char *phys_name(BPPTarget t,unsigned p){
-    static const char *arm[]={"x20","x21","x22","x23","x24","x25","x27","x28"};
-    static const char *x64[]={"%rbx","%r13","%r14","%r15"};
-    const BPPBackendCapabilities *c=bpp_target_capabilities(t);if(!c||!p)return "spill";
-    if(c->isa==BPP_ISA_ARM64){for(size_t i=0;i<8;++i)if(p==20+i+(i>=6?1:0))return arm[i];}
-    else if(p>=20&&p<=23)return x64[p-20];
-    return "?";
+    static char x64[32];const BPPBackendCapabilities *c=bpp_target_capabilities(t);const BPPRegisterInfo *r=bpp_target_register(t,p);if(!c||!p)return "spill";if(!r)return "?";
+    if(c->isa==BPP_ISA_ARM64)return r->name;
+    snprintf(x64,sizeof x64,"%%%s",r->name);return x64;
 }
 void bpp_asm_instruction_comment(FILE *o,const BLIRFunction *fn,size_t fi,size_t bi,size_t ki,const BPPRegPlan *p,BPPTarget target,int intel){
     (void)fi;

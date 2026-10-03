@@ -31,6 +31,26 @@ static int layout(const BLIRFunction *fn,const BPPRegPlan *plan, Layout *l) {
     if(l->maxargs>(SIZE_MAX-l->args)/16) return 0;
     l->bytes=l->args+l->maxargs*16; return 1;
 }
+static size_t arm_saved_registers(const BPPRegPlan *plan,unsigned *ids){
+    static const unsigned fixed[]={19,20,21,22,24,26};size_t n=0;
+    for(size_t i=0;i<sizeof fixed/sizeof fixed[0];++i)ids[n++]=fixed[i];
+    unsigned allocated[BPP_MAX_ALLOCATABLE_REGS];size_t count=bpp_reg_saved_set(plan,allocated,BPP_MAX_ALLOCATABLE_REGS);
+    for(size_t i=0;i<count;++i){int found=0;for(size_t j=0;j<n;++j)if(ids[j]==allocated[i])found=1;if(!found)ids[n++]=allocated[i];}
+    for(size_t i=1;i<n;++i){unsigned x=ids[i];size_t j=i;while(j&&ids[j-1]>x){ids[j]=ids[j-1];--j;}ids[j]=x;}return n;
+}
+static size_t arm_save_area(const BPPRegPlan *plan){unsigned ids[BPP_MAX_ALLOCATABLE_REGS];size_t n=arm_saved_registers(plan,ids);return (n*8+15)&~(size_t)15;}
+static void arm_save_prologue(FILE *o,const BPPRegPlan *plan){
+    unsigned ids[BPP_MAX_ALLOCATABLE_REGS];size_t n=arm_saved_registers(plan,ids),bytes=arm_save_area(plan);
+    fputs("    stp x29, x30, [sp, #-16]!\n    .cfi_def_cfa_offset 16\n    .cfi_offset x29, -16\n    .cfi_offset x30, -8\n    mov x29, sp\n    .cfi_def_cfa x29, 16\n",o);
+    if(bytes)fprintf(o,"    sub sp, sp, #%zu\n",bytes);
+    for(size_t i=0;i<n;++i){size_t off=(i+1)*8;fprintf(o,"    str x%u, [x29, #-%zu]\n    .cfi_offset x%u, -%zu\n",ids[i],off,ids[i],16+off);}
+}
+static void arm_save_epilogue(FILE *o,const BPPRegPlan *plan){
+    unsigned ids[BPP_MAX_ALLOCATABLE_REGS];size_t n=arm_saved_registers(plan,ids);
+    fputs("    mov sp, x29\n",o);
+    for(size_t i=0;i<n;++i){size_t off=(i+1)*8;fprintf(o,"    ldr x%u, [x29, #-%zu]\n    .cfi_restore x%u\n",ids[i],off,ids[i]);}
+    fputs("    ldp x29, x30, [sp], #16\n    .cfi_def_cfa sp, 0\n    .cfi_restore x29\n    .cfi_restore x30\n    ret\n    .cfi_endproc\n",o);
+}
 static void label(Emitter *e,const char *name) { fprintf(e->out,"L_%s_%zu_%zu_%zu",name,e->f,e->b,e->k); }
 static void farjump(FILE *o,const char *target,int call){
     addr(o,16,target);fprintf(o,"    %s x16\n",call?"blr":"br");
@@ -82,12 +102,15 @@ static void cache_reload(Emitter *e,size_t r) {
         regaddr(e,12,r);fprintf(e->out,"    ldr x%u, [x12, #8]\n",e->plan->physical[r]);
     }
 }
+static void restore_live_after(Emitter *e){
+    for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_after(e->plan,e->b,e->k,r)&&e->plan->physical[r])cache_reload(e,r);
+}
 static void intguard(Emitter *e,size_t r) {if(e->kind[r]==BPP_KIND_INT)return;regaddr(e,12,r);fputs("    ldr w11, [x12]\n    cmp w11, #1\n",e->out);branch(e,"b.ne","slow");}
 /* x26 retains the primitive result across an optional object-release call. */
 static void result(Emitter *e,size_t dst,unsigned tag) {
     regaddr(e,12,dst);fputs("    ldr w11, [x12]\n    cmp w11, #2\n",e->out);branch(e,"b.ne","write");
     flush(e,e->dirty,0);
-    fputs("    mov x0, x19\n",e->out);imm(e->out,1,dst);fputs("    bl _bpp_a_destination\n    mov x12, x0\n",e->out);
+    fputs("    mov x0, x19\n",e->out);imm(e->out,1,dst);fputs("    bl _bpp_a_destination\n    mov x17, x0\n",e->out);restore_live_after(e);fputs("    mov x12, x17\n",e->out);
     define(e,"write");fprintf(e->out,"    mov w11, #%u\n    str w11, [x12]\n",tag);
     if(e->plan->physical[dst]) {
         cache_result(e,dst,26);e->dirty[dst]=(unsigned char)(tag==1);
@@ -159,16 +182,18 @@ static void slow(Emitter *e,const BLIRInst *i,int conditional) {
         if(i->a==BL_IR_NONE){imm(o,1,i->dst);char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu",e->f,e->b,e->k);addr(o,2,s);imm(o,3,i->arg_count);imm(o,4,(uint64_t)i->line);imm(o,5,(uint64_t)i->column);fputs("    bl _bpp_a_builtin\n",o);}
         else{imm(o,1,i->dst);fputs("    bl _bpp_a_destination\n",o);fprintf(o,"    str x0, [x19, #%u]\n",BPP_CG_CALL_OUTPUT_OFFSET);fputs("    mov x0, x19\n    bl _bpp_a_args\n    mov x3, x0\n    ldr x0, [x19]\n    ldr x1, [x19, #8]\n    ldr x2, [x19, #40]\n",o);fprintf(o,"    ldr x4, [x19, #%u]\n",BPP_CG_CALL_OUTPUT_OFFSET);char target[64];snprintf(target,sizeof target,"L_proc_%zu",i->a);farjump(o,target,1);}
     } else{imm(o,1,i->op);imm(o,2,i->dst);imm(o,3,i->a);imm(o,4,i->b);imm(o,5,i->c);imm(o,6,(uint64_t)i->line);imm(o,7,(uint64_t)i->column);fputs("    bl _bpp_a_op\n",o);}
-    cache_reload(e,i->op==BL_IR_RELEASE?i->a:i->dst);
-    fputs("    mov x0, x19\n    bl _bpp_a_failed\n",o);branch(e,"cbz w0,","done");char failed[64];snprintf(failed,sizeof failed,"L_fail_%zu",e->f);farjump(o,failed,0);
+    fputs("    mov x0, x19\n    bl _bpp_a_failed\n",o);branch(e,"cbz w0,","post_call");char failed[64];snprintf(failed,sizeof failed,"L_fail_%zu",e->f);farjump(o,failed,0);
+    define(e,"post_call");
+    restore_live_after(e);
+    branch(e,"b","done");
 }
-int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result) {
-    if(!o||!bl_ir_validate_pass(m,"ARM64 backend input")||!bpp_target_validate_ir(m,BPP_MACOS_ARM64,"ARM64"))return 0;
+int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
+    if(!o||!bl_ir_validate_pass(m,"ARM64 backend input")||!bpp_target_validate_ir(m,target,"ARM64"))return 0;
     Layout *layouts=calloc(m->function_count,sizeof *layouts);if(!layouts)return 0;
     BPPRegPlan *plans=calloc(m->function_count,sizeof *plans);
     if(!plans){free(layouts);return 0;}
     for(size_t f=0;f<m->function_count;++f) {
-        if(!bpp_reg_plan_create(&m->functions[f],&plans[f])) {
+        if(!bpp_reg_plan_create_target(&m->functions[f],&plans[f],target)) {
             snprintf(m->error,sizeof m->error,"ARM64 register allocation failed in function '%s'",m->functions[f].name);
             for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);
             free(plans);free(layouts);return 0;
@@ -199,7 +224,8 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result) {
     for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];Emitter e={o,f,0,0,fn,layouts[f],&plans[f],dirty,before,kind,constant,value,0};
         memset(dirty,0,fn->register_count);
         fprintf(o,"// payload registers: %zu of %zu IR values cached in x20/x21/x22/x23/x24/x25/x27/x28\n.p2align 2\nL_proc_%zu:\n    .cfi_startproc\n",plans[f].cached_count,fn->register_count,f);
-        fputs("    stp x29, x30, [sp, #-96]!\n    .cfi_def_cfa_offset 96\n    .cfi_offset w29, -96\n    .cfi_offset w30, -88\n    mov x29, sp\n    .cfi_def_cfa w29, 96\n    stp x19, x20, [sp, #16]\n    stp x21, x22, [sp, #32]\n    stp x23, x24, [sp, #48]\n    stp x25, x26, [sp, #64]\n    stp x27, x28, [sp, #80]\n    .cfi_offset w19, -80\n    .cfi_offset w20, -72\n    .cfi_offset w21, -64\n    .cfi_offset w22, -56\n    .cfi_offset w23, -48\n    .cfi_offset w24, -40\n    .cfi_offset w25, -32\n    .cfi_offset w26, -24\n    .cfi_offset w27, -16\n    .cfi_offset w28, -8\n    mov x20, x0\n    mov x21, x1\n    mov x22, x2\n    mov x24, x4\n",o);
+        arm_save_prologue(o,&plans[f]);
+        fputs("    mov x20, x0\n    mov x21, x1\n    mov x22, x2\n    mov x24, x4\n",o);
         imm(o,9,e.layout.bytes);fprintf(o,"L_probe_%zu:\n    cmp x9, #4096\n    b.lo L_probe_tail_%zu\n    sub sp, sp, #4096\n    str xzr, [sp]\n    sub x9, x9, #4096\n    b L_probe_%zu\nL_probe_tail_%zu:\n    sub sp, sp, x9\n    mov x19, sp\n",f,f,f,f);
         char name[64];snprintf(name,sizeof name,"L_layout_%zu",f);addr(o,4,name);fputs("    mov x5, x19\n    bl _bpp_n_enter\n    str x24, [x19, #96]\n",o);if(m->instrument_native)fputs("    ldr x0, [x29, #8]\n    bl _bpp_a_trace_enter\n",o);fprintf(o,"    b L_f%zu_b0\n",f);
         for(size_t b=0;b<fn->block_count;++b){e.b=b;memset(kind,0,fn->register_count);memset(constant,0,fn->register_count);fprintf(o,"L_f%zu_b%zu:\n",f,b);
@@ -217,8 +243,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result) {
         }
         fprintf(o,"L_fail_%zu:\n",f);imm(o,1,UINT64_MAX);fprintf(o,"L_cleanup_%zu:\n    mov x0, x19\n    ldr x2, [x19, #96]\n    bl _bpp_a_leave\n",f);
         if(m->instrument_native)fputs("    bl _bpp_a_trace_exit\n",o);
-        fputs("    mov sp, x29\n",o);
-        fputs("    ldp x19, x20, [sp, #16]\n    ldp x21, x22, [sp, #32]\n    ldp x23, x24, [sp, #48]\n    ldp x25, x26, [sp, #64]\n    ldp x27, x28, [sp, #80]\n    ldp x29, x30, [sp], #96\n    .cfi_def_cfa sp, 0\n    .cfi_restore w19\n    .cfi_restore w20\n    .cfi_restore w21\n    .cfi_restore w22\n    .cfi_restore w23\n    .cfi_restore w24\n    .cfi_restore w25\n    .cfi_restore w26\n    .cfi_restore w27\n    .cfi_restore w28\n    .cfi_restore w29\n    .cfi_restore w30\n    ret\n    .cfi_endproc\n",o);
+        arm_save_epilogue(o,&plans[f]);
     }
     fputs(".section __TEXT,__cstring,cstring_literals\n",o);literal(o,"L_path",m->path);
     for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];if(i->text){char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu",f,b,k);literal(o,s,i->text);}}

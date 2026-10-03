@@ -59,6 +59,8 @@ separate target list in scripts:
 Target registry and unsupported-feature policy are documented in
 [`docs/backend-feature-policy.md`](docs/backend-feature-policy.md). Numeric
 behavior is centralized in [`docs/numeric-semantics.md`](docs/numeric-semantics.md).
+Per-target register inventories, payload-cache rules, and dynamic save frames are
+documented in [`docs/register-allocation.md`](docs/register-allocation.md).
 
 ```sh
 ./bin/release/bpp --target linux-arm64 --emit-asm -o demo-linux.s tests/demo.bpp

@@ -4,10 +4,10 @@
 #include <string.h>
 
 static const BPPBackendCapabilities targets[] = {
-    {BPP_MACOS_ARM64,"macos-arm64","arm64-apple-macosx13.0.0",BPP_ISA_ARM64,BPP_FORMAT_MACHO,64,64,8},
-    {BPP_LINUX_X64,"linux-x86_64","x86_64-unknown-linux-gnu",BPP_ISA_X86_64,BPP_FORMAT_ELF,64,64,4},
-    {BPP_LINUX_ARM64,"linux-arm64","aarch64-unknown-linux-gnu",BPP_ISA_ARM64,BPP_FORMAT_ELF,64,64,8},
-    {BPP_WINDOWS_X64,"windows-x86_64","x86_64-w64-windows-gnu",BPP_ISA_X86_64,BPP_FORMAT_COFF,64,64,4}
+    {BPP_MACOS_ARM64,"macos-arm64","arm64-apple-macosx13.0.0",BPP_ISA_ARM64,BPP_FORMAT_MACHO,64,64,11},
+    {BPP_LINUX_X64,"linux-x86_64","x86_64-unknown-linux-gnu",BPP_ISA_X86_64,BPP_FORMAT_ELF,64,64,6},
+    {BPP_LINUX_ARM64,"linux-arm64","aarch64-unknown-linux-gnu",BPP_ISA_ARM64,BPP_FORMAT_ELF,64,64,11},
+    {BPP_WINDOWS_X64,"windows-x86_64","x86_64-w64-windows-gnu",BPP_ISA_X86_64,BPP_FORMAT_COFF,64,64,6}
 };
 size_t bpp_target_count(void){return sizeof targets/sizeof targets[0];}
 const BPPBackendCapabilities *bpp_target_at(size_t i){return i<bpp_target_count()?&targets[i]:NULL;}
@@ -76,9 +76,9 @@ int bpp_c_ir_supported(BLIROp op){
 int bpp_emit_native(BLIRModule *m,FILE *out,int print,BPPTarget t){
  const BPPBackendCapabilities *c=bpp_target_capabilities(t);if(!c||!bpp_target_validate_ir(m,t,"native"))return 0;
  if(c->isa==BPP_ISA_X86_64)return bpp_emit_x64(m,out,print,c->format==BPP_FORMAT_COFF);
- if(c->format==BPP_FORMAT_MACHO)return bl_emit_arm64(m,out,print);
+ if(c->format==BPP_FORMAT_MACHO)return bl_emit_arm64(m,out,print,t);
  FILE *scratch=tmpfile();if(!scratch)return 0;
- int ok=bl_emit_arm64(m,scratch,print);rewind(scratch);char line[16384];
+ int ok=bl_emit_arm64(m,scratch,print,t);rewind(scratch);char line[16384];
  while(ok&&fgets(line,sizeof line,scratch)){
   if(!strncmp(line,".file ",6)){fputs(line,out);continue;}
   if(!strncmp(line,".section __TEXT,__text",sizeof(".section __TEXT,__text")-1)){fputs(".text\n",out);continue;}

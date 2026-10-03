@@ -1,0 +1,37 @@
+define macro "Buffer" "ptr";
+
+// Define the raw primitive system write call hook (e.g., mapped to a syscall)
+#define proc sys_write "native"; 
+
+proc clear_terminal() {
+    // Allocate 4 bytes to hold the ANSI clear screen sequence: ESC [ 2 J
+    new Buffer sequence = malloc 4;
+    sequence[0] = 27;  // 0x1B (ASCII ESC)
+    sequence[1] = 91;  // '['
+    sequence[2] = 50;  // '2'
+    sequence[3] = 74;  // 'J'
+    
+    // Write out 4 bytes to File Descriptor 1 (stdout)
+    sys_write(1, sequence, 4);
+    
+    // Free the working block from memory
+    free sequence;
+    delete sequence;
+}
+
+proc draw_green_text(text_string) {
+    // 1. Send the ANSI sequence for Green Text: ESC [ 3 2 m
+    new Buffer start_color = malloc 5;
+    start_color[0] = 27; start_color[1] = 91; start_color[2] = 51; start_color[3] = 50; start_color[4] = 109;
+    sys_write(1, start_color, 5);
+    free start_color; delete start_color;
+    
+    // 2. Output the actual string bytes
+    sys_write(1, text_string, len(text_string));
+    
+    // 3. Reset terminal coloring back to standard: ESC [ 0 m
+    new Buffer reset_color = malloc 4;
+    reset_color[0] = 27; reset_color[1] = 91; reset_color[2] = 48; reset_color[3] = 109;
+    sys_write(1, reset_color, 4);
+    free reset_color; delete reset_color;
+}
