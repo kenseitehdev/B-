@@ -18,11 +18,14 @@ int main(void) {
     BLIRFunction fn = {.blocks=blocks,.block_count=4,.register_count=4};
     BPPRegPlan p;
     assert(bpp_reg_plan_create(&fn,&p));
+    assert(bpp_reg_plan_validate(&fn,&p));
     assert(bpp_reg_live_in(&p,1,1) && bpp_reg_live_in(&p,2,1));
     assert(bpp_reg_live_in(&p,3,1) && bpp_reg_live_in(&p,3,2));
     assert(!bpp_reg_live_in(&p,0,0));
     distinct(&p,1,2);
     assert(p.cached_count > 0);
+    size_t saved_cell=p.cell[0];p.cell[0]=p.cell_count;
+    assert(!bpp_reg_plan_validate(&fn,&p));p.cell[0]=saved_cell;
     bpp_reg_plan_destroy(&p);
     /* Thousands of nonoverlapping virtual values need one ownership cell. */
     size_t n=4096;
@@ -34,7 +37,7 @@ int main(void) {
     sequence[n*2-1]=(BLIRInst)I(BL_IR_RETURN,N,n-1,N,N);
     BLIRBlock sequential={sequence,n*2,n*2};
     fn.blocks=&sequential;fn.block_count=1;fn.register_count=n;
-    assert(bpp_reg_plan_create(&fn,&p));assert(p.cell_count==1);
+    assert(bpp_reg_plan_create(&fn,&p));assert(p.cell_count==1&&bpp_reg_plan_validate(&fn,&p));
     for(size_t r=0;r<n;++r)assert(p.cell[r]==0);
     bpp_reg_plan_destroy(&p);free(sequence);
 

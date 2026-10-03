@@ -4,14 +4,20 @@
 static void quote(FILE *o,const char *s){fputc('"',o);for(const unsigned char *p=(const unsigned char *)s;*p;++p){if(*p=='"'||*p=='\\')fputc('\\',o);
     if(*p<32)fprintf(o,"\\u%04x",*p);else fputc(*p,o);}fputc('"',o);}
 int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
-    if(!bl_ir_validate(m))return 0;
+    if(!bl_ir_validate_pass(m,"location-map backend input"))return 0;
     fputs("{\"target\":",o);quote(o,bpp_target_name(t));
     fputs(",\"source\":",o);quote(o,m->path);
     fputs(",\"functions\":[",o);
     for(size_t f=0;f<m->function_count;++f){BPPRegPlan p;
-    if(!bpp_reg_plan_create_for(&m->functions[f],&p,t==BPP_LINUX_X64||t==BPP_WINDOWS_X64?4:8))return 0;
+    const BPPBackendCapabilities *cap=bpp_target_capabilities(t);
+    if(!cap||!bpp_reg_plan_create_for(&m->functions[f],&p,cap->payload_registers)){
+        snprintf(m->error,sizeof m->error,"location-map register allocation failed in function '%s'",m->functions[f].name);return 0;
+    }
+    if(!bpp_reg_plan_validate(&m->functions[f],&p)){
+        bpp_reg_plan_destroy(&p);snprintf(m->error,sizeof m->error,"location-map register-map verifier failed in function '%s'",m->functions[f].name);return 0;
+    }
         if(f)fputc(',',o);
-    fputs("{\"name\":",o);quote(o,m->functions[f].name);fprintf(o,",\"label\":\"L_proc_%zu\",\"frame_register\":\"%s\",\"value_cells\":%zu,\"locals\":[",f,t==BPP_LINUX_X64||t==BPP_WINDOWS_X64?"r12":"x19",p.cell_count);
+    fputs("{\"name\":",o);quote(o,m->functions[f].name);fprintf(o,",\"label\":\"L_proc_%zu\",\"frame_register\":\"%s\",\"value_cells\":%zu,\"locals\":[",f,cap->isa==BPP_ISA_X86_64?"r12":"x19",p.cell_count);
         for(size_t j=0;j<m->functions[f].local_count;++j){if(j)fputc(',',o);
     fputs("{\"name\":",o);quote(o,m->functions[f].locals[j]);fprintf(o,",\"offset\":%zu}",BPP_CG_HEADER_BYTES+p.cell_count*16+j*16);}
         fputs("],\"instructions\":[",o);int comma=0;
@@ -24,3 +30,24 @@ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
 
 void bpp_asm_source(FILE *o,const BLIRModule *m){if(!m->debug_path)return;fputs(".file 1 ",o);quote(o,m->debug_path?m->debug_path:m->path);fputc('\n',o);}
 void bpp_asm_location(FILE *o,const BLIRInst *i){if(i->line>0)fprintf(o,"    .loc 1 %d %d\n",i->line,i->column>0?i->column:0);}
+static const char *phys_name(BPPTarget t,unsigned p){
+    static const char *arm[]={"x20","x21","x22","x23","x24","x25","x27","x28"};
+    static const char *x64[]={"%rbx","%r13","%r14","%r15"};
+    const BPPBackendCapabilities *c=bpp_target_capabilities(t);if(!c||!p)return "spill";
+    if(c->isa==BPP_ISA_ARM64){for(size_t i=0;i<8;++i)if(p==20+i+(i>=6?1:0))return arm[i];}
+    else if(p>=20&&p<=23)return x64[p-20];
+    return "?";
+}
+void bpp_asm_instruction_comment(FILE *o,const BLIRFunction *fn,size_t fi,size_t bi,size_t ki,const BPPRegPlan *p,BPPTarget target,int intel){
+    (void)fi;
+    if(!o||!fn||!p||bi>=fn->block_count||ki>=fn->blocks[bi].count)return;
+    const BLIRInst *i=&fn->blocks[bi].insts[ki];fprintf(o,intel?"    # B++ opcode=%s function=%s block=%zu source=%d:%d":"    // B++ opcode=%s function=%s block=%zu source=%d:%d",bl_ir_op_name(i->op),fn->name,bi,i->line,i->column);
+    BLIRId ids[4];size_t n=0;if(i->dst!=BL_IR_NONE)ids[n++]=i->dst;
+    switch(i->op){case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_RELEASE:case BL_IR_BRANCH:case BL_IR_RETURN:ids[n++]=i->a;break;
+    case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:case BL_IR_INDEX_GET:ids[n++]=i->a;ids[n++]=i->b;break;
+    case BL_IR_INDEX_SET:ids[n++]=i->a;ids[n++]=i->b;ids[n++]=i->c;break;default:break;}
+    if(i->op==BL_IR_INIT_LOCAL||i->op==BL_IR_INIT_GLOBAL||i->op==BL_IR_STORE_LOCAL||i->op==BL_IR_STORE_GLOBAL)ids[n++]=i->b;
+    for(size_t x=0;x<n;++x){BLIRId r=ids[x];if(r>=p->register_count)continue;fprintf(o," vreg=v%zu:phys=%s:spill-cell=%zu",r,phys_name(target,p->physical[r]),p->cell[r]);}
+    if(i->op==BL_IR_CALL)for(size_t x=0;x<i->arg_count;++x){BLIRId r=i->args[x];if(r<p->register_count)fprintf(o," arg%zu:vreg=v%zu:phys=%s:spill-cell=%zu",x,r,phys_name(target,p->physical[r]),p->cell[r]);}
+    fputc('\n',o);
+}

@@ -1,6 +1,7 @@
 #include "../include/lexer.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -120,7 +121,8 @@ BLToken bl_lexer_next(BLLexer *lexer) {
         }
         size_t length = (size_t)((lexer->source + lexer->index) - start);
         BLToken token = bl_make_token(TOK_NUMBER, start, length, line, column);
-        token.number = strtoll(start, NULL, 10);
+        char *end=NULL;errno=0;token.number = strtoll(start, &end, 10);
+        if(errno==ERANGE||!end||(size_t)(end-start)!=length)token.kind=TOK_INVALID;
         return token;
     }
 

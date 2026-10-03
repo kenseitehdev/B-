@@ -56,6 +56,12 @@ int main(void) {
     assert(m.function_count == 2 && m.functions[1].param_count == 1);
     assert(count_op(&m, BL_IR_CALL) == 2 && count_op(&m, BL_IR_LOAD_LOCAL) == 2);
     assert(count_op(&m, BL_IR_LOAD_GLOBAL) == 1);
+    BLIRInst *user_call = NULL;
+    for (size_t k = 0; k < m.functions[0].blocks[0].count; ++k)
+        if (m.functions[0].blocks[0].insts[k].op == BL_IR_CALL && m.functions[0].blocks[0].insts[k].a != BL_IR_NONE) user_call = &m.functions[0].blocks[0].insts[k];
+    assert(user_call); user_call->arg_count = 0;
+    assert(!bl_ir_validate_pass(&m, "arity-verifier-test"));
+    assert(strstr(bl_ir_last_error(&m), "arity-verifier-test") && strstr(bl_ir_last_error(&m), "function '<module>'") && strstr(bl_ir_last_error(&m), "call signature"));
 
     /* Many arguments force instruction-vector reallocations during call lowering. */
     BLNode print = ident("println"); BLNode *many[100]; for (size_t j = 0; j < 100; ++j) many[j] = &one;
@@ -88,6 +94,54 @@ int main(void) {
     BLNode nested = node(AST_BLOCK); BLNode *nested_items[] = {&fn}; nested.as.list.items = nested_items; nested.as.list.count = 1;
     BLNode *nested_top[] = {&nested}; program.as.list.items = nested_top; program.as.list.count = 1;
     assert(!bl_ir_compile(&m, "nested.bpp", &program)); assert(strstr(bl_ir_last_error(&m), "direct program children"));
+
+    /* The verifier catches an in-range register with no definition and labels the pass/site. */
+    BLNode simple_ret = node(AST_RETURN); simple_ret.as.ret_stmt.value = &one;
+    BLNode *simple_items[] = {&simple_ret}; program.as.list.items = simple_items; program.as.list.count = 1;
+    assert(bl_ir_compile(&m, "verify-undef.bpp", &program));
+    BLIRFunction *entry = &m.functions[0]; BLIRInst *ret_inst = &entry->blocks[0].insts[entry->blocks[0].count - 1];
+    ret_inst->a = entry->register_count++;
+    assert(!bl_ir_validate_pass(&m, "negative-test"));
+    assert(strstr(bl_ir_last_error(&m), "verify-undef.bpp:7:3:") && strstr(bl_ir_last_error(&m), "negative-test") && strstr(bl_ir_last_error(&m), "function '<module>'") && strstr(bl_ir_last_error(&m), "block 0") && strstr(bl_ir_last_error(&m), "use of undefined register"));
+
+    /* A register consumed by RELEASE cannot be read later on that path. */
+    BLNode expr = node(AST_EXPR_STMT); expr.as.expr_stmt.expr = &one;
+    BLNode *release_items[] = {&expr}; program.as.list.items = release_items; program.as.list.count = 1;
+    assert(bl_ir_compile(&m, "verify-release.bpp", &program)); entry = &m.functions[0];
+    ret_inst = &entry->blocks[0].insts[entry->blocks[0].count - 1];
+    BLIRId released = BL_IR_NONE;
+    for (size_t k = 0; k < entry->blocks[0].count; ++k)
+        if (entry->blocks[0].insts[k].op == BL_IR_RELEASE) released = entry->blocks[0].insts[k].a;
+    assert(released != BL_IR_NONE); ret_inst->a = released;
+    assert(!bl_ir_validate_pass(&m, "negative-test")); assert(strstr(bl_ir_last_error(&m), "use after release"));
+
+    /* Duplicate releases are invalid even when no later instruction reads the value. */
+    assert(bl_ir_compile(&m, "verify-double-release.bpp", &program)); entry = &m.functions[0];
+    BLIRBlock *entry_block = &entry->blocks[0]; size_t release_at = 0;
+    while (release_at < entry_block->count && entry_block->insts[release_at].op != BL_IR_RELEASE) ++release_at;
+    assert(release_at < entry_block->count && entry_block->capacity > entry_block->count);
+    memmove(&entry_block->insts[release_at + 1], &entry_block->insts[release_at], (entry_block->count - release_at) * sizeof *entry_block->insts);
+    entry_block->insts[release_at + 1] = entry_block->insts[release_at]; entry_block->count++;
+    assert(!bl_ir_validate_pass(&m, "negative-test")); assert(strstr(bl_ir_last_error(&m), "release is duplicated"));
+
+    /* A merge cannot use a register released on only one incoming path. */
+    BLIRInst raw0[] = {
+        {.op=BL_IR_INT,.dst=0,.a=BL_IR_NONE,.b=BL_IR_NONE,.c=BL_IR_NONE,.integer=7,.line=1,.column=1},
+        {.op=BL_IR_INT,.dst=1,.a=BL_IR_NONE,.b=BL_IR_NONE,.c=BL_IR_NONE,.integer=1,.line=1,.column=1},
+        {.op=BL_IR_BRANCH,.dst=BL_IR_NONE,.a=1,.b=1,.c=2,.line=1,.column=1}
+    };
+    BLIRInst raw1[] = {
+        {.op=BL_IR_RELEASE,.dst=BL_IR_NONE,.a=0,.b=BL_IR_NONE,.c=BL_IR_NONE,.line=1,.column=1},
+        {.op=BL_IR_JUMP,.dst=BL_IR_NONE,.a=3,.b=BL_IR_NONE,.c=BL_IR_NONE,.line=1,.column=1}
+    };
+    BLIRInst raw2[] = {{.op=BL_IR_JUMP,.dst=BL_IR_NONE,.a=3,.b=BL_IR_NONE,.c=BL_IR_NONE,.line=1,.column=1}};
+    BLIRInst raw3[] = {{.op=BL_IR_RETURN,.dst=BL_IR_NONE,.a=0,.b=BL_IR_NONE,.c=BL_IR_NONE,.line=1,.column=1}};
+    BLIRBlock raw_blocks[] = {{raw0,3,3},{raw1,2,2},{raw2,1,1},{raw3,1,1}};
+    BLIRFunction raw_fn = {.name="merge",.blocks=raw_blocks,.block_count=4,.register_count=2};
+    BLIRModule raw_module = {.path="ownership-merge.bpp",.functions=&raw_fn,.function_count=1};
+    assert(!bl_ir_validate_pass(&raw_module, "ownership-merge-test"));
+    assert(strstr(bl_ir_last_error(&raw_module), "ownership differs across incoming paths"));
+
     bl_ir_dispose(&m); bl_ir_dispose(&m);
     puts("IR lowering tests passed"); return 0;
 }

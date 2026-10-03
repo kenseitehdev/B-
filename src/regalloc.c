@@ -157,6 +157,26 @@ done:
 
 int bpp_reg_plan_create(const BLIRFunction *f,BPPRegPlan *p){return bpp_reg_plan_create_for(f,p,BPP_PAYLOAD_REG_COUNT);}
 
+int bpp_reg_plan_validate(const BLIRFunction *fn,const BPPRegPlan *p){
+    if(!fn||fn->register_count>SIZE_MAX-63)return 0;
+    if(!fn||!p||p->register_count!=fn->register_count||p->block_count!=fn->block_count||
+       p->words!=(fn->register_count+63)/64||!p->cell||!p->physical||!p->cell_count)return 0;
+    if(p->words&&(!p->live_in||!p->live_out))return 0;
+    size_t cached=0;
+    for(size_t r=0;r<fn->register_count;++r){
+        if(p->cell[r]>=p->cell_count)return 0;
+        if(p->physical[r]){
+            int known=0;for(size_t k=0;k<BPP_PAYLOAD_REG_COUNT;++k)known|=p->physical[r]==bpp_payload_regs[k];
+            if(!known)return 0;
+            ++cached;
+        }
+    }
+    if(cached!=p->cached_count)return 0;
+    for(size_t b=0;b<fn->block_count;++b)for(size_t r=fn->register_count;r<p->words*64;++r)
+        if(has(p->live_in+b*p->words,r)||has(p->live_out+b*p->words,r))return 0;
+    return 1;
+}
+
 void bpp_known_update(unsigned char *kind,unsigned char *constant,long long *value,const BLIRInst *i){
     unsigned char tag=BPP_KIND_UNKNOWN;
     if(i->op==BL_IR_RELEASE){kind[i->a]=BPP_KIND_NULL;constant[i->a]=0;return;}

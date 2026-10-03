@@ -8,6 +8,13 @@
 
 /* Exercise the assembly/runtime boundary without executing target instructions. */
 int main(void) {
+    int converted=0;
+    BLValue numeric_text=bl_value_string_copy("-9223372036854775808");
+    assert(bl_value_to_int(numeric_text,&converted)==LLONG_MIN&&converted);
+    bl_value_release(numeric_text);
+    numeric_text=bl_value_string_copy("9223372036854775808");
+    (void)bl_value_to_int(numeric_text,&converted);assert(!converted);bl_value_release(numeric_text);
+
     _Alignas(16) unsigned char outer_storage[256], inner_storage[256];
     BPPNativeLayout layout = {1, 4, 2, 2, 0};
     BLRuntime vm = {"frame-test", NULL};

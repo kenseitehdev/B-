@@ -1,4 +1,5 @@
 #include "../include/compiler.h"
+#include "../include/target.h"
 #include <limits.h>
 
 static void cstring(FILE *out, const char *s) {
@@ -21,7 +22,8 @@ static void signature(FILE *out, size_t id) {
     fprintf(out, "static BLValue bpp_f%zu(BLRuntime *vm, BLValue *g, unsigned char *gi, const BLValue *args, size_t argc)", id);
 }
 int bl_emit_c(BLIRModule *m, FILE *out, int print_result) {
-    if (!out || !bl_ir_validate(m)) return 0;
+    if (!out || !bl_ir_validate_pass(m, "C reference backend input")) return 0;
+    for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];if(!bpp_c_ir_supported(i->op)){snprintf(m->error,sizeof m->error,"%s:%d:%d: C reference backend does not support IR opcode '%s' (function '%s', block %zu, instruction %zu)",m->path?m->path:"<input>",i->line,i->column,bl_ir_op_name(i->op),m->functions[f].name,b,k);return 0;}}
     fputs("/* Generated from B++ register IR. */\n#include \"runtime.h\"\n#include <stdio.h>\n#include <stdlib.h>\n#include <limits.h>\n", out);
     for (size_t f = 0; f < m->function_count; ++f) { signature(out, f); fputs(";\n", out); }
     for (size_t f = 0; f < m->function_count; ++f) {
@@ -89,7 +91,9 @@ int bl_emit_c(BLIRModule *m, FILE *out, int print_result) {
                 case BL_IR_JUMP: fprintf(out, "goto b%zu", i->a); break;
                 case BL_IR_BRANCH: fprintf(out, "if(bl_value_is_truthy(r[%zu])) goto b%zu; else goto b%zu", i->a, i->b, i->c); break;
                 case BL_IR_RETURN: fprintf(out, "result=r[%zu]; r[%zu]=bl_value_null(); goto cleanup", i->a, i->a); break;
-                default: return 0;
+                default:
+                    snprintf(m->error,sizeof m->error,"%s:%d:%d: C reference backend does not support IR opcode '%s' (function '%s', block %zu, instruction %zu)",m->path?m->path:"<input>",i->line,i->column,bl_ir_op_name(i->op),fn->name,b,k);
+                    return 0;
                 }
                 if (dest) fputc(')', out);
                 fputs(";\n", out);

@@ -42,7 +42,7 @@ BIN := bin/$(BUILD_MODE)/bpp$(EXE)
 SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/target.c src/optimize.c src/emit_x64.c src/locations.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
-.PHONY: all debug tsan release check check-native check-arm64 check-msabi check-targets check-differential check-stress check-asan-hook benchmark test clean
+.PHONY: all debug tsan release check check-native check-arm64 check-msabi check-targets check-differential check-stress check-asan-hook benchmark test targets clean
 RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o
 all: $(BIN)
 debug:
@@ -66,6 +66,8 @@ check-msabi: $(BIN)
 	BPP_MSABI_CC="$(CC)" sh tests/check_msabi.sh ./$(BIN)
 check-targets: $(BIN)
 	sh tests/check_targets.sh ./$(BIN)
+targets: $(BIN)
+	./$(BIN) --list-targets
 check-differential: $(BIN) $(OBJDIR)/generate_case$(EXE)
 	sh tests/check_differential.sh ./$(BIN) ./$(OBJDIR)/generate_case$(EXE)
 check-stress: $(BIN) $(OBJDIR)/generate_case$(EXE)

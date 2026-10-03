@@ -15,6 +15,7 @@ typedef struct {
 } BPPRegPlan;
 int bpp_reg_plan_create_for(const BLIRFunction *, BPPRegPlan *, unsigned);
 int bpp_reg_plan_create(const BLIRFunction *fn, BPPRegPlan *plan);
+int bpp_reg_plan_validate(const BLIRFunction *fn, const BPPRegPlan *plan);
 void bpp_reg_plan_destroy(BPPRegPlan *plan);
 int bpp_reg_live_in(const BPPRegPlan *plan, size_t block, size_t reg);
 enum {BPP_KIND_UNKNOWN, BPP_KIND_NULL, BPP_KIND_INT, BPP_KIND_OBJECT};

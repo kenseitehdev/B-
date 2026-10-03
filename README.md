@@ -1,166 +1,170 @@
-# B++ compiler migration
+# B++ native codegen: four targets
 
-This source bundle replaces the supplied AST execution path with:
+B++ lowers its hand-rolled register IR directly to ARM64 or x86-64 assembly.
+Native is now the default backend. The C backend remains available for comparison.
+The compiler and object runtime are written in C; native B++ programs do not pass
+through generated C. A host compiler driver still assembles and links the emitted
+assembly with the runtime. The custom assembler and linker remain later stages.
 
-B++ source → import expansion → AST → hand-rolled register IR → generated C → native executable.
+This is a complete source snapshot. Its Makefile has an explicit source list;
+it does not build the former VM or a libbl.a archive.
 
-The C backend is hand-written and consumes the custom IR. The host C compiler
-performs machine-code generation and linking. This is not a direct assembly
-or machine-code emitter. Generated executables do not contain an IR interpreter
-or the AST VM. There is no libbl.a target.
+## Targets
 
-## Install and build
+| Target flag | Architecture and format | Executable toolchain |
+|---|---|---|
+| `macos-arm64` | ARM64, Mach-O | Apple Silicon macOS, Homebrew LLVM |
+| `linux-x86_64` | x86-64, ELF | Linux x86-64, GCC or Clang |
+| `linux-arm64` | ARM64, ELF | Linux ARM64, GCC or Clang |
+| `windows-x86_64` | x86-64, COFF/PE | Windows x64, MSYS2 UCRT64 Clang |
 
-Use this directory as a complete source snapshot, or copy its Makefile,
-include/*.h, and src/*.c into the matching locations in your repository. Commit
-or back up your current checkout first. Existing vm.c, interpreter.c, vm.h,
-interpreter.h, and bl.h are retired by this compiler path; this Makefile uses an
-explicit source list and does not build them. Any other repository source not
-supplied in this conversation, including asm.c, is not integrated by this bundle.
-The public BLInterpreter/bl_run_* API is not part of this compiler snapshot.
+An executable requires the matching host and runtime objects. All four assembly
+outputs can be generated on any host. Cross-linking, foreign SDK discovery,
+MSVC syntax, Windows ARM64, and macOS Intel are not implemented.
 
-The lexer and parser must be updated together with ir.c: TOK_FN is renamed
-TOK_PROC; AST_FN_DEF is renamed AST_PROC_DEF; the AST union member fn_def is
-renamed proc_def. All definitions now use the proc keyword:
+## Build and test
 
-```text
-define proc add(a, b) {
-    return a + b;
-}
-return add(2, 3);
-```
-
-The existing `define` prefix is preserved. `fn` is now an ordinary identifier;
-`define fn ...` produces a parser error. `#define proc` and quoted native
-procedure declarations use the new keyword too. As in the original parser,
-quoted native snippets and macro definitions are parsed and discarded; arbitrary
-native snippets are not compiled and macros are not expanded. Runtime builtins
-continue to supply their actual behavior.
+On your Mac:
 
 ```sh
-make release
+make BUILD_MODE=release test check-differential
+make BUILD_MODE=debug test check-asan-hook
+make BUILD_MODE=tsan test
+
 ./bin/release/bpp --print-result -o demo tests/demo.bpp
 ./demo
-# prints 11, then the top-level return value 10
-
-./bin/release/bpp --check tests/demo.bpp
-./bin/release/bpp --emit-ir -o demo.ir tests/demo.bpp
-./bin/release/bpp --emit-c -o demo.c tests/demo.bpp
-make BUILD_MODE=release check
+# prints 11, then 10
 ```
 
-Without -o, native compilation creates a.out. --emit-ir and --emit-c default to
-stdout. --check performs parsing and IR lowering without producing an executable
-or running the source. --print-result embeds final-result printing into the
-compiled executable. It preserves the old CLI's string/int output and
-buffer/array descriptors. A successful top-level return is a value, not the
-process exit status; runtime errors return status 1.
+On Linux use the same commands; pass `CC=cc` if Clang is unavailable.
+On Windows run `make CC=clang BUILD_MODE=release test check-differential` in an
+MSYS2 UCRT64 shell with make and mingw-w64-ucrt-x86_64-clang installed. The compiler
+path there is `bin/release/bpp.exe`. Windows sanitizer modes need a toolchain that
+supplies the requested sanitizer runtimes; they are not yet a verified Windows gate.
 
-Use CC=cc to build with GCC, or the default Clang/Homebrew LLVM selection.
-BPP_CC can override the host compiler executable at invocation time. It must be
-one executable name/path, not a shell command or a string of arguments. Compiler
-invocation uses fork/execvp with individual arguments, not a shell command.
+`test` runs unit tests, the 51-case C suite, and the 51-case native suite.
+`check` runs unit tests plus C execution; `check-native` runs native execution.
+`check-arm64` remains an ARM64 compatibility target. `BUILD_MODE` is the mode
+variable; lowercase `mode` is not an alias.
 
-The compiler records absolute paths to the include directory and runtime/value
-object files at build time. Keep the built compiler with its checkout and object
-files. After moving the checkout, run make clean and rebuild. The generated
-native executable is independent of those build-time paths.
-
-## Sanitizer modes
-
-| Build | Compiler and generated executable | Compiler path |
-|---|---|---|
-| make debug (default make) | ASAN + LSAN + UBSAN | bin/debug/bpp |
-| make tsan | TSAN | bin/tsan/bpp |
-| make release | O2, no sanitizers | bin/release/bpp |
-
-Modes have separate object/output directories. The runtime is compiled into
-matching per-mode object files, then linked into generated executables. There
-is no static library. The compiler itself does not link the value runtime.
+Query the registered target and opcode lowering table instead of maintaining a
+separate target list in scripts:
 
 ```sh
-make BUILD_MODE=debug check
-make BUILD_MODE=tsan check
-make BUILD_MODE=release check
+./bin/release/bpp --list-targets
+./bin/release/bpp --target-info linux-x86_64
+./bin/release/bpp --emit-asm --asm-comments --target linux-x86_64 -o demo.s tests/demo.bpp
 ```
 
-The default debug flags request -fsanitize=address,leak,undefined explicitly.
-Support depends on your selected compiler/target. If it rejects standalone
-leak instrumentation, you can explicitly override DEBUG_SANITIZERS to
-address,undefined and enable ASAN's leak checking with ASAN_OPTIONS=detect_leaks=1
-where supported. That override does not guarantee LSAN support. Clean before
-changing sanitizer selections or overriding compiler/flags within the same mode.
-No fallback silently removes instrumentation.
+Target registry and unsupported-feature policy are documented in
+[`docs/backend-feature-policy.md`](docs/backend-feature-policy.md). Numeric
+behavior is centralized in [`docs/numeric-semantics.md`](docs/numeric-semantics.md).
 
-## Components
+```sh
+./bin/release/bpp --target linux-arm64 --emit-asm -o demo-linux.s tests/demo.bpp
+./bin/release/bpp --target windows-x86_64 --emit-asm -o demo-win.s tests/demo.bpp
+./bin/release/bpp --emit-ir --no-opt -o demo.ir tests/demo.bpp
+./bin/release/bpp --backend c --print-result -o reference tests/demo.bpp
+make BUILD_MODE=release check-targets    # requires a Clang cross-assembler
+make BUILD_MODE=release check-msabi     # Windows calling convention on Linux x64
+make BUILD_MODE=release check-differential check-stress
+make -s BUILD_MODE=release benchmark > timings.csv
+```
 
-- compiler.c retains the original local/global import resolver and cycle checks,
-  and replaces the parse/execute entry points with parse/lower compilation.
-  Global imports still use ~/.bytelang/lib and the legacy .bl suffix lookup.
-  The CLI no longer copies Libraries into the home directory automatically;
-  provision those files explicitly if using global imports.
-- ir.c/ir.h own the custom IR, lower every supplied AST expression/statement,
-  structurally validate it, and dump it.
-- emit_c.c translates blocks into labels/branches and emits direct user calls.
-- runtime.c contains the extracted builtins and dynamic value operations.
-- value.c/value.h retain the original tagged/reference-counted representation.
-- main.c provides compiler output modes and invokes the native toolchain.
+`--check` parses, lowers, optimizes, and validates without running the program.
+`--no-opt` disables the IR optimization pass, while register/frame allocation
+still runs. `--print-result` prints the top-level return value, which is not the
+process exit status. Runtime errors exit with status 1. The default executable
+name is a.out on Unix and a.exe on Windows.
 
-## Runtime fixes
+The Makefile selects Homebrew LLVM when available. `CC` selects the build tool;
+`BPP_CC` overrides the assembler/link driver at compiler invocation. Both take
+one executable name/path, not shell commands. The compiler records checkout and
+runtime-object paths: rebuild it after moving the checkout. Generated executables
+can run without the checkout. Clean when changing compiler or sanitizer overrides
+within an existing build mode.
 
-- Release truncated array values before shrinking the allocation.
-- Release contained values when freeing array storage.
-- Retain an array replacement before releasing the overwritten value.
-- Respect owned payload flags when destroying objects or explicitly freeing them.
-- Restore ownership flags when growing/reallocating a previously freed payload.
-- Check allocation-size arithmetic for array resizing and concatenation.
-- Diagnose signed arithmetic overflow, division/modulo by zero, and the
-  LLONG_MIN / -1 case rather than executing undefined C arithmetic.
-- Clean up frame registers and locals on every return and runtime-error path.
-  Returned objects stay owned until the caller consumes/releases them; the old
-  dangling public BLValueView return path is no longer used.
+## Codegen changes
 
-Reference counting still does not collect object cycles. The supplied language
-has no synchronization/threading features; TSAN instrumentation does not make
-its reference counts atomic or make shared runtime objects thread-safe.
+- Native integer operations, comparisons, branches, loops, slot access and
+  procedure calls work through target-specific host calling conventions.
+- Shared CFG liveness and weighted interval allocation use eight ARM64 or four
+  x86-64 callee-saved payload registers. Excess values stay in stack cells.
+- Disjoint virtual values reuse ownership cells. The previous dense quadratic
+  interference graph is gone; interval scans remain conservative.
+- Cached integer payload writes are deferred until a helper or block boundary
+  needs them. Proven integer operands skip repeated tag checks inside a block.
+- Safe integer constants fold; constant branches and unreachable blocks disappear.
+  Effectful operations and operations that must report overflow/zero division remain.
+- ARM64 internal branches/calls use page-relative address materialization for
+  long distances. x86-64 uses its normal relative branches and RIP-relative data.
+- Large frames use page probing on Unix and chkstk on Windows. Unix CFI and
+  Windows SEH describe saved registers and stack allocation.
+- Native instructions have source line locations; `--emit-map` reports local
+  frame offsets and IR locations. Debug snapshots preserve expanded import text.
+- Sanitized native builds check global accesses through ASAN/TSAN hooks and track
+  native procedure entry/exit for TSAN. Runtime object operations stay instrumented C.
 
-## Semantic decisions inherited from the first IR bundle
+The private procedure/value boundary is **revision 1**, defined in
+include/codegen_abi.h. This is an ABI placeholder, not a public static-library ABI.
+See [CODEGEN.md](CODEGEN.md), [IR-NOTES.md](IR-NOTES.md), and
+[CODEGEN-CHECKLIST.md](CODEGEN-CHECKLIST.md) for contracts and remaining work.
 
-Top-level procedures are collected before lowering, supporting forward calls
-and recursion. Nested procedure definitions, duplicate declarations/parameters/
-procedures, and builtin-name procedure redefinitions are rejected. Variables
-are function-scoped; local declarations shadow globals throughout that function.
-Unexecuted declarations leave slots uninitialized and accessing them reports a
-runtime error. Re-executing a declaration in a loop reinitializes the same slot.
-Unknown names and direct user-call arity errors are compile-time errors.
+## Debugging and build modes
 
-These differ from the supplied VM's dynamic registration, first-match duplicate
-variable lookup, and runtime name resolution. Blocks still introduce no scope.
-String declarations still convert values into C-string buffers, and indexing
-still applies only to buffers. The supplied parser's syntax restrictions remain
-in place; this does not add for loops, short-circuit operators, types, or syntax
-that are absent from its headers and implementation.
+| Mode | Compiler/runtime flags | Compiler path on Unix |
+|---|---|---|
+| debug (default) | ASAN + LSAN + UBSAN, O1, debug information | bin/debug/bpp |
+| tsan | TSAN, O1, debug information | bin/tsan/bpp |
+| release | O2, no sanitizers | bin/release/bpp |
 
-Import expansion retains the old diagnostic limitation: locations refer to the
-expanded root source, not an original-source map for imported files.
+Debug and TSAN builds save `<output>.bpp-source` and emit assembler line directives.
+Use `--debug-info` to enable this in release too. Preserve the snapshot next to
+its executable for source stepping. `--emit-map -o demo.json` records the selected
+target's local offsets relative to x19 or r12. It is an inspection manifest,
+not DWARF local-variable DIEs or a standalone debugger.
 
-See IR-NOTES.md for the register/slot ownership contract and instruction layout.
-The native backend implements that contract. Structural validation does not
-perform a dominance/definite-assignment proof or a static type proof.
+ASAN hooks cover native global fast paths. Explicit signed-overflow guards provide
+integer safety; C runtime helpers cover strings, arrays, buffers and bounds.
+Native stack redzones, complete per-instruction instrumentation, use-after-return
+tracking, and native local-variable debug records are still unfinished.
+Sanitizer runtime availability varies by platform. No threading syntax is added;
+TSAN does not make the reference-counted object runtime thread-safe.
 
-## Validation performed
+## Verification in this snapshot
 
-Strict C11 compilation with Wall/Wextra/Wpedantic/Werror passed for compiler and
-runtime sources. An emitted sample also compiled with those strict flags.
-IR-lowering unit tests and 21 native execution/diagnostic cases passed in release
-and TSAN modes. The native cases passed under ASAN/UBSAN with leak checking
-disabled because LSAN's exit scan fails under this execution environment's
-process-inspection restriction. A completed LSAN leak check is not claimed.
-The test programs cover recursion, forward calls, imports, scopes, loops,
-string conversion, buffer alias invalidation/reallocation, array shrink/grow,
-self-assignment, return/error cleanup, overflow, bounds, new proc syntax, old fn
-rejection, output modes, and source-overwrite protection.
+| Check | Result |
+|---|---|
+| Linux x86-64 release | Unit tests and 51 cases per backend pass |
+| Linux x86-64 ASAN/UBSAN | Unit tests and 51 cases per backend pass; leak scanning disabled |
+| Linux x86-64 TSAN | Unit tests and 48 cases per backend pass |
+| Seeded differential execution | 64 seeds, optimized and baseline native outputs match C |
+| Windows x64 calling-convention bridge | 48 cases pass on Linux x64; Windows OS behavior is not emulated |
+| ARM64 instruction model | 43 execution/error cases pass; not ARM64 hardware execution |
+| Cross-target assembly | Mach-O, both ELF targets and COFF assemble in both optimization modes |
+| Large procedure | 5000 updates execute on Linux x64; large ARM64 output assembles |
+| Debug/unwind metadata | ELF line table and COFF unwind sections inspected |
+| Actual macOS, Linux ARM64 and Windows execution | Pending this updated snapshot's native CI runs |
 
-Validation used GCC on this host. Apple Clang/Homebrew LLVM and native macOS
-execution were not available for validation here. Run make check locally in
-each supported mode before replacing your established compiler workflow.
+The GitHub workflow runs the matching native host for each target. Unix jobs cover
+release/debug/TSAN; Windows currently has a release execution gate. The workflow
+is included as source and has not been run remotely from this session. A completed
+LSAN run is not claimed: this host cannot perform its exit-time process scan.
+
+## Language and roadmap
+
+Procedures use `define proc name(args) { ... }`; fn is no longer a keyword.
+Forward calls and recursion work. Blocks do not introduce scopes. Locals shadow
+globals throughout their procedure, and declarations skipped at runtime remain
+uninitialized. Duplicate declarations, unknown identifiers, nested procedures,
+and incorrect direct-call arity are compilation errors.
+
+The supplied dynamic value model remains: String declarations create C-string
+buffers; indexing is buffer-only; imports resolve local files and legacy .bl
+names under ~/.bytelang/lib. Diagnostics refer to expanded-root locations.
+Parsed macro/native quoted snippets remain discarded. Reference counting does
+not collect object cycles, and no static type system is introduced.
+
+The roadmap remains: codegen, ABI, assembler, linker, buildFile (build tool and
+recipe format), xf static library for bl, debugger, sanitizers. This snapshot
+stays in codegen; the remaining codegen gates are listed explicitly before ABI work.

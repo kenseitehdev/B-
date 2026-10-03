@@ -121,24 +121,27 @@ static void slow(X *e,const BLIRInst *i,int conditional){flush(e,conditional?e->
 static void literal(FILE *o,const char *name,const char *s){fprintf(o,"%s:\n    .byte ",name);for(const unsigned char *p=(const unsigned char *)s;*p;++p)fprintf(o,"%u,",(unsigned)*p);
     fputs("0\n",o);}
 int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
-    if(!bl_ir_validate(m))return 0;
+    BPPTarget target=win?BPP_WINDOWS_X64:BPP_LINUX_X64;
+    if(!bl_ir_validate_pass(m,"x86-64 backend input")||!bpp_target_validate_ir(m,target,"x86-64"))return 0;
     X *all=calloc(m->function_count,sizeof *all);
     if(!all)return 0;
-    int ok=1;
+    int ok=1;size_t failed_fn=0;
     for(size_t f=0;f<m->function_count;++f){X *e=&all[f];e->out=o;e->win=win;e->f=f;e->fn=&m->functions[f];
-        if(!bpp_reg_plan_create_for(e->fn,&e->plan,4)){ok=0;
+        if(!bpp_reg_plan_create_for(e->fn,&e->plan,4)){snprintf(m->error,sizeof m->error,"x86-64 register allocation failed in function '%s'",e->fn->name);ok=0;
+    break;}
+        if(!bpp_reg_plan_validate(e->fn,&e->plan)){snprintf(m->error,sizeof m->error,"x86-64 register-map verifier failed in function '%s'",e->fn->name);ok=0;
     break;}
         size_t n=e->fn->register_count;e->dirty=calloc(n?n:1,1);e->before=calloc(n?n:1,1);e->kind=calloc(n?n:1,1);e->constant=calloc(n?n:1,1);e->value=calloc(n?n:1,sizeof *e->value);
-    if(!e->dirty||!e->before||!e->kind||!e->constant||!e->value){ok=0;
+    if(!e->dirty||!e->before||!e->kind||!e->constant||!e->value){failed_fn=f;ok=0;
     break;}
         for(size_t b=0;b<e->fn->block_count;++b)for(size_t k=0;k<e->fn->blocks[b].count;++k)if(e->fn->blocks[b].insts[k].arg_count>e->maxargs)e->maxargs=e->fn->blocks[b].insts[k].arg_count;
-        if(e->plan.cell_count>INT_MAX/16||e->fn->local_count>INT_MAX/32||e->maxargs>INT_MAX/16){ok=0;
+        if(e->plan.cell_count>INT_MAX/16||e->fn->local_count>INT_MAX/32||e->maxargs>INT_MAX/16){failed_fn=f;ok=0;
     break;}
         e->locals=BPP_CG_HEADER_BYTES+e->plan.cell_count*16;e->flags=e->locals+e->fn->local_count*16;e->args=(e->flags+e->fn->local_count+15)&~(size_t)15;e->bytes=e->args+e->maxargs*16;
-        if(e->bytes>(size_t)INT_MAX-72){ok=0;
+        if(e->bytes>(size_t)INT_MAX-72){failed_fn=f;ok=0;
     break;}
     }
-    if(!ok)snprintf(m->error,sizeof m->error,"x86-64 frame planning failed or exceeded 2 GiB");
+    if(!ok&&!m->error[0])snprintf(m->error,sizeof m->error,"x86-64 frame planning failed or exceeded 2 GiB in function '%s'",m->functions[failed_fn].name);
     if(ok){
         bpp_asm_source(o,m);
         fputs("# B++ native x86-64, private ABI revision 1\n.text\n.globl main\nmain:\n",o);
@@ -164,6 +167,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
                 for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_in(&e->plan,b,r))reload(e,r);
                 for(size_t k=0;k<e->fn->blocks[b].count;++k){e->k=k;const BLIRInst *i=&e->fn->blocks[b].insts[k];
                     if(m->debug_path)bpp_asm_location(o,i);
+                    if(m->emit_asm_comments)bpp_asm_instruction_comment(o,e->fn,f,b,k,&e->plan,target,1);
                     if(m->instrument_native&&(i->op==BL_IR_LOAD_GLOBAL||i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL)){flush(e,e->dirty,1);arg(e,0,"%r12",0);number(e,1,i->op);number(e,2,i->a);call(e,"bpp_a_access");}
                     if(i->op==BL_IR_RETURN){flush(e,e->dirty,1);number(e,1,i->a);fprintf(o,"    jmp L_cleanup_%zu\n",f);continue;}
                     if(i->op==BL_IR_JUMP){flush(e,e->dirty,1);if(i->a!=b+1)fprintf(o,"    jmp L_f%zu_b%zu\n",f,i->a);continue;}

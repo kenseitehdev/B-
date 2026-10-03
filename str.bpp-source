@@ -1,0 +1,50 @@
+// string_array_memory.bl
+define macro "String" "ptr";
+define macro "StrArray" "ptr";
+
+#define proc string_new "native";
+#define proc string_eq "native";
+#define proc array_new "native";
+#define proc  array_grow "native";
+#define proc array_set "native";
+#define proc array_get "native";
+#define proc array_len "native";
+
+new ptr raw = malloc 4;
+raw[0] = 65;
+raw[1] = 66;
+raw = realloc raw 8;
+raw[2] = 67;
+assert(raw[0] == 65);
+assert(raw[1] == 66);
+assert(raw[2] == 67);
+free raw;
+delete raw;
+
+new String first = string_new("alpha");
+new String second = string_new("beta");
+new String third = string_new("gamma");
+
+new StrArray words = array_new(2);
+array_set(words, 0, first);
+array_set(words, 1, second);
+assert(array_len(words) == 2);
+assert(string_eq(array_get(words, 0), first));
+assert(string_eq(array_get(words, 1), second));
+
+words = array_grow(words, 4);
+array_set(words, 2, third);
+assert(array_len(words) == 4);
+assert(string_eq(array_get(words, 2), third));
+
+println(array_get(words, 0));
+println(array_get(words, 1));
+println(array_get(words, 2));
+
+free words;
+delete words;
+delete first;
+delete second;
+delete third;
+
+return 0;

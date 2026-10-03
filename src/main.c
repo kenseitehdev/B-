@@ -39,7 +39,13 @@
 #define BPP_OPTIMIZATION "-O2"
 #endif
 static void usage(const char *name) {
-    fprintf(stderr, "usage: %s [--check | --emit-ir | --emit-c | --emit-asm] [--print-result] [--backend c|native|arm64|x86_64] [--target macos-arm64|linux-x86_64|linux-arm64|windows-x86_64] [--no-opt] [--debug-info] [--emit-map] [-o output] file.bpp\n", name);
+    fprintf(stderr, "usage: %s [--check | --emit-ir | --emit-c | --emit-asm | --emit-map] [--print-result] [--backend c|native|arm64|x86_64] [--target TARGET] [--no-opt] [--debug-info] [--asm-comments] [-o output] file.bpp\n       %s --list-targets | --target-info TARGET\n", name,name);
+}
+static const char *format_name(BPPObjectFormat f){return f==BPP_FORMAT_MACHO?"macho":f==BPP_FORMAT_ELF?"elf":"coff";}
+static const char *isa_name(BPPISA i){return i==BPP_ISA_ARM64?"arm64":"x86_64";}
+static int target_query(int argc,char **argv){
+    if(argc==2&&!strcmp(argv[1],"--list-targets")){for(size_t i=0;i<bpp_target_count();++i){const BPPBackendCapabilities *c=bpp_target_at(i);printf("%s\t%s\t%s\t%s\t%u\t%u\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->payload_registers);}return 1;}
+    if(argc==3&&!strcmp(argv[1],"--target-info")){BPPTarget t;if(!bpp_target_parse(argv[2],&t))return -1;const BPPBackendCapabilities *c=bpp_target_capabilities(t);printf("target=%s\ntriple=%s\nformat=%s\nisa=%s\npointer_bits=%u\ninteger_bits=%u\npayload_registers=%u\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->integer_bits,c->payload_registers);for(int op=0;op<=BL_IR_RETURN;++op)printf("ir.%s=%s\n",bl_ir_op_name((BLIROp)op),bpp_lowering_name(bpp_target_ir_lowering(t,(BLIROp)op)));return 1;}return 0;
 }
 static int run_command(char *const *command) {
 #ifdef _WIN32
@@ -102,7 +108,8 @@ static int native_compile(const char *temp, const char *output, int native, BPPT
     }
     if(debug&&!BPP_SANITIZERS[0])command[n++]="-g";
     command[n++] = include_path;
-    if (native && target==BPP_MACOS_ARM64) { command[n++] = "-arch"; command[n++] = "arm64"; }
+    const BPPBackendCapabilities *cap=bpp_target_capabilities(target);
+    if (native && cap && cap->format==BPP_FORMAT_MACHO && cap->isa==BPP_ISA_ARM64) { command[n++] = "-arch"; command[n++] = "arm64"; }
     if (object) command[n++] = "-c";
     command[n++] = "-x"; command[n++] = native ? "assembler" : "c";
     command[n++] = (char *)temp; command[n++] = "-x"; command[n++] = "none";
@@ -114,20 +121,22 @@ static int native_compile(const char *temp, const char *output, int native, BPPT
     return run_command(command);
 }
 int main(int argc, char **argv) {
-    const char *path = NULL, *output = NULL; int mode = 0, print_result = 0, native = 1, optimize=1, debug_info=BPP_SANITIZERS[0]!=0; BPPTarget target=bpp_host_target();int explicit_target=0;
+    int query=target_query(argc,argv);if(query)return query>0?0:2;
+    const char *path = NULL, *output = NULL; int mode = 0, print_result = 0, native = 1, optimize=1, debug_info=BPP_SANITIZERS[0]!=0,asm_comments=0; BPPTarget target=bpp_host_target();int explicit_target=0;
     for (int j = 1; j < argc; ++j) {
         if (!strcmp(argv[j], "--help")) { usage(argv[0]); return 0; }
         if(!strcmp(argv[j],"--target")){
             if(++j==argc||!bpp_target_parse(argv[j],&target)){usage(argv[0]);return 2;}explicit_target=1;native=1;continue;
         }
         if(!strcmp(argv[j],"--debug-info")){debug_info=1;continue;}
+        if(!strcmp(argv[j],"--asm-comments")){asm_comments=1;continue;}
         if(!strcmp(argv[j],"--no-opt")){optimize=0;continue;}
         if (!strcmp(argv[j], "--backend")) {
             if (++j == argc) { usage(argv[0]); return 2; }
             if(!strcmp(argv[j],"c"))native=0;
             else if(!strcmp(argv[j],"native"))native=1;
-            else if(!strcmp(argv[j],"arm64")){native=1;if(!explicit_target)target=bpp_host_target()==BPP_MACOS_ARM64?BPP_MACOS_ARM64:BPP_LINUX_ARM64;}
-            else if(!strcmp(argv[j],"x86_64")){native=1;if(!explicit_target)target=bpp_host_target()==BPP_WINDOWS_X64?BPP_WINDOWS_X64:BPP_LINUX_X64;}
+            else if(!strcmp(argv[j],"arm64")){native=1;if(!explicit_target)target=bpp_target_default_for_isa(BPP_ISA_ARM64);}
+            else if(!strcmp(argv[j],"x86_64")){native=1;if(!explicit_target)target=bpp_target_default_for_isa(BPP_ISA_X86_64);}
             else {usage(argv[0]);return 2;}continue;
         }
         if (!strcmp(argv[j], "--print-result")) { print_result = 1; continue; }
@@ -139,8 +148,8 @@ int main(int argc, char **argv) {
         if (argv[j][0] == '-' || path) { fprintf(stderr, "unexpected argument: %s\n", argv[j]); return 2; }
         path = argv[j];
     }
-    if (!path || (mode == 1 && output)) { usage(argv[0]); return 2; }
-    if(!mode&&native&&(!bpp_host_supported()||target!=bpp_host_target())){
+    if (!path || (mode == 1 && output) || (asm_comments && mode != 4)) { usage(argv[0]); return 2; }
+    if(!mode&&native&&!bpp_target_is_host(target)){
         fprintf(stderr,"native executables require a matching host and runtime objects; use --emit-asm --target %s for cross-target output\n",bpp_target_name(target));return 2;
     }
     const char *destination = output ? output : (mode ? NULL : BPP_DEFAULT_OUTPUT);
@@ -149,6 +158,7 @@ int main(int argc, char **argv) {
     }
     BLCompiler compiler = {0}; BLIRModule ir; bl_ir_init(&ir);
     int ok = bl_compile_file(&compiler, path, &ir);
+    ir.emit_asm_comments=asm_comments;
     if(ok&&optimize)ok=bpp_ir_optimize(&ir);
     ir.instrument_native=BPP_SANITIZERS[0]!=0;
     if(ok&&debug_info&&ir.expanded_source&&(mode==4||mode==5||(!mode&&native))){

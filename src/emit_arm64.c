@@ -163,14 +163,26 @@ static void slow(Emitter *e,const BLIRInst *i,int conditional) {
     fputs("    mov x0, x19\n    bl _bpp_a_failed\n",o);branch(e,"cbz w0,","done");char failed[64];snprintf(failed,sizeof failed,"L_fail_%zu",e->f);farjump(o,failed,0);
 }
 int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result) {
-    if(!o||!bl_ir_validate(m))return 0;
+    if(!o||!bl_ir_validate_pass(m,"ARM64 backend input")||!bpp_target_validate_ir(m,BPP_MACOS_ARM64,"ARM64"))return 0;
     Layout *layouts=calloc(m->function_count,sizeof *layouts);if(!layouts)return 0;
     BPPRegPlan *plans=calloc(m->function_count,sizeof *plans);
     if(!plans){free(layouts);return 0;}
-    for(size_t f=0;f<m->function_count;++f) if(!bpp_reg_plan_create(&m->functions[f],&plans[f])||!layout(&m->functions[f],&plans[f],&layouts[f])) {
-        snprintf(m->error,sizeof m->error,"ARM64 register allocation failed");
+    for(size_t f=0;f<m->function_count;++f) {
+        if(!bpp_reg_plan_create(&m->functions[f],&plans[f])) {
+            snprintf(m->error,sizeof m->error,"ARM64 register allocation failed in function '%s'",m->functions[f].name);
+            for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);
+            free(plans);free(layouts);return 0;
+        }
+        if(!bpp_reg_plan_validate(&m->functions[f],&plans[f])) {
+            snprintf(m->error,sizeof m->error,"ARM64 register-map verifier failed in function '%s'",m->functions[f].name);
+            for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);
+            free(plans);free(layouts);return 0;
+        }
+        if(!layout(&m->functions[f],&plans[f],&layouts[f])) {
+            snprintf(m->error,sizeof m->error,"ARM64 frame layout failed in function '%s'",m->functions[f].name);
         for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);
         free(plans);free(layouts);return 0;
+        }
     }
     size_t maxregs=0;
     for(size_t f=0;f<m->function_count;++f)if(m->functions[f].register_count>maxregs)maxregs=m->functions[f].register_count;
@@ -192,7 +204,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result) {
         char name[64];snprintf(name,sizeof name,"L_layout_%zu",f);addr(o,4,name);fputs("    mov x5, x19\n    bl _bpp_n_enter\n    str x24, [x19, #96]\n",o);if(m->instrument_native)fputs("    ldr x0, [x29, #8]\n    bl _bpp_a_trace_enter\n",o);fprintf(o,"    b L_f%zu_b0\n",f);
         for(size_t b=0;b<fn->block_count;++b){e.b=b;memset(kind,0,fn->register_count);memset(constant,0,fn->register_count);fprintf(o,"L_f%zu_b%zu:\n",f,b);
             for(size_t r=0;r<fn->register_count;++r)if(bpp_reg_live_in(e.plan,b,r))cache_reload(&e,r);
-            for(size_t k=0;k<fn->blocks[b].count;++k){e.k=k;const BLIRInst *i=&fn->blocks[b].insts[k];if(m->debug_path)bpp_asm_location(o,i);fprintf(o,"    // IR %d at %d:%d\n",(int)i->op,i->line,i->column);
+            for(size_t k=0;k<fn->blocks[b].count;++k){e.k=k;const BLIRInst *i=&fn->blocks[b].insts[k];if(m->debug_path)bpp_asm_location(o,i);if(m->emit_asm_comments)bpp_asm_instruction_comment(o,fn,f,b,k,e.plan,BPP_MACOS_ARM64,0);
                 if(m->instrument_native&&(i->op==BL_IR_LOAD_GLOBAL||i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL)){flush(&e,e.dirty,1);fputs("    mov x0, x19\n",o);imm(o,1,i->op);imm(o,2,i->a);fputs("    bl _bpp_a_access\n",o);}
                 if(i->op==BL_IR_JUMP){flush(&e,e.dirty,1);if(i->a!=b+1){char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->a);farjump(o,target,0);}continue;}
                 if(i->op==BL_IR_RETURN){flush(&e,e.dirty,1);imm(o,1,i->a);char target[64];snprintf(target,sizeof target,"L_cleanup_%zu",f);farjump(o,target,0);continue;}

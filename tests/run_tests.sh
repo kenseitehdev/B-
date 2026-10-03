@@ -30,6 +30,8 @@ native_case recursion 'return fact(6); define proc fact(n) { if(n <= 1) {return 
 native_case loop 'new int x=0; while(x<1000){x=x+1;} return x;' '1000'
 native_case shadow 'new int x=8; define proc f(x){return x+1;} return f(4)+x;' '13'
 native_case strings 'new String s="ab"; new String t="cd"; new String u=String.concat(s,t); assert(String.cmp(u,"abcd")==0); return String.length(u);' '4'
+native_case integer_to_decimal_buffer 'new String value=12345; assert(String.cmp(value,"12345")==0); return String.length(value);' '5'
+native_case string_new_integer_byte 'return string_new(65);' 'A'
 native_case buffer 'new ptr b=malloc 4; b[0]=65; new ptr alias=b; free b; assert(len(alias)==0); b=realloc b 4; b[0]=66; return b[0];' '66'
 native_case arrays 'new Array a=Array.new(3); Array.set(a,0,"a"); Array.set(a,1,"b"); Array.set(a,2,"c"); Array.grow(a,1); assert(Array.get(a,0)=="a"); Array.grow(a,4); Array.set(a,3,"d"); new Array alias=a; free a; assert(Array.length(alias)==0); Array.grow(a,2); Array.set(a,0,"e"); return Array.get(a,0);' 'e'
 native_case selfassign 'new String s="x"; s=s; new Array a=Array.new(1); Array.set(a,0,s); Array.set(a,0,Array.get(a,0)); delete s; return string_new(Array.get(a,0));' 'x'
@@ -54,6 +56,7 @@ native_case imports 'import "lib.bl";
 import "lib.bl";
 return imported(4);' '8'
 compile_error old_keyword 'define fn f(){return 1;}' 'expected macro or proc'
+compile_error integer_literal_range 'return 9223372036854775808;' 'outside the signed 64-bit range'
 compile_error unknown 'return missing;' 'undefined variable'
 compile_error arity 'define proc f(a){return a;} return f();' 'expected 1 arguments'
 compile_error duplicate 'new int x=1; new int x=2;' 'duplicate declaration'

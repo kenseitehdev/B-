@@ -286,23 +286,101 @@ int bl_ir_compile(BLIRModule *m, const char *path, const BLNode *program) {
 }
 
 static int produces(BLIROp op) {
-    return op <= BL_IR_LOAD_LOCAL || op == BL_IR_LOAD_GLOBAL ||
-        (op >= BL_IR_NEG && op <= BL_IR_INDEX_GET) || op == BL_IR_TO_STRING_BUFFER || op == BL_IR_CALL;
+    switch (op) {
+    case BL_IR_NULL: case BL_IR_INT: case BL_IR_STRING:
+    case BL_IR_LOAD_LOCAL: case BL_IR_LOAD_GLOBAL:
+    case BL_IR_NEG: case BL_IR_NOT:
+    case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
+    case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE:
+    case BL_IR_INDEX_GET: case BL_IR_TO_STRING_BUFFER: case BL_IR_CALL:
+        return 1;
+    default: return 0;
+    }
 }
 static int register_ok(const BLIRFunction *f, BLIRId r) { return r < f->register_count; }
-int bl_ir_validate(BLIRModule *m) {
+static void validate_error(BLIRModule *m, const char *pass, const BLIRFunction *f,
+                           size_t block, const BLIRInst *i, const char *fmt, ...) {
+    if (m->error[0]) return;
+    char detail[280]; va_list ap; va_start(ap, fmt);
+    vsnprintf(detail, sizeof detail, fmt, ap); va_end(ap);
+    if (i && f) snprintf(m->error, sizeof m->error,
+        "%s:%d:%d: IR verifier (%s), function '%s', block %zu, instruction %zu: %s",
+        m->path ? m->path : "<input>", i->line, i->column, pass ? pass : "unspecified pass",
+        f->name ? f->name : "<unnamed>", block, (size_t)(i - f->blocks[block].insts), detail);
+    else snprintf(m->error, sizeof m->error, "%s: IR verifier (%s), function '%s', block %zu: %s",
+        m->path ? m->path : "<input>", pass ? pass : "unspecified pass",
+        f && f->name ? f->name : "<module>", block, detail);
+}
+enum { REG_UNDEF, REG_LIVE, REG_RELEASED, REG_MAYBE };
+static unsigned char state_join(unsigned char a, unsigned char b) {
+    if (a == b) return a;
+    return REG_MAYBE;
+}
+static void mark_uses(const BLIRInst *i, const BLIRFunction *f, unsigned char *state,
+                      int *bad, BLIRId *bad_reg) {
+    *bad = 0; *bad_reg = BL_IR_NONE;
+#define CHECK_USE(r) do { BLIRId use_ = (r); if (use_ != BL_IR_NONE && state[use_] != REG_LIVE) { *bad = 1; *bad_reg = use_; return; } } while (0)
+    switch (i->op) {
+    case BL_IR_INIT_LOCAL: case BL_IR_STORE_LOCAL: case BL_IR_INIT_GLOBAL: case BL_IR_STORE_GLOBAL: CHECK_USE(i->b); break;
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: CHECK_USE(i->a); break;
+    case BL_IR_RELEASE: CHECK_USE(i->a); break;
+    case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
+    case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE:
+    case BL_IR_INDEX_GET: CHECK_USE(i->a); CHECK_USE(i->b); break;
+    case BL_IR_INDEX_SET: CHECK_USE(i->a); CHECK_USE(i->b); CHECK_USE(i->c); break;
+    case BL_IR_CALL:
+        for (size_t j = 0; j < i->arg_count; ++j) CHECK_USE(i->args[j]);
+        break;
+    default: break;
+    }
+#undef CHECK_USE
+    (void)f;
+}
+static void transfer_states(const BLIRBlock *block, unsigned char *state) {
+    for (size_t k = 0; k < block->count; ++k) {
+        const BLIRInst *i = &block->insts[k];
+        if (i->op == BL_IR_RELEASE) state[i->a] = REG_RELEASED;
+        else if (produces(i->op)) state[i->dst] = REG_LIVE;
+    }
+}
+static int registers_defined(const BLIRInst *i, const BLIRFunction *f, const size_t *def_block,
+                             BLIRId *missing) {
+#define CHECK_DEF(r) do { BLIRId use_ = (r); if (use_ >= f->register_count || def_block[use_] == BL_IR_NONE) { *missing = use_; return 0; } } while (0)
+    switch (i->op) {
+    case BL_IR_INIT_LOCAL: case BL_IR_STORE_LOCAL: case BL_IR_INIT_GLOBAL: case BL_IR_STORE_GLOBAL: CHECK_DEF(i->b); break;
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: CHECK_DEF(i->a); break;
+    case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
+    case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET:
+        CHECK_DEF(i->a); CHECK_DEF(i->b); break;
+    case BL_IR_INDEX_SET: CHECK_DEF(i->a); CHECK_DEF(i->b); CHECK_DEF(i->c); break;
+    case BL_IR_CALL: for (size_t j = 0; j < i->arg_count; ++j) CHECK_DEF(i->args[j]); break;
+    default: break;
+    }
+#undef CHECK_DEF
+    *missing = BL_IR_NONE; return 1;
+}
+int bl_ir_validate_pass(BLIRModule *m, const char *pass_name) {
     if (!m || m->error[0]) return 0;
-    if (!m->function_count) { error(m, NULL, "IR has no module entry"); return 0; }
+    if (!m->function_count) { validate_error(m, pass_name, NULL, 0, NULL, "IR has no module entry"); return 0; }
     for (size_t fi = 0; fi < m->function_count; ++fi) {
         BLIRFunction *f = &m->functions[fi];
-        if (!f->block_count || f->param_count > f->local_count) { error(m, NULL, "invalid function layout"); return 0; }
+        if (!f->block_count || f->param_count > f->local_count) { validate_error(m, pass_name, f, 0, NULL, "invalid function layout"); return 0; }
+        size_t nregs = f->register_count ? f->register_count : 1;
+        size_t *def_block = calloc(nregs, sizeof *def_block);
+        if (!def_block) { validate_error(m, pass_name, f, 0, NULL, "verifier allocation failed"); return 0; }
+        for (size_t r = 0; r < f->register_count; ++r) def_block[r] = BL_IR_NONE;
         for (size_t bi = 0; bi < f->block_count; ++bi) {
             BLIRBlock *b = &f->blocks[bi];
-            if (!b->count || !terminator(b->insts[b->count - 1].op)) { error(m, NULL, "unterminated block %zu in %s", bi, f->name); return 0; }
+            if (!b->count || !terminator(b->insts[b->count - 1].op)) { validate_error(m, pass_name, f, bi, NULL, "block has no terminator"); free(def_block); return 0; }
             for (size_t k = 0; k < b->count; ++k) {
                 BLIRInst *i = &b->insts[k]; int ok = 1;
                 if ((unsigned)i->op > BL_IR_RETURN || (terminator(i->op) && k + 1 != b->count)) ok = 0;
+                if (i->line < 1 || i->column < 1) ok = 0;
                 if (produces(i->op) ? !register_ok(f, i->dst) : i->dst != BL_IR_NONE) ok = 0;
+                if (produces(i->op) && register_ok(f, i->dst)) {
+                    if (def_block[i->dst] != BL_IR_NONE) ok = 0;
+                    else def_block[i->dst] = bi;
+                }
                 switch (i->op) {
                 case BL_IR_NULL: case BL_IR_INT: break;
                 case BL_IR_STRING: ok &= i->text != NULL; break;
@@ -327,12 +405,111 @@ int bl_ir_validate(BLIRModule *m) {
                     break;
                 default: ok = 0; break;
                 }
-                if (!ok) { error(m, NULL, "invalid instruction %zu in %s block %zu", k, f->name, bi); return 0; }
+                if (!ok) { validate_error(m, pass_name, f, bi, i, "invalid opcode fields, destination, CFG edge, or call signature"); free(def_block); return 0; }
             }
         }
+        /* Reject references to missing definitions before running ownership flow. */
+        for (size_t bi = 0; bi < f->block_count; ++bi) for (size_t k = 0; k < f->blocks[bi].count; ++k) {
+            BLIRInst *i = &f->blocks[bi].insts[k]; BLIRId reg = BL_IR_NONE;
+            if (!registers_defined(i, f, def_block, &reg)) {
+                validate_error(m, pass_name, f, bi, i, "use of undefined register %%%zu", reg); free(def_block); return 0;
+            }
+        }
+        if (f->block_count > SIZE_MAX / nregs) { validate_error(m, pass_name, f, 0, NULL, "verifier state size overflow"); free(def_block); return 0; }
+        size_t cells = f->block_count * nregs;
+        unsigned char *ins = calloc(cells ? cells : 1, 1), *outs = calloc(cells ? cells : 1, 1);
+        unsigned char *ready = calloc(f->block_count, 1), *component_root = calloc(f->block_count, 1);
+        size_t *component = calloc(f->block_count, sizeof *component), *queue = calloc(f->block_count, sizeof *queue);
+        if (!ins || !outs || !ready || !component_root || !component || !queue) {
+            free(ins); free(outs); free(ready); free(component_root); free(component); free(queue); free(def_block);
+            validate_error(m, pass_name, f, 0, NULL, "verifier allocation failed"); return 0;
+        }
+        for (size_t b = 0; b < f->block_count; ++b) component[b] = BL_IR_NONE;
+        size_t component_id = 0;
+        /* Partition CFGs into weak components so even unreachable IR is checked. */
+        for (size_t root = 0; root < f->block_count; ++root) if (component[root] == BL_IR_NONE) {
+            size_t head = 0, tail = 0; queue[tail++] = root; component[root] = component_id;
+            while (head < tail) {
+                size_t bidx = queue[head++]; BLIRInst *end = &f->blocks[bidx].insts[f->blocks[bidx].count - 1];
+                size_t succ[2] = {BL_IR_NONE, BL_IR_NONE};
+                if (end->op == BL_IR_JUMP) succ[0] = end->a;
+                if (end->op == BL_IR_BRANCH) { succ[0] = end->b; succ[1] = end->c; }
+                for (size_t x = 0; x < 2; ++x) if (succ[x] != BL_IR_NONE && component[succ[x]] == BL_IR_NONE) { component[succ[x]] = component_id; queue[tail++] = succ[x]; }
+                for (size_t pred = 0; pred < f->block_count; ++pred) {
+                    BLIRInst *pe = &f->blocks[pred].insts[f->blocks[pred].count - 1];
+                    if ((pe->op == BL_IR_JUMP && pe->a == bidx) || (pe->op == BL_IR_BRANCH && (pe->b == bidx || pe->c == bidx)))
+                        if (component[pred] == BL_IR_NONE) { component[pred] = component_id; queue[tail++] = pred; }
+                }
+            }
+            ++component_id;
+        }
+        /* Seed each directed component at its entry blocks. Pure cycles need
+         * one artificial entry so malformed unreachable cycles are checked. */
+        for (size_t b = 0; b < f->block_count; ++b) {
+            int has_pred = 0;
+            for (size_t p = 0; p < f->block_count && !has_pred; ++p) if (component[p] == component[b]) {
+                BLIRInst *pe = &f->blocks[p].insts[f->blocks[p].count - 1];
+                has_pred = (pe->op == BL_IR_JUMP && pe->a == b) ||
+                    (pe->op == BL_IR_BRANCH && (pe->b == b || pe->c == b));
+            }
+            if (b == 0 || !has_pred) component_root[b] = 1;
+        }
+        for (size_t c = 0; c < component_id; ++c) {
+            int has_root = 0;
+            for (size_t b = 0; b < f->block_count; ++b) if (component[b] == c && component_root[b]) has_root = 1;
+            if (!has_root) for (size_t b = 0; b < f->block_count; ++b) if (component[b] == c) { component_root[b] = 1; break; }
+        }
+        /* Forward must-analysis: each value is either owned, released, or path-dependent. */
+        int changed;
+        do {
+            changed = 0;
+            for (size_t bi = 0; bi < f->block_count; ++bi) {
+                unsigned char *in = ins + bi * nregs, *out = outs + bi * nregs;
+                int have_pred = component_root[bi];
+                unsigned char *joined = calloc(nregs, 1);
+                if (!joined) { validate_error(m, pass_name, f, bi, NULL, "verifier allocation failed"); goto verify_fail; }
+                for (size_t p = 0; p < f->block_count; ++p) if (component[p] == component[bi] && ready[p]) {
+                    BLIRInst *pe = &f->blocks[p].insts[f->blocks[p].count - 1];
+                    if ((pe->op == BL_IR_JUMP && pe->a == bi) || (pe->op == BL_IR_BRANCH && (pe->b == bi || pe->c == bi))) {
+                        if (!have_pred) { memcpy(joined, outs + p * nregs, nregs); have_pred = 1; }
+                        else for (size_t r = 0; r < nregs; ++r) joined[r] = state_join(joined[r], outs[p * nregs + r]);
+                    }
+                }
+                if (!have_pred) { free(joined); continue; }
+                if (memcmp(in, joined, nregs) != 0) { memcpy(in, joined, nregs); changed = 1; }
+                free(joined);
+                unsigned char *next = calloc(nregs, 1);
+                if (!next) { validate_error(m, pass_name, f, bi, NULL, "verifier allocation failed"); goto verify_fail; }
+                memcpy(next, in, nregs); transfer_states(&f->blocks[bi], next);
+                if (!ready[bi] || memcmp(out, next, nregs) != 0) { memcpy(out, next, nregs); ready[bi] = 1; changed = 1; }
+                free(next);
+            }
+        } while (changed);
+        for (size_t bi = 0; bi < f->block_count; ++bi) {
+            unsigned char *state = calloc(nregs, 1);
+            if (!state) { validate_error(m, pass_name, f, bi, NULL, "verifier allocation failed"); goto verify_fail; }
+            memcpy(state, ins + bi * nregs, nregs);
+            for (size_t k = 0; k < f->blocks[bi].count; ++k) {
+                BLIRInst *i = &f->blocks[bi].insts[k]; int bad = 0; BLIRId reg = BL_IR_NONE;
+                mark_uses(i, f, state, &bad, &reg);
+                if (bad) {
+                    const char *why = i->op == BL_IR_RELEASE ? "release is duplicated or not reached with an owned value" :
+                        state[reg] == REG_RELEASED ? "use after release" : state[reg] == REG_UNDEF ? "use before definition" : "register ownership differs across incoming paths";
+                    validate_error(m, pass_name, f, bi, i, "%s (%%%zu)", why, reg); free(state); goto verify_fail;
+                }
+                if (i->op == BL_IR_RELEASE) state[i->a] = REG_RELEASED;
+                else if (produces(i->op)) state[i->dst] = REG_LIVE;
+            }
+            free(state);
+        }
+        free(ins); free(outs); free(ready); free(component_root); free(component); free(queue); free(def_block);
+        continue;
+verify_fail:
+        free(ins); free(outs); free(ready); free(component_root); free(component); free(queue); free(def_block); return 0;
     }
     return 1;
 }
+int bl_ir_validate(BLIRModule *m) { return bl_ir_validate_pass(m, "IR construction"); }
 static void quoted(FILE *out, const char *s) {
     fputc('"', out);
     for (const unsigned char *p = (const unsigned char *)s; *p; ++p) {
@@ -344,10 +521,13 @@ static void quoted(FILE *out, const char *s) {
     }
     fputc('"', out);
 }
-int bl_ir_dump(const BLIRModule *m, FILE *out) {
+const char *bl_ir_op_name(BLIROp op) {
     static const char *ops[] = {"null", "int", "string", "load.local", "store.local", "load.global", "store.global",
         "init.local", "init.global", "neg", "not", "add", "sub", "mul", "div", "mod", "eq", "ne", "lt", "le", "gt", "ge", "index.get", "index.set",
         "to.string.buffer", "call", "release", "free.local", "free.global", "delete.local", "delete.global", "jump", "branch", "return"};
+    return (unsigned)op < sizeof ops / sizeof ops[0] ? ops[op] : "<invalid-opcode>";
+}
+int bl_ir_dump(const BLIRModule *m, FILE *out) {
     if (!m || !out || m->error[0]) return 0;
     fputs("module ", out); quoted(out, m->path ? m->path : "<memory>"); fputc('\n', out);
     for (size_t g = 0; g < m->global_count; ++g) { fprintf(out, "global @%zu ", g); quoted(out, m->globals[g]); fputc('\n', out); }
@@ -359,8 +539,8 @@ int bl_ir_dump(const BLIRModule *m, FILE *out) {
             fprintf(out, "b%zu:\n", bi); const BLIRBlock *b = &f->blocks[bi];
             for (size_t k = 0; k < b->count; ++k) {
                 const BLIRInst *i = &b->insts[k];
-                if ((unsigned)i->op >= sizeof ops / sizeof ops[0]) return 0;
-                fputs("  ", out); if (i->dst != BL_IR_NONE) fprintf(out, "%%%zu = ", i->dst); fputs(ops[i->op], out);
+                if ((unsigned)i->op > BL_IR_RETURN) return 0;
+                fputs("  ", out); if (i->dst != BL_IR_NONE) fprintf(out, "%%%zu = ", i->dst); fputs(bl_ir_op_name(i->op), out);
                 switch (i->op) {
                 case BL_IR_NULL: break;
                 case BL_IR_INT: fprintf(out, " %lld", i->integer); break;

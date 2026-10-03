@@ -1,8 +1,13 @@
 #include "../include/value.h"
 
 #include <stdio.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+
+_Static_assert(sizeof(long long)==8 && LLONG_MAX==9223372036854775807LL,
+               "B++ requires 64-bit signed long long integers");
 
 static BLObject *bl_object_alloc(size_t size, BLObjectKind kind) {
     BLObject *object = (BLObject *)calloc(1, size);
@@ -277,16 +282,14 @@ long long bl_value_to_int(BLValue value, int *ok) {
         return value.as.i;
     }
 
-    {
-        char *text = bl_value_to_cstring(value);
-        if (strcmp(text, "null") != 0 || bl_value_is_string(value) || bl_value_is_buffer(value)) {
-            char *end = NULL;
-            long long result = strtoll(text, &end, 10);
-            if (ok) *ok = (end && *end == '\0');
-            free(text);
-            return result;
+    if(bl_value_is_string(value)||bl_value_is_buffer(value)){
+        size_t length=0;int valid=0;const unsigned char *bytes=bl_value_cstring_bytes(value,&length,&valid);
+        if(valid&&bytes&&!memchr(bytes,'\0',length)){
+            char *text=calloc(length+1,1);if(!text){perror("calloc");exit(1);}if(length)memcpy(text,bytes,length);
+            char *end=NULL;errno=0;long long result=strtoll(text,&end,10);
+            if(ok)*ok=end&&end!=text&&(size_t)(end-text)==length&&errno!=ERANGE;
+            free(text);return result;
         }
-        free(text);
     }
 
     if (ok) *ok = 0;

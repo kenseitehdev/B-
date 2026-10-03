@@ -180,6 +180,7 @@ static BLNode *bl_parse_block(BLParser *parser) {
 
 static BLNode *bl_parse_primary(BLParser *parser) {
     BLToken token = parser->current;
+    if(token.kind==TOK_INVALID){bl_parser_set_error(parser,token.line,token.column,"integer literal is outside the signed 64-bit range");return NULL;}
     if (bl_match(parser, TOK_NUMBER)) {
         BLNode *node = bl_new_node(parser, AST_NUMBER, token.line, token.column);
         node->as.number.value = token.number;

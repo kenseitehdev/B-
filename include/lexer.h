@@ -44,7 +44,8 @@ typedef enum {
     TOK_SLASH,
     TOK_PERCENT,
     TOK_BANG,
-    TOK_DOT
+    TOK_DOT,
+    TOK_INVALID
 } BLTokenKind;
 
 typedef struct {

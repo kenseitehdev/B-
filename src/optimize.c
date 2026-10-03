@@ -44,7 +44,7 @@ static void operands(const BLIRInst *i,unsigned char *used) {
     }
 }
 int bpp_ir_optimize(BLIRModule *m) {
-    if(!bl_ir_validate(m))return 0;
+    if(!bl_ir_validate_pass(m,"optimizer input"))return 0;
     for(size_t f=0;f<m->function_count;++f) {
         BLIRFunction *fn=&m->functions[f];size_t n=fn->register_count;
         size_t slots=fn->local_count+m->global_count;
@@ -107,7 +107,9 @@ int bpp_ir_optimize(BLIRModule *m) {
     fn->blocks[dest++]=block;
         }fn->block_count=count;
         free(known);free(used);free(primitive);free(values);free(reachable);free(map);free(slot_known);free(slot_values);
+        if(!bl_ir_validate_pass(m,"optimizer function folding and CFG cleanup"))return 0;
     }
+    if(!bl_ir_validate_pass(m,"optimizer before unreachable-procedure elimination"))return 0;
     /* Native procedures are private; retain only those reachable from module entry. */
     unsigned char *reachable=calloc(m->function_count,1);
     size_t *map=calloc(m->function_count,sizeof *map);
@@ -129,5 +131,5 @@ int bpp_ir_optimize(BLIRModule *m) {
         m->functions[dest++]=fn;
     }
     m->function_count=count;free(reachable);free(map);
-    return bl_ir_validate(m);
+    return bl_ir_validate_pass(m,"optimizer unreachable-procedure elimination");
 }

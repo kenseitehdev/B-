@@ -22,6 +22,7 @@ typedef enum {
     BL_IR_DELETE_LOCAL, BL_IR_DELETE_GLOBAL,
     BL_IR_JUMP, BL_IR_BRANCH, BL_IR_RETURN
 } BLIROp;
+const char *bl_ir_op_name(BLIROp op);
 
 typedef struct {
     BLIROp op;
@@ -49,6 +50,7 @@ typedef struct {
 typedef struct {
     char *path;
     int instrument_native;
+    int emit_asm_comments;
     char *expanded_source, *debug_path;
     char **globals;
     size_t global_count, global_capacity;
@@ -63,6 +65,8 @@ void bl_ir_init(BLIRModule *module);
 void bl_ir_dispose(BLIRModule *module);
 int bl_ir_compile(BLIRModule *module, const char *path, const BLNode *program);
 const char *bl_ir_last_error(const BLIRModule *module);
+/* Verify the IR and include pass/function/block context in failures. */
+int bl_ir_validate_pass(BLIRModule *module, const char *pass_name);
 int bl_ir_validate(BLIRModule *module);
 int bl_ir_dump(const BLIRModule *module, FILE *out);
 
