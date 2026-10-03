@@ -9,13 +9,13 @@
 /* Exercise the assembly/runtime boundary without executing target instructions. */
 int main(void) {
     _Alignas(16) unsigned char outer_storage[256], inner_storage[256];
-    BPPNativeLayout layout = {1, 4, 2, 2};
+    BPPNativeLayout layout = {1, 4, 2, 2, 0};
     BLRuntime vm = {"frame-test", NULL};
     BLValue globals[1] = {bl_value_null()}, result = bl_value_null();
     unsigned char initialized[1] = {0};
     BLValue input = bl_value_string_copy("owned");
     memset(outer_storage, 0xa5, sizeof outer_storage);
-    BPPArmFrame *outer = bpp_n_enter(&vm, globals, initialized, &input, &layout, outer_storage);
+    BPPNativeFrame *outer = bpp_n_enter(&vm, globals, initialized, &input, &layout, outer_storage);
     assert((void *)outer == (void *)outer_storage);
     assert(input.as.obj->ref_count == 2);
     bpp_a_op(outer, BL_IR_LOAD_LOCAL, 0, 0, BL_IR_NONE, BL_IR_NONE, 1, 1);
@@ -23,7 +23,7 @@ int main(void) {
     bpp_a_arg(outer, 0, 0);
     assert((uintptr_t)bpp_a_args(outer) % 16 == 0);
     /* Arguments borrow values; a nested frame retains its own parameter. */
-    BPPArmFrame *inner = bpp_n_enter(&vm, globals, initialized, bpp_a_args(outer), &layout, inner_storage);
+    BPPNativeFrame *inner = bpp_n_enter(&vm, globals, initialized, bpp_a_args(outer), &layout, inner_storage);
     assert(input.as.obj->ref_count == 4);
     bpp_a_op(inner, BL_IR_LOAD_LOCAL, 1, 0, BL_IR_NONE, BL_IR_NONE, 2, 1);
     bpp_a_leave(inner, 1, bpp_a_destination(outer, 1));
@@ -45,6 +45,19 @@ int main(void) {
     assert(result.tag == BLV_NULL && input.as.obj->ref_count == 1);
     free(vm.error);
     bl_value_release(input);
+
+    /* Disjoint virtual values share one physical cell. Cleanup releases the cell once. */
+    struct { BPPNativeLayout layout; size_t map[4]; } compact = {{0,4,0,0,1},{0,0,0,0}};
+    vm.error=NULL;
+    outer=bpp_n_enter(&vm,globals,initialized,NULL,&compact.layout,outer_storage);
+    bpp_a_string(outer,0,"first");
+    bpp_a_op(outer,BL_IR_RELEASE,BL_IR_NONE,0,BL_IR_NONE,BL_IR_NONE,1,1);
+    bpp_a_string(outer,3,"last");
+    bpp_a_leave(outer,3,&result);
+    assert(bl_value_is_string(result));
+    assert(result.as.obj->ref_count==1);
+    assert(!strcmp(bl_value_as_string(result)->data,"last"));
+    bl_value_release(result);
     puts("Native stack-frame ownership tests passed");
     return 0;
 }

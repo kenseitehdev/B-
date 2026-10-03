@@ -2,6 +2,7 @@
 set -eu
 compiler=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 task_dir=$(mktemp -d)
+if command -v cygpath >/dev/null 2>&1; then task_dir=$(cygpath -m "$task_dir"); fi
 trap 'rm -rf "$task_dir"' EXIT HUP INT TERM
 count=0
 bpp() { "$compiler" --backend "${BPP_TEST_BACKEND:-c}" "$@"; }
@@ -67,12 +68,36 @@ runtime_error modulo_overflow 'return (-9223372036854775807 - 1)%-1;' 'integer o
 runtime_error bounds 'new ptr b=malloc 1; return b[1];' 'buffer index out of bounds'
 runtime_error uninitialized 'if(0){new int x=1;} return x;' 'uninitialized variable'
 runtime_error cleanup_error 'define proc f(){new String s="allocated"; new Array a=Array.new(1); Array.set(a,0,s); return 1/0;} return f();' 'division by zero'
+native_case recursive_pressure 'define proc f(n,a,b,c,d,e,f,g,h){if(n==0){return a+b+c+d+e+f+g+h;} return (a+b)*(c+d)+(e+f)*(g+h)+f(n-1,a,b,c,d,e,f,g,h);} return f(4,1,2,3,4,5,6,7,8);' '780'
+native_case pressure_calls 'define proc id(n){return n;} define proc f(a,b,c,d,e,f,g,h){return ((a+b)*(c+d))+id((e+f)*(g+h))+((a+c)*(b+d));} return f(1,2,3,4,5,6,7,8);' '210'
+native_case object_return_pressure 'define proc id(s){return s;} define proc f(a,b){new String x=id(a+"x");new String y=id(b+"y");return id(x+y);} return string_new(f("a","b"));' 'axby'
+native_case joined_objects 'define proc f(n){new int x=0;if(n){x="yes";}else{x="no";}return x;} return f(1)+f(0);' 'yesno'
+native_case empty_procedure 'define proc empty(){} return empty()==empty();' '1'
+native_case slot_propagation 'new int x=6;new int y=7;define proc modify(){x=9;return 1;}assert(x*y==42);modify();return x+y;' '16'
+native_case dead_procedure 'define proc unused(){return "unused";}define proc f(n){return n+1;}return f(9);' '10'
+runtime_error typed_compare 'define proc f(x){return x<1;} return f("x");' 'integer operands'
+runtime_error typed_negate 'define proc f(x){return -x;} return f("x");' 'integer'
+runtime_error recursive_cleanup 'define proc f(n){new Array a=Array.new(1);Array.set(a,0,"owned");if(n){return f(n-1);}return 1/0;} return f(30);' 'division by zero'
+# Large local frames exercise Unix page probing and Windows chkstk lowering.
+large='define proc large(n){'
+j=0
+while [ "$j" -lt 320 ]; do large="$large new int v$j=n+$j;"; j=$((j+1)); done
+large="$large return v0+v319;} return large(2);"
+native_case large_frame "$large" '323'
 # Output modes and output-path protection.
 bpp --emit-ir -o "$task_dir/out.ir" "$task_dir/case.bpp"
 grep -F 'call f1' "$task_dir/out.ir" >/dev/null
 bpp --emit-c -o "$task_dir/out.c" "$task_dir/case.bpp"
 grep -F 'bpp_f1' "$task_dir/out.c" >/dev/null
 bpp --emit-asm -o "$task_dir/out.s" "$task_dir/case.bpp"
-grep -F '.globl _main' "$task_dir/out.s" >/dev/null
+grep -E '\.globl (_)?main' "$task_dir/out.s" >/dev/null
 if bpp --emit-c -o "$task_dir/./case.bpp" "$task_dir/case.bpp" >/dev/null 2>&1; then echo 'FAIL source overwrite'; exit 1; fi
+mkdir -p "$task_dir/space dir"
+printf '%s\n' 'return 12;' > "$task_dir/space dir/input source.bpp"
+bpp --print-result -o "$task_dir/space dir/output program" "$task_dir/space dir/input source.bpp"
+if [ "$("$task_dir/space dir/output program")" != 12 ]; then echo 'FAIL paths with spaces'; exit 1; fi
+printf '%s\n' 'return 7;' > "$task_dir/snapshot.bpp-source"
+cp "$task_dir/snapshot.bpp-source" "$task_dir/original"
+if bpp --debug-info --emit-asm -o "$task_dir/snapshot" "$task_dir/snapshot.bpp-source" >/dev/null 2>&1; then echo 'FAIL debug snapshot overwrite'; exit 1; fi
+cmp "$task_dir/original" "$task_dir/snapshot.bpp-source"
 printf 'Passed %s native and diagnostic cases, plus output-mode checks\n' "$count"

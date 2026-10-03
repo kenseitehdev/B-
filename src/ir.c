@@ -43,7 +43,7 @@ void bl_ir_dispose(BLIRModule *m) {
         free(f->locals); free(f->blocks); free(f->name);
     }
     for (size_t i = 0; i < m->global_count; ++i) free(m->globals[i]);
-    free(m->globals); free(m->functions); free(m->path); bl_ir_init(m);
+    free(m->globals); free(m->functions); free(m->path); free(m->expanded_source); free(m->debug_path); bl_ir_init(m);
 }
 const char *bl_ir_last_error(const BLIRModule *m) { return m ? m->error : ""; }
 static BLIRId find(char **names, size_t n, const char *s) {

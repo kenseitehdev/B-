@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-const unsigned char bpp_payload_regs[BPP_PAYLOAD_REG_COUNT] = {23, 25, 27, 28};
+const unsigned char bpp_payload_regs[BPP_PAYLOAD_REG_COUNT] = {20,21,22,23,24,25,27,28};
 
 static void *array(size_t n, size_t size) {
     if (size && n > SIZE_MAX / size) return NULL;
@@ -10,7 +10,6 @@ static void *array(size_t n, size_t size) {
 }
 static int has(const uint64_t *bits, size_t r) { return (int)((bits[r / 64] >> (r % 64)) & 1); }
 static void set(uint64_t *bits, size_t r) { bits[r / 64] |= UINT64_C(1) << (r % 64); }
-static void clear(uint64_t *bits, size_t r) { bits[r / 64] &= ~(UINT64_C(1) << (r % 64)); }
 static size_t definition(const BLIRInst *i) {
     return i->op == BL_IR_RELEASE ? i->a : i->dst;
 }
@@ -45,34 +44,46 @@ static void uses(const BLIRInst *i, uint64_t *bits) {
     default: break;
     }
 }
-static void edge(uint64_t *graph, size_t words, size_t a, size_t b) {
-    if (a == b) return;
-    set(graph + a * words, b); set(graph + b * words, a);
+typedef struct {size_t r,begin,end,weight;} Interval;
+static void touch(Interval *intervals,const uint64_t *bits,size_t words,size_t position){
+    for(size_t w=0;w<words;++w){uint64_t mask=bits[w];while(mask){
+        size_t r=w*64+(unsigned)__builtin_ctzll(mask);mask&=mask-1;
+        if(intervals[r].begin>position)intervals[r].begin=position;
+        if(intervals[r].end<position)intervals[r].end=position;
+    }}
+}
+static int order(const void *a,const void *b){
+    const Interval *x=a,*y=b;
+    if(x->begin!=y->begin)return x->begin<y->begin?-1:1;
+    return x->r<y->r?-1:x->r!=y->r;
 }
 void bpp_reg_plan_destroy(BPPRegPlan *p) {
-    free(p->physical); free(p->live_in); free(p->live_out); memset(p, 0, sizeof *p);
+    free(p->cell); free(p->physical); free(p->live_in); free(p->live_out); memset(p, 0, sizeof *p);
 }
 int bpp_reg_live_in(const BPPRegPlan *p, size_t block, size_t reg) {
     return has(p->live_in + block * p->words, reg);
 }
-int bpp_reg_plan_create(const BLIRFunction *fn, BPPRegPlan *p) {
+int bpp_reg_plan_create_for(const BLIRFunction *fn, BPPRegPlan *p,unsigned pool) {
+    if(!pool||pool>BPP_PAYLOAD_REG_COUNT)return 0;
     memset(p, 0, sizeof *p);
     size_t n = fn->register_count, blocks = fn->block_count;
     if (n > SIZE_MAX - 63) return 0;
     size_t words = (n + 63) / 64;
-    if (words && (blocks > SIZE_MAX / words || n > SIZE_MAX / words)) return 0;
+    if (words && blocks > SIZE_MAX / words) return 0;
     p->register_count = n; p->block_count = blocks; p->words = words;
     p->physical = array(n, 1);
+    p->cell=array(n,sizeof(size_t));
     p->live_in = array(blocks * words, sizeof(uint64_t));
     p->live_out = array(blocks * words, sizeof(uint64_t));
     uint64_t *use = array(blocks * words, sizeof(uint64_t));
     uint64_t *def = array(blocks * words, sizeof(uint64_t));
     uint64_t *temp = array(words, sizeof(uint64_t));
-    uint64_t *live = array(words, sizeof(uint64_t));
-    uint64_t *graph = array(n * words, sizeof(uint64_t));
+    Interval *intervals=array(n,sizeof *intervals);
+    size_t *cell_end=array(n,sizeof(size_t));
+    size_t cache_owner[BPP_PAYLOAD_REG_COUNT];
+    for(unsigned c=0;c<pool;++c)cache_owner[c]=BL_IR_NONE;
     size_t *weight = array(n, sizeof(size_t));
-    unsigned char *visited = array(n, 1);
-    int ok = p->physical && p->live_in && p->live_out && use && def && temp && live && graph && weight && visited;
+    int ok = p->physical && p->live_in && p->live_out && use && def && temp && intervals && cell_end && weight && p->cell;
     if (!ok) goto done;
     /* Block use-before-def sets, with release modeled as a null definition. */
     for (size_t b = 0; b < blocks; ++b) {
@@ -80,7 +91,14 @@ int bpp_reg_plan_create(const BLIRFunction *fn, BPPRegPlan *p) {
             const BLIRInst *i = &fn->blocks[b].insts[k];
             memset(temp, 0, words * sizeof *temp); uses(i, temp);
             for (size_t w = 0; w < words; ++w) use[b * words + w] |= temp[w] & ~def[b * words + w];
-            for (size_t r = 0; r < n; ++r) if (has(temp, r) && native_payload_use(i, r)) ++weight[r];
+            for(size_t w=0;w<words;++w){uint64_t mask=temp[w];while(mask){
+                size_t r=w*64+(unsigned)__builtin_ctzll(mask);mask&=mask-1;
+                if(native_payload_use(i,r)){
+                    size_t boost=1;const BLIRInst *end=&fn->blocks[b].insts[fn->blocks[b].count-1];
+                    if((end->op==BL_IR_JUMP&&end->a<=b)||(end->op==BL_IR_BRANCH&&(end->b<=b||end->c<=b)))boost=8;
+                    if(weight[r]<=SIZE_MAX-boost)weight[r]+=boost;
+                }
+            }}
             size_t d = definition(i); if (d != BL_IR_NONE) set(def + b * words, d);
         }
     }
@@ -102,38 +120,54 @@ int bpp_reg_plan_create(const BLIRFunction *fn, BPPRegPlan *p) {
             }
         }
     } while (changed);
-    for (size_t b = 0; b < blocks; ++b) {
-        /* Entry-live values need distinct payload registers even for non-SSA IR. */
-        for (size_t a = 0; a < n; ++a) if (bpp_reg_live_in(p, b, a))
-            for (size_t c = a + 1; c < n; ++c) if (bpp_reg_live_in(p, b, c)) edge(graph, words, a, c);
-        memcpy(live, p->live_out + b * words, words * sizeof *live);
-        for (size_t k = fn->blocks[b].count; k-- > 0;) {
-            const BLIRInst *i = &fn->blocks[b].insts[k];
-            size_t d = definition(i);
-            if (d != BL_IR_NONE) {
-                /* Even a dead definition must not clobber a live payload. */
-                for (size_t r = 0; r < n; ++r) if (has(live, r)) edge(graph, words, d, r);
-                clear(live, d);
-            }
-            uses(i, live);
+    for(size_t r=0;r<n;++r)intervals[r]=(Interval){r,SIZE_MAX,0,weight[r]};
+    size_t position=0;
+    for(size_t b=0;b<blocks;++b){
+        touch(intervals,p->live_in+b*words,words,position);
+        for(size_t k=0;k<fn->blocks[b].count;++k,++position){
+            memset(temp,0,words*sizeof *temp);uses(&fn->blocks[b].insts[k],temp);
+            size_t d=definition(&fn->blocks[b].insts[k]);if(d!=BL_IR_NONE)set(temp,d);
+            touch(intervals,temp,words,position);
         }
+        touch(intervals,p->live_out+b*words,words,position);
     }
-    /* Greedy weighted allocation; uncolored values retain stack loads. */
-    for (size_t j = 0; j < n; ++j) {
-        size_t best = BL_IR_NONE;
-        for (size_t r = 0; r < n; ++r) if (!visited[r] && (best == BL_IR_NONE || weight[r] > weight[best])) best = r;
-        if (best == BL_IR_NONE || !weight[best]) break;
-        visited[best] = 1;
-        unsigned mask = 0;
-        for (size_t r = 0; r < n; ++r) if (has(graph + best * words, r) && p->physical[r])
-            for (unsigned color = 0; color < BPP_PAYLOAD_REG_COUNT; ++color)
-                if (p->physical[r] == bpp_payload_regs[color]) mask |= 1u << color;
-        for (unsigned color = 0; color < BPP_PAYLOAD_REG_COUNT; ++color)
-            if (!(mask & (1u << color))) { p->physical[best] = bpp_payload_regs[color]; break; }
-        if (p->physical[best]) ++p->cached_count;
+    qsort(intervals,n,sizeof *intervals,order);
+    for(size_t j=0;j<n;++j){Interval in=intervals[j];
+        if(in.begin==SIZE_MAX){p->cell[in.r]=0;continue;}
+        size_t cell=0;for(;cell<p->cell_count;++cell)if(cell_end[cell]<in.begin)break;
+        if(cell==p->cell_count)++p->cell_count;
+        p->cell[in.r]=cell;cell_end[cell]=in.end;
+        if(!in.weight)continue;
+        unsigned c=0;
+        for(;c<pool;++c)if(cache_owner[c]==BL_IR_NONE||intervals[cache_owner[c]].end<in.begin)break;
+        if(c==pool){
+            unsigned victim=0;
+            for(unsigned v=1;v<pool;++v)if(intervals[cache_owner[v]].weight<intervals[cache_owner[victim]].weight)victim=v;
+            if(intervals[cache_owner[victim]].weight>=in.weight)continue;
+            p->physical[intervals[cache_owner[victim]].r]=0;--p->cached_count;c=victim;
+        }
+        cache_owner[c]=j;p->physical[in.r]=bpp_payload_regs[c];++p->cached_count;
     }
+    if(!p->cell_count)p->cell_count=1;
 done:
-    free(use); free(def); free(temp); free(live); free(graph); free(weight); free(visited);
+    free(use); free(def); free(temp); free(intervals); free(cell_end); free(weight);
     if (!ok) bpp_reg_plan_destroy(p);
     return ok;
+}
+
+int bpp_reg_plan_create(const BLIRFunction *f,BPPRegPlan *p){return bpp_reg_plan_create_for(f,p,BPP_PAYLOAD_REG_COUNT);}
+
+void bpp_known_update(unsigned char *kind,unsigned char *constant,long long *value,const BLIRInst *i){
+    unsigned char tag=BPP_KIND_UNKNOWN;
+    if(i->op==BL_IR_RELEASE){kind[i->a]=BPP_KIND_NULL;constant[i->a]=0;return;}
+    if(i->dst==BL_IR_NONE)return;
+    if(i->op==BL_IR_INT){tag=BPP_KIND_INT;constant[i->dst]=1;value[i->dst]=i->integer;}
+    else {
+        constant[i->dst]=0;
+        if(i->op==BL_IR_NULL)tag=BPP_KIND_NULL;
+        else if(i->op==BL_IR_STRING||i->op==BL_IR_TO_STRING_BUFFER)tag=BPP_KIND_OBJECT;
+        else if(i->op==BL_IR_NEG||i->op==BL_IR_NOT||(i->op>=BL_IR_SUB&&i->op<=BL_IR_GE))tag=BPP_KIND_INT;
+        else if(i->op==BL_IR_ADD&&kind[i->a]==BPP_KIND_INT&&kind[i->b]==BPP_KIND_INT)tag=BPP_KIND_INT;
+    }
+    kind[i->dst]=tag;
 }

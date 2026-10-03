@@ -31,11 +31,18 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic
 LDFLAGS ?=
 LDLIBS ?=
 OBJDIR := build/$(BUILD_MODE)/obj
-BIN := bin/$(BUILD_MODE)/bpp
-SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/emit_c.c src/emit_arm64.c src/regalloc.c
+ifeq ($(OS),Windows_NT)
+EXE := .exe
+PROJECT_DIR := $(shell cygpath -m "$(CURDIR)")
+else
+EXE :=
+PROJECT_DIR := $(CURDIR)
+endif
+BIN := bin/$(BUILD_MODE)/bpp$(EXE)
+SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/target.c src/optimize.c src/emit_x64.c src/locations.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
-.PHONY: all debug tsan release check check-arm64 clean
+.PHONY: all debug tsan release check check-native check-arm64 check-msabi check-targets check-differential check-stress check-asan-hook benchmark test clean
 RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o
 all: $(BIN)
 debug:
@@ -44,28 +51,55 @@ tsan:
 	$(MAKE) BUILD_MODE=tsan all
 release:
 	$(MAKE) BUILD_MODE=release all
-$(OBJDIR)/src/main.o: CPPFLAGS += '-DBPP_PROJECT_DIR="$(CURDIR)"' '-DBPP_HOST_CC="$(CC)"' '-DBPP_SANITIZERS="$(SANITIZERS)"' '-DBPP_OPTIMIZATION="$(OPT)"' '-DBPP_RUNTIME_OBJECT="$(CURDIR)/$(OBJDIR)/src/runtime.o"' '-DBPP_VALUE_OBJECT="$(CURDIR)/$(OBJDIR)/src/value.o"' '-DBPP_ARM_RUNTIME_OBJECT="$(CURDIR)/$(OBJDIR)/src/codegen_runtime.o"'
+$(OBJDIR)/src/main.o: CPPFLAGS += '-DBPP_PROJECT_DIR="$(PROJECT_DIR)"' '-DBPP_HOST_CC="$(CC)"' '-DBPP_SANITIZERS="$(SANITIZERS)"' '-DBPP_OPTIMIZATION="$(OPT)"' '-DBPP_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/runtime.o"' '-DBPP_VALUE_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/value.o"' '-DBPP_NATIVE_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/codegen_runtime.o"'
 $(OBJDIR)/%.o: %.c Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -MMD -MP -c "$<" -o "$@"
 $(BIN): $(OBJS) $(RUNTIME_OBJS)
 	mkdir -p "$(@D)"
 	$(CC) $(LDFLAGS) $(MODE_FLAGS) -o "$@" $(OBJS) $(LDLIBS)
+check-native: $(BIN)
+	BPP_TEST_BACKEND=native sh tests/run_tests.sh ./$(BIN)
 check-arm64: $(BIN)
 	BPP_TEST_BACKEND=arm64 sh tests/run_tests.sh ./$(BIN)
-check: $(BIN) $(OBJDIR)/test_ir $(OBJDIR)/test_codegen_runtime $(OBJDIR)/test_regalloc
-	./$(OBJDIR)/test_ir
-	./$(OBJDIR)/test_codegen_runtime
-	./$(OBJDIR)/test_regalloc
+check-msabi: $(BIN)
+	BPP_MSABI_CC="$(CC)" sh tests/check_msabi.sh ./$(BIN)
+check-targets: $(BIN)
+	sh tests/check_targets.sh ./$(BIN)
+check-differential: $(BIN) $(OBJDIR)/generate_case$(EXE)
+	sh tests/check_differential.sh ./$(BIN) ./$(OBJDIR)/generate_case$(EXE)
+check-stress: $(BIN) $(OBJDIR)/generate_case$(EXE)
+	sh tests/check_stress.sh ./$(BIN) ./$(OBJDIR)/generate_case$(EXE)
+benchmark: $(BIN) $(OBJDIR)/benchmark_clock$(EXE)
+	@sh tests/benchmark.sh ./$(BIN) ./$(OBJDIR)/benchmark_clock$(EXE)
+check-asan-hook: $(OBJDIR)/test_native_sanitizer$(EXE)
+	sh tests/check_asan_hook.sh ./$(OBJDIR)/test_native_sanitizer$(EXE)
+test: check check-native
+check: $(BIN) $(OBJDIR)/test_ir$(EXE) $(OBJDIR)/test_codegen_runtime$(EXE) $(OBJDIR)/test_regalloc$(EXE) $(OBJDIR)/test_optimize$(EXE)
+	./$(OBJDIR)/test_ir$(EXE)
+	./$(OBJDIR)/test_codegen_runtime$(EXE)
+	./$(OBJDIR)/test_regalloc$(EXE)
+	./$(OBJDIR)/test_optimize$(EXE)
 	sh tests/run_tests.sh ./$(BIN)
-$(OBJDIR)/test_regalloc: tests/test_regalloc.c src/regalloc.c include/regalloc.h include/ir.h Makefile
+$(OBJDIR)/test_regalloc$(EXE): tests/test_regalloc.c src/regalloc.c include/regalloc.h include/ir.h Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -UNDEBUG tests/test_regalloc.c src/regalloc.c -o "$@"
-$(OBJDIR)/test_codegen_runtime: tests/test_codegen_runtime.c $(RUNTIME_OBJS) include/codegen_abi.h Makefile
+$(OBJDIR)/test_codegen_runtime$(EXE): tests/test_codegen_runtime.c $(RUNTIME_OBJS) include/codegen_abi.h Makefile
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -UNDEBUG tests/test_codegen_runtime.c $(RUNTIME_OBJS) -o "$@"
-$(OBJDIR)/test_ir: tests/test_ir.c src/ir.c include/ir.h include/parser.h include/lexer.h Makefile
+$(OBJDIR)/test_ir$(EXE): tests/test_ir.c src/ir.c include/ir.h include/parser.h include/lexer.h Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -UNDEBUG src/ir.c tests/test_ir.c -o "$@"
+$(OBJDIR)/test_optimize$(EXE): tests/test_optimize.c src/ir.c src/optimize.c include/ir.h include/target.h Makefile
+	mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -UNDEBUG tests/test_optimize.c src/ir.c src/optimize.c -o "$@"
+$(OBJDIR)/generate_case$(EXE): tests/generate_case.c Makefile
+	mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) tests/generate_case.c -o "$@"
+$(OBJDIR)/benchmark_clock$(EXE): tests/benchmark_clock.c Makefile
+	mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) tests/benchmark_clock.c -o "$@"
+$(OBJDIR)/test_native_sanitizer$(EXE): tests/test_native_sanitizer.c $(RUNTIME_OBJS) Makefile
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) tests/test_native_sanitizer.c $(RUNTIME_OBJS) -o "$@"
 clean:
 	rm -rf build bin/debug bin/tsan bin/release
 -include $(DEPS)

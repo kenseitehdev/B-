@@ -4,7 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <direct.h>
+#define getcwd _getcwd
+#else
 #include <unistd.h>
+#endif
 
 typedef struct {
     char **items;
@@ -105,7 +110,11 @@ static void bl_path_list_push_owned(BLPathList *list, char *item) {
 
 static int bl_path_list_contains(const BLPathList *list, const char *item) {
     for (size_t i = 0; i < list->count; ++i) {
+#ifdef _WIN32
+        if (_stricmp(list->items[i], item) == 0) return 1;
+#else
         if (strcmp(list->items[i], item) == 0) return 1;
+#endif
     }
     return 0;
 }
@@ -185,7 +194,7 @@ static void bl_sb_dispose(BLStringBuilder *sb) {
 
 static int bl_path_is_absolute(const char *path) {
     if (!path || !path[0]) return 0;
-    return path[0] == '/';
+    return path[0]=='/'||path[0]=='\\'||(isalpha((unsigned char)path[0])&&path[1]==':');
 }
 
 static char *bl_path_dirname(const char *path) {
@@ -214,6 +223,12 @@ static char *bl_path_join2(const char *left, const char *right) {
 }
 
 static char *bl_path_canonicalize(const char *path) {
+#ifdef _WIN32
+    char resolved[4096];if(!_fullpath(resolved,path,sizeof resolved))return NULL;
+    for(char *p=resolved;*p;++p)if(*p=='\\')*p='/';
+    return bl_strdup_local(resolved);
+#endif
+
     if (!path || !path[0]) return NULL;
 
     char *absolute = NULL;
@@ -280,6 +295,9 @@ static char *bl_path_canonicalize(const char *path) {
 
 static char *bl_global_lib_dir(void) {
     const char *home = getenv("HOME");
+#ifdef _WIN32
+    if(!home)home=getenv("USERPROFILE");
+#endif
     if (home && home[0]) {
         char *base = bl_path_join2(home, ".bytelang");
         char *lib = bl_path_join2(base, "lib");
@@ -539,6 +557,7 @@ int bl_compile_source(BLCompiler *compiler, const char *path, const char *source
     BLNode *program = bl_parse_program(&parser);
     int ok = program && bl_ir_compile(ir, path, program);
     bl_set_error(compiler, ok ? NULL : (program ? bl_ir_last_error(ir) : parser.error));
+    if(ok){ir->expanded_source=expanded;expanded=NULL;}
     bl_parser_dispose(&parser); free(expanded); return ok;
 }
 int bl_compile_file(BLCompiler *compiler, const char *path, BLIRModule *ir) {

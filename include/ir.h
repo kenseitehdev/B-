@@ -48,6 +48,8 @@ typedef struct {
 
 typedef struct {
     char *path;
+    int instrument_native;
+    char *expanded_source, *debug_path;
     char **globals;
     size_t global_count, global_capacity;
     BLIRFunction *functions;   /* function 0 is the module entry */

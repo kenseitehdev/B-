@@ -1,6 +1,7 @@
 #include "../include/regalloc.h"
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define I(op_, dst_, a_, b_, c_) { .op=op_, .dst=dst_, .a=a_, .b=b_, .c=c_ }
 #define N BL_IR_NONE
@@ -23,6 +24,19 @@ int main(void) {
     distinct(&p,1,2);
     assert(p.cached_count > 0);
     bpp_reg_plan_destroy(&p);
+    /* Thousands of nonoverlapping virtual values need one ownership cell. */
+    size_t n=4096;
+    BLIRInst *sequence=calloc(n*2,sizeof *sequence);assert(sequence);
+    for(size_t r=0;r<n;++r){
+        sequence[r*2]=(BLIRInst)I(BL_IR_INT,r,N,N,N);
+        sequence[r*2+1]=(BLIRInst)I(BL_IR_RELEASE,N,r,N,N);
+    }
+    sequence[n*2-1]=(BLIRInst)I(BL_IR_RETURN,N,n-1,N,N);
+    BLIRBlock sequential={sequence,n*2,n*2};
+    fn.blocks=&sequential;fn.block_count=1;fn.register_count=n;
+    assert(bpp_reg_plan_create(&fn,&p));assert(p.cell_count==1);
+    for(size_t r=0;r<n;++r)assert(p.cell[r]==0);
+    bpp_reg_plan_destroy(&p);free(sequence);
 
     /* Backedge reaches a fixed point; a mutable register is defined and used. */
     BLIRInst start[] = {I(BL_IR_INT,0,N,N,N), I(BL_IR_INT,1,N,N,N), I(BL_IR_JUMP,N,1,N,N)};
@@ -49,7 +63,7 @@ int main(void) {
         I(BL_IR_ADD,6,2,3,N), I(BL_IR_ADD,7,5,6,N), I(BL_IR_ADD,8,7,4,N), I(BL_IR_RETURN,N,8,N,N)};
     BLIRBlock pressure_block = {pressure,10,10};
     fn.blocks=&pressure_block;fn.register_count=9;
-    assert(bpp_reg_plan_create(&fn,&p));
+    assert(bpp_reg_plan_create_for(&fn,&p,4));
     int spilled=0;
     for(size_t a=0;a<5;++a){
         if(!p.physical[a])spilled=1;
