@@ -64,7 +64,7 @@ static unsigned char visibility_kind(const BLIRInst *i){
  switch(i->op){
  case BL_IR_RETURN:return BPP_CLOBBER_HELPER|BPP_CLOBBER_RETURN_CLEANUP|BPP_CLOBBER_SANITIZER;
  case BL_IR_JUMP:case BL_IR_BRANCH:return 0;
- case BL_IR_NULL:case BL_IR_INT:return BPP_CLOBBER_HELPER;
+ case BL_IR_NULL:case BL_IR_INT:return 0;
  case BL_IR_CALL:
   flags=(unsigned char)(BPP_CLOBBER_HELPER|BPP_CLOBBER_RUNTIME_ERROR);
   return (unsigned char)(flags|(i->a==BL_IR_NONE?BPP_CLOBBER_BUILTIN:BPP_CLOBBER_USER_CALL));
@@ -119,7 +119,52 @@ static int order(const void *a,const void *b){const Interval *x=a,*y=b;if(x->beg
 static int segment_order(const void *a,const void *b){const SegmentWork *x=a,*y=b;if(x->begin!=y->begin)return x->begin<y->begin?-1:1;if(x->reg!=y->reg)return x->reg<y->reg?-1:1;return x->segment<y->segment?-1:x->segment!=y->segment;}
 void bpp_reg_plan_destroy(BPPRegPlan *p){
  if(!p)return;
- free(p->cell);free(p->physical);free(p->physical_flags);free(p->caller_safe);free(p->alloc_class);free(p->rematerialized_int);free(p->segment_offsets);free(p->segments);free(p->begin);free(p->end);free(p->instruction_positions);free(p->block_positions);free(p->instruction_live_after);free(p->instruction_visible);free(p->instruction_destination);free(p->clobber_points);free(p->live_in);free(p->live_out);memset(p,0,sizeof *p);
+ free(p->cell);free(p->local_map);free(p->local_slot_shared);free(p->physical);free(p->physical_flags);free(p->caller_safe);free(p->alloc_class);free(p->rematerialized_int);free(p->segment_offsets);free(p->segments);free(p->begin);free(p->end);free(p->instruction_positions);free(p->block_positions);free(p->instruction_live_after);free(p->instruction_visible);free(p->instruction_destination);free(p->clobber_points);free(p->live_in);free(p->live_out);memset(p,0,sizeof *p);
+}
+/* Local-slot reuse is intentionally enabled only for a single basic block:
+ * every execution follows the same declaration/access order, so an INIT can
+ * safely retire the previous occupant. Multi-block functions keep unique
+ * locals until CFG-aware definite-initialization/lifetime analysis exists. */
+static int plan_local_slots(const BLIRFunction *fn,BPPRegPlan *p){
+ size_t n=fn->local_count;
+ p->local_map=array(n,sizeof *p->local_map);
+ p->local_slot_shared=array(n,1);
+ if(!p->local_map||!p->local_slot_shared)return 0;
+ p->local_slot_count=n;
+ for(size_t l=0;l<n;++l)p->local_map[l]=l;
+ if(fn->block_count!=1||!n)return 1;
+ size_t *first=array(n,sizeof *first),*last=array(n,sizeof *last),*init_count=array(n,sizeof *init_count),*slot_end=array(n,sizeof *slot_end),*occupants=array(n,sizeof *occupants);
+ unsigned char *safe=array(n,1),*slot_reusable=array(n,1);
+ if(!first||!last||!init_count||!slot_end||!occupants||!safe||!slot_reusable){free(first);free(last);free(init_count);free(slot_end);free(occupants);free(safe);free(slot_reusable);return 0;}
+ for(size_t l=0;l<n;++l){first[l]=SIZE_MAX;last[l]=0;safe[l]=(unsigned char)(l<fn->param_count);}
+ const BLIRBlock *b=&fn->blocks[0];
+ for(size_t k=0;k<b->count;++k){const BLIRInst *i=&b->insts[k];size_t l=BL_IR_NONE;int init=i->op==BL_IR_INIT_LOCAL;
+  if(i->op==BL_IR_INIT_LOCAL||i->op==BL_IR_STORE_LOCAL||i->op==BL_IR_LOAD_LOCAL||i->op==BL_IR_FREE_LOCAL||i->op==BL_IR_DELETE_LOCAL)l=i->a;
+  if(l==BL_IR_NONE||l>=n)continue;
+  if(first[l]==SIZE_MAX)first[l]=k;
+  last[l]=k;
+  if(init)++init_count[l];
+ }
+ for(size_t l=0;l<fn->param_count;++l)first[l]=0;
+ for(size_t l=fn->param_count;l<n;++l){
+  if(init_count[l]!=1||first[l]==SIZE_MAX){safe[l]=0;continue;}
+  size_t init=SIZE_MAX;
+  for(size_t k=0;k<b->count;++k)if(b->insts[k].op==BL_IR_INIT_LOCAL&&b->insts[k].a==l){init=k;break;}
+  if(init==SIZE_MAX||first[l]<init)safe[l]=0;
+  else {first[l]=init;safe[l]=1;}
+ }
+ size_t next=0;
+ for(size_t l=0;l<n;++l){
+  if(first[l]==SIZE_MAX){safe[l]=0;first[l]=0;last[l]=SIZE_MAX;}
+  size_t chosen=SIZE_MAX;
+  if(safe[l])for(size_t s=0;s<next;++s)if(slot_reusable[s]&&slot_end[s]<first[l]){chosen=s;break;}
+  if(chosen==SIZE_MAX)chosen=next++;
+  p->local_map[l]=chosen;
+  if(occupants[chosen]++==0){slot_end[chosen]=last[l];slot_reusable[chosen]=safe[l];}
+  else {if(last[l]>slot_end[chosen])slot_end[chosen]=last[l];slot_reusable[chosen]=(unsigned char)(slot_reusable[chosen]&&safe[l]);p->local_slot_shared[chosen]=1;}
+ }
+ p->local_slot_count=next;
+ free(first);free(last);free(init_count);free(slot_end);free(occupants);free(safe);free(slot_reusable);return 1;
 }
 int bpp_reg_live_in(const BPPRegPlan *p,size_t block,size_t reg){return has(p->live_in+block*p->words,reg);}
 int bpp_reg_live_after(const BPPRegPlan *p,size_t block,size_t instruction,size_t reg){
@@ -200,9 +245,9 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
  p->instruction_live_after=array(inst_count*words,sizeof(uint64_t));p->instruction_visible=array(inst_count*words,sizeof(uint64_t));p->instruction_destination=array(inst_count,sizeof *p->instruction_destination);p->clobber_points=array(inst_count,1);
  p->live_in=array(blocks*words,sizeof(uint64_t));p->live_out=array(blocks*words,sizeof(uint64_t));
  uint64_t *use=array(blocks*words,sizeof(uint64_t)),*def=array(blocks*words,sizeof(uint64_t)),*temp=array(words,sizeof(uint64_t)),*backward_uses=array(words,sizeof(uint64_t));
- Interval *intervals=array(n,sizeof *intervals);size_t *cell_end=array(n,sizeof(size_t)),*weight=array(n,sizeof(size_t)),*def_position=array(n,sizeof(size_t));
+ Interval *intervals=array(n,sizeof *intervals);size_t *cell_end=array(n,sizeof(size_t)),*weight=array(n,sizeof(size_t)),*def_position=array(n,sizeof(size_t));unsigned char *has_use=array(n,1);
  unsigned char *barriers=array(inst_count,1),*split=array(inst_count,1),*caller_safe=array(n,1);
- int ok=p->physical&&p->physical_flags&&p->caller_safe&&p->alloc_class&&p->rematerialized_int&&p->segment_offsets&&p->cell&&p->begin&&p->end&&p->instruction_positions&&p->block_positions&&p->instruction_live_after&&p->instruction_visible&&p->instruction_destination&&p->clobber_points&&p->live_in&&p->live_out&&use&&def&&temp&&backward_uses&&intervals&&cell_end&&weight&&def_position&&barriers&&split&&caller_safe;
+ int ok=p->physical&&p->physical_flags&&p->caller_safe&&p->alloc_class&&p->rematerialized_int&&p->segment_offsets&&p->cell&&p->begin&&p->end&&p->instruction_positions&&p->block_positions&&p->instruction_live_after&&p->instruction_visible&&p->instruction_destination&&p->clobber_points&&p->live_in&&p->live_out&&use&&def&&temp&&backward_uses&&intervals&&cell_end&&weight&&def_position&&barriers&&split&&caller_safe&&has_use;
  if(!ok)goto done;
  for(size_t r=0;r<n;++r){intervals[r]=(Interval){r,SIZE_MAX,0,0,SIZE_MAX,0};caller_safe[r]=1;def_position[r]=SIZE_MAX;}
  unsigned char *known_int=array(n,1);long long *known_value=array(n,sizeof *known_value);
@@ -213,7 +258,7 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
   for(size_t k=0;k<fn->blocks[b].count;++k,++pos){const BLIRInst *i=&fn->blocks[b].insts[k];p->instruction_positions[pos]=pos;
    barriers[pos]=call_clobber_mask(i);p->clobber_points[pos]=visibility_kind(i);p->instruction_destination[pos]=i->op==BL_IR_RELEASE?BL_IR_NONE:i->dst;
    split[pos]=(unsigned char)is_unconditional_helper(i);
-   memset(temp,0,words*sizeof *temp);uses(i,temp);for(size_t w=0;w<words;++w){use[b*words+w]|=temp[w]&~def[b*words+w];p->instruction_visible[pos*words+w]=temp[w];}
+   memset(temp,0,words*sizeof *temp);uses(i,temp);for(size_t w=0;w<words;++w){use[b*words+w]|=temp[w]&~def[b*words+w];p->instruction_visible[pos*words+w]=temp[w];uint64_t mask=temp[w];while(mask){size_t r=w*64+(unsigned)__builtin_ctzll(mask);mask&=mask-1;if(r<n)has_use[r]=1;}}
    for(size_t w=0;w<words;++w){uint64_t mask=temp[w];while(mask){size_t r=w*64+(unsigned)__builtin_ctzll(mask);mask&=mask-1;if(native_payload_use(i,r)){size_t boost=1;const BLIRInst *last=&fn->blocks[b].insts[fn->blocks[b].count-1];if((last->op==BL_IR_JUMP&&last->a<=b)||(last->op==BL_IR_BRANCH&&(last->b<=b||last->c<=b)))boost=8;if(weight[r]<=SIZE_MAX-boost)weight[r]+=boost;}}}
    size_t d=definition(i);if(d!=BL_IR_NONE){set(def+b*words,d);set(p->instruction_visible+pos*words,d);if(i->op!=BL_IR_RELEASE){def_position[d]=pos;unsigned char kind=allocation_class(i->op);long long remat=0;
      if(kind==BPP_ALLOC_IMMEDIATE_INT){known_int[d]=1;known_value[d]=i->integer;p->rematerialized_int[d]=i->integer;}
@@ -243,10 +288,14 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
   for(size_t k=0;k<fn->blocks[b].count;++k){size_t ip=block_pos+k;memset(temp,0,words*sizeof *temp);uses(&fn->blocks[b].insts[k],temp);size_t d=definition(&fn->blocks[b].insts[k]);if(d!=BL_IR_NONE)set(temp,d);note(intervals,temp,words,ip,b);}
   note(intervals,p->live_out+b*words,words,block_pos+fn->blocks[b].count,b);block_pos+=fn->blocks[b].count;
  }
+ /* Unused integer/null literals have no side effects, cannot fail, and are
+  * never passed to helpers or returned. Remove both their instruction home
+  * and their cleanup-root exposure; emitters omit the literal instruction. */
+ for(size_t r=0;r<n;++r)if(!has_use[r]&&(p->alloc_class[r]==BPP_ALLOC_IMMEDIATE_INT||p->alloc_class[r]==BPP_ALLOC_IMMEDIATE_NULL))intervals[r].begin=SIZE_MAX;
  p->segment_offsets[0]=0;
  size_t segment_total=0;
  for(size_t r=0;r<n;++r){intervals[r].weight=weight[r];
-  if(intervals[r].begin==SIZE_MAX){p->begin[r]=SIZE_MAX;p->end[r]=0;p->alloc_class[r]=BPP_ALLOC_DEAD;caller_safe[r]=0;p->segment_offsets[r+1]=segment_total;continue;}
+  if(intervals[r].begin==SIZE_MAX){p->begin[r]=SIZE_MAX;p->end[r]=0;if(!p->alloc_class[r])p->alloc_class[r]=BPP_ALLOC_DEAD;caller_safe[r]=0;p->segment_offsets[r+1]=segment_total;continue;}
   p->begin[r]=intervals[r].begin;p->end[r]=intervals[r].end;
   if(!p->alloc_class[r])p->alloc_class[r]=BPP_ALLOC_TAGGED_PAIR;
   size_t start=intervals[r].begin;
@@ -320,22 +369,35 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
  }
  /* Reuse the canonical ownership cells across nonoverlapping value lives. */
  qsort(intervals,n,sizeof *intervals,order);
- for(size_t j=0;j<n;++j){Interval in=intervals[j];if(in.begin==SIZE_MAX){p->cell[in.r]=0;continue;}
+ for(size_t j=0;j<n;++j){Interval in=intervals[j];if(in.begin==SIZE_MAX){p->cell[in.r]=SIZE_MAX;continue;}
   size_t cell=0;for(;cell<p->cell_count;++cell)if(cell_end[cell]<in.begin)break;if(cell==p->cell_count)++p->cell_count;p->cell[in.r]=cell;cell_end[cell]=in.end;
  }
- if(!p->cell_count)p->cell_count=1;
+ /* Keep possible object owners in a contiguous root region. Ordinary cells
+  * retain canonical tagged spills for helper visibility but need no cleanup
+  * release scan. A shared cell is a root if any interval assigned to it can
+  * contain an owned object. */
+ {
+  unsigned char *root=array(p->cell_count,1);size_t *remap=array(p->cell_count,sizeof *remap);
+  if(!root||!remap){free(root);free(remap);ok=0;goto done;}
+  for(size_t r=0;r<n;++r)if(p->cell[r]!=SIZE_MAX&&p->alloc_class[r]==BPP_ALLOC_TAGGED_PAIR)root[p->cell[r]]=1;
+  size_t next=0;for(size_t c=0;c<p->cell_count;++c)if(root[c])remap[c]=next++;
+  p->root_cell_count=next;for(size_t c=0;c<p->cell_count;++c)if(!root[c])remap[c]=next++;
+  for(size_t r=0;r<n;++r)if(p->cell[r]!=SIZE_MAX)p->cell[r]=remap[p->cell[r]];
+  free(root);free(remap);
+ }
+ if(!plan_local_slots(fn,p)){ok=0;goto done;}
 done:
- free(use);free(def);free(temp);free(backward_uses);free(intervals);free(cell_end);free(weight);free(def_position);free(barriers);free(split);free(caller_safe);
+ free(use);free(def);free(temp);free(backward_uses);free(intervals);free(cell_end);free(weight);free(def_position);free(barriers);free(split);free(caller_safe);free(has_use);
  if(!ok)bpp_reg_plan_destroy(p);
  return ok;
 }
 int bpp_reg_plan_create_target(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget target){return bpp_reg_plan_create_limit(fn,p,target,SIZE_MAX);}
 int bpp_reg_plan_create(const BLIRFunction *fn,BPPRegPlan *p){return bpp_reg_plan_create_target(fn,p,BPP_MACOS_ARM64);}
 int bpp_reg_plan_validate(const BLIRFunction *fn,const BPPRegPlan *p){
- if(!fn||!p||fn->register_count>SIZE_MAX-63||p->register_count!=fn->register_count||p->block_count!=fn->block_count||p->words!=(fn->register_count+63)/64||!p->cell||!p->physical||!p->physical_flags||!p->caller_safe||!p->alloc_class||!p->rematerialized_int||!p->segment_offsets||!p->segments||!p->begin||!p->end||!p->block_positions||!p->instruction_live_after||!p->instruction_visible||!p->instruction_destination||!p->clobber_points||!p->cell_count)return 0;
+ if(!fn||!p||fn->register_count>SIZE_MAX-63||p->register_count!=fn->register_count||p->block_count!=fn->block_count||p->words!=(fn->register_count+63)/64||!p->cell||!p->local_map||!p->local_slot_shared||!p->physical||!p->physical_flags||!p->caller_safe||!p->alloc_class||!p->rematerialized_int||!p->segment_offsets||!p->segments||!p->begin||!p->end||!p->block_positions||!p->instruction_live_after||!p->instruction_visible||!p->instruction_destination||!p->clobber_points||p->root_cell_count>p->cell_count||p->local_slot_count>fn->local_count)return 0;
  if(p->words&&(!p->live_in||!p->live_out))return 0;
  size_t cached=0;
- for(size_t r=0;r<fn->register_count;++r){if(p->cell[r]>=p->cell_count||p->alloc_class[r]>BPP_ALLOC_REMATERIALIZABLE||p->segment_offsets[r]>p->segment_offsets[r+1]||p->segment_offsets[r+1]>p->segment_count)return 0;
+ for(size_t r=0;r<fn->register_count;++r){if((p->cell[r]!=SIZE_MAX&&p->cell[r]>=p->cell_count)||(p->cell[r]==SIZE_MAX&&p->begin[r]!=SIZE_MAX)||p->alloc_class[r]>BPP_ALLOC_REMATERIALIZABLE||p->segment_offsets[r]>p->segment_offsets[r+1]||p->segment_offsets[r+1]>p->segment_count)return 0;
   int any=0,all_register=1;unsigned short common=0;
   if(p->begin[r]==SIZE_MAX&&p->segment_offsets[r]!=p->segment_offsets[r+1])return 0;
   for(size_t j=p->segment_offsets[r];j<p->segment_offsets[r+1];++j){const BPPRegSegment *s=&p->segments[j];if(s->begin>s->end||s->begin<p->begin[r]||s->end>p->end[r]||(j>p->segment_offsets[r]&&p->segments[j-1].end>=s->begin))return 0;
@@ -346,9 +408,14 @@ int bpp_reg_plan_validate(const BLIRFunction *fn,const BPPRegPlan *p){
   if(p->physical[r]){const BPPRegisterInfo *ri=bpp_target_register(p->target,p->physical[r]);if(!ri||!(ri->flags&BPP_REG_ALLOCATABLE)||ri->flags!=p->physical_flags[r]||!all_register||common!=p->physical[r])return 0;if((ri->flags&BPP_REG_CALLER_SAVED)&&!p->caller_safe[r])return 0;}
   else if(all_register&&any&&p->physical_flags[r])return 0;
  }
+ for(size_t l=0;l<fn->local_count;++l)if(p->local_map[l]>=p->local_slot_count)return 0;
  if(cached!=p->cached_count)return 0;
  for(size_t a=0;a<fn->register_count;++a)for(size_t sa=p->segment_offsets[a];sa<p->segment_offsets[a+1];++sa)if(p->segments[sa].kind==BPP_LOC_REGISTER)
   for(size_t b=a;b<fn->register_count;++b)for(size_t sb=p->segment_offsets[b];sb<p->segment_offsets[b+1];++sb)if(p->segments[sb].kind==BPP_LOC_REGISTER&&(a!=b||sa!=sb)&&p->segments[sa].physical==p->segments[sb].physical&&p->segments[sa].begin<=p->segments[sb].end&&p->segments[sb].begin<=p->segments[sa].end)return 0;
+ unsigned char *root_cells=array(p->cell_count,1);if(!root_cells)return 0;
+ for(size_t r=0;r<fn->register_count;++r)if(p->cell[r]!=SIZE_MAX&&p->alloc_class[r]==BPP_ALLOC_TAGGED_PAIR)root_cells[p->cell[r]]=1;
+ for(size_t c=0;c<p->cell_count;++c)if((c<p->root_cell_count)!=(root_cells[c]!=0)){free(root_cells);return 0;}
+ free(root_cells);
  for(size_t b=0;b<fn->block_count;++b)for(size_t r=fn->register_count;r<p->words*64;++r)if(has(p->live_in+b*p->words,r)||has(p->live_out+b*p->words,r))return 0;
  return bpp_reg_plan_validate_error_visibility(fn,p);
 }

@@ -27,9 +27,14 @@ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
         bpp_reg_plan_destroy(&p);snprintf(m->error,sizeof m->error,"location-map register-map verifier failed in function '%s'",m->functions[f].name);return 0;
     }
         if(f)fputc(',',o);
-    fputs("{\"name\":",o);quote(o,m->functions[f].name);fprintf(o,",\"label\":\"L_proc_%zu\",\"frame_register\":\"%s\",\"value_cells\":%zu,\"locals\":[",f,cap->isa==BPP_ISA_X86_64?"r12":"x19",p.cell_count);
+    size_t maxargs=0;for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k)if(m->functions[f].blocks[b].insts[k].arg_count>maxargs)maxargs=m->functions[f].blocks[b].insts[k].arg_count;
+    BPPNativeFrameLayout frame;if(!bpp_native_frame_layout(p.cell_count,p.local_slot_count,maxargs,&frame)){bpp_reg_plan_destroy(&p);snprintf(m->error,sizeof m->error,"location-map frame layout overflow in function '%s'",m->functions[f].name);return 0;}
+    int arm64=cap->isa==BPP_ISA_ARM64;unsigned allocated[BPP_MAX_ALLOCATABLE_REGS];size_t saved=bpp_reg_saved_set(&p,allocated,BPP_MAX_ALLOCATABLE_REGS)+(arm64?6:2);BPPNativeStackUsage stack;if(!bpp_native_stack_usage(frame.frame_bytes,saved,arm64,&stack)){bpp_reg_plan_destroy(&p);snprintf(m->error,sizeof m->error,"location-map stack layout overflow in function '%s'",m->functions[f].name);return 0;}
+    size_t local_offset=frame.locals_offset,flags_offset=frame.flags_offset,args_offset=frame.outgoing_offset;
+    int register_identity=1,local_identity=1;for(size_t r=0;r<p.register_count;++r)if(p.cell[r]!=r){register_identity=0;break;}for(size_t l=0;l<m->functions[f].local_count;++l)if(p.local_map[l]!=l){local_identity=0;break;}
+    fputs("{\"name\":",o);quote(o,m->functions[f].name);fprintf(o,",\"label\":\"L_proc_%zu\",\"frame_register\":\"%s\",\"value_cells\":%zu,\"root_cells\":%zu,\"ordinary_spill_cells\":%zu,\"local_slots\":%zu,\"frame_layout\":{\"header_offset\":0,\"value_bytes\":%zu,\"root_cells_offset\":%u,\"ordinary_spills_offset\":%zu,\"locals_offset\":%zu,\"locals_bytes\":%zu,\"local_flags_offset\":%zu,\"local_flags_bytes\":%zu,\"outgoing_arguments_offset\":%zu,\"outgoing_argument_cells\":%zu,\"outgoing_argument_bytes\":%zu,\"frame_data_bytes\":%zu,\"saved_register_bytes\":%zu,\"stack_allocation_bytes\":%zu,\"frame_bytes\":%zu,\"alignment\":16,\"abi_shadow_bytes\":%u},\"register_map\":\"%s\",\"local_map\":\"%s\",\"locals\":[",f,cap->isa==BPP_ISA_X86_64?"r12":"x19",p.cell_count,p.root_cell_count,p.cell_count-p.root_cell_count,p.local_slot_count,frame.value_bytes,BPP_CG_HEADER_BYTES,BPP_CG_HEADER_BYTES+p.root_cell_count*BPP_CG_VALUE_BYTES,local_offset,frame.locals_bytes,flags_offset,frame.flags_bytes,args_offset,maxargs,frame.outgoing_bytes,frame.frame_bytes,stack.saved_bytes,stack.allocation_bytes,stack.total_bytes,cap->format==BPP_FORMAT_COFF?32u:0u,register_identity?"identity":"explicit",local_identity?"identity":"explicit");
         for(size_t j=0;j<m->functions[f].local_count;++j){if(j)fputc(',',o);
-    fputs("{\"name\":",o);quote(o,m->functions[f].locals[j]);fprintf(o,",\"offset\":%zu}",BPP_CG_HEADER_BYTES+p.cell_count*16+j*16);}
+    fputs("{\"name\":",o);quote(o,m->functions[f].locals[j]);fprintf(o,",\"physical_slot\":%zu,\"offset\":%zu,\"flag_offset\":%zu}",p.local_map[j],local_offset+p.local_map[j]*BPP_CG_VALUE_BYTES,flags_offset+p.local_map[j]);}
         fputs("],\"allocation_segments\":[",o);int comma=0;
         for(size_t r=0;r<p.register_count;++r)for(size_t j=p.segment_offsets[r];j<p.segment_offsets[r+1];++j){const BPPRegSegment *seg=&p.segments[j];if(comma++)fputc(',',o);
             BPPRegLocation loc=bpp_reg_location_at(&p,r,seg->begin);
@@ -42,7 +47,7 @@ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
         fputs("],\"instructions\":[",o);int instruction_comma=0;
         for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){BLIRInst *i=&m->functions[f].blocks[b].insts[k];
     if(instruction_comma++)fputc(',',o);
-    size_t pos=bpp_reg_position(&p,b,k);fprintf(o,"{\"block\":%zu,\"instruction\":%zu,\"position\":%zu,\"line\":%d,\"column\":%d,\"clobbers\":",b,k,pos,i->line,i->column);clobbers(o,bpp_reg_clobber_at(&p,b,k));
+    size_t pos=bpp_reg_position(&p,b,k);fprintf(o,"{\"block\":%zu,\"instruction\":%zu,\"position\":%zu,\"line\":%d,\"column\":%d,\"optimized_out\":%s,\"clobbers\":",b,k,pos,i->line,i->column,i->dst!=BL_IR_NONE&&p.begin[i->dst]==SIZE_MAX?"true":"false");clobbers(o,bpp_reg_clobber_at(&p,b,k));
     fputs(",\"spill_candidates\":[",o);int spill_comma=0;for(size_t r=0;r<p.register_count;++r){BPPSpillReason reason=bpp_reg_spill_reason_before(&p,b,k,r);BPPRegLocation loc=bpp_reg_location_at(&p,r,pos);if(reason==BPP_SPILL_NONE||loc.kind!=BPP_LOC_REGISTER)continue;if(spill_comma++)fputc(',',o);fprintf(o,"{\"vreg\":%zu,\"physical\":",r);quote(o,phys_name(t,loc.physical));fprintf(o,",\"spill_cell\":%zu,\"reason\":",loc.spill_cell);quote(o,bpp_reg_spill_reason_name(reason));fputc('}',o);}fputs("]}",o);}
         fputs("]}",o);bpp_reg_plan_destroy(&p);
     }fputs("]}\n",o);return !ferror(o);

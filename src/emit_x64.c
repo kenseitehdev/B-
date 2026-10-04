@@ -6,7 +6,7 @@
 #include <string.h>
 #include <limits.h>
 
-typedef struct {FILE *out;const BLIRFunction *fn;BPPRegPlan plan;size_t f,b,k,locals,flags,args,bytes,maxargs,alloc,saved_count;int win,asm_comments;unsigned saved[10];unsigned char *dirty,*before,*kind,*constant;unsigned *loaded_phys;long long *value;} X;
+typedef struct {FILE *out;const BLIRFunction *fn;BPPRegPlan plan;size_t f,b,k,locals,flags,args,bytes,maxargs,alloc,saved_count;int win,asm_comments;unsigned saved[10];unsigned char *dirty,*before,*kind,*constant;unsigned *loaded_phys;long long *value;unsigned *dirty_phys;} X;
 static const char *cache(const X *e,unsigned p){static char name[16];const BPPRegisterInfo *r=bpp_target_register(e->win?BPP_WINDOWS_X64:BPP_LINUX_X64,p);if(!r)return "%rax";snprintf(name,sizeof name,"%%%s",r->name);return name;}
 static size_t save_set(X *e){
     e->saved[e->saved_count++]=5; /* rbp is the stable frame base. */
@@ -18,8 +18,12 @@ static size_t save_set(X *e){
     return e->saved_count;
 }
 static size_t cell(X *e,size_t r){return BPP_CG_HEADER_BYTES+e->plan.cell[r]*16;}
+static size_t local_slot(X *e,size_t l){return e->plan.local_map?e->plan.local_map[l]:l;}
+static size_t layout_flags(const BPPRegPlan *p,const BLIRFunction *fn){size_t flags=0;int identity=1;for(size_t r=0;r<fn->register_count;++r)if(p->cell[r]!=r){identity=0;break;}if(!identity)flags|=BPP_LAYOUT_REGISTER_MAP;identity=1;for(size_t l=0;l<fn->local_count;++l)if(p->local_map[l]!=l){identity=0;break;}if(!identity)flags|=BPP_LAYOUT_LOCAL_MAP;return flags;}
 static size_t position(X *e){return bpp_reg_position(&e->plan,e->b,e->k);}
 static unsigned physical_at(X *e,size_t r,size_t pos){BPPRegLocation loc=bpp_reg_location_at(&e->plan,r,pos);return loc.kind==BPP_LOC_REGISTER?loc.physical:0;}
+static const BLIRInst *frame_site(const BLIRFunction *fn){const BLIRInst *first=NULL,*largest=NULL;size_t maxargs=0;for(size_t b=0;b<fn->block_count;++b)for(size_t k=0;k<fn->blocks[b].count;++k){const BLIRInst *i=&fn->blocks[b].insts[k];if(!first)first=i;if(i->arg_count>maxargs){maxargs=i->arg_count;largest=i;}}return largest?largest:first;}
+static void frame_error(BLIRModule *m,const BLIRFunction *fn,const char *backend){const BLIRInst *site=frame_site(fn);snprintf(m->error,sizeof m->error,"%s:%d:%d: %s frame layout overflow in function '%s'",m->path?m->path:"<input>",site?site->line:1,site?site->column:1,backend,fn->name);}
 static void spill_note(X *e,size_t r,BPPSpillReason reason,unsigned physical){if(e->asm_comments)fprintf(e->out,"    # B++ spill vreg=v%zu physical=%s cell=%zu reason=%s\n",r,cache(e,physical),e->plan.cell[r],bpp_reg_spill_reason_name(reason));}
 static void arg(X *e,unsigned n,const char *source,int address){
     static const char *unixregs[]={"%rdi","%rsi","%rdx","%rcx","%r8","%r9"};
@@ -36,24 +40,33 @@ static void def(X *e,const char *name){local(e,name);
 static void jump(X *e,const char *op,const char *name){fprintf(e->out,"    %s ",op);local(e,name);fputc('\n',e->out);}
 static void payload(X *e,size_t r,const char *dst){
     unsigned p=physical_at(e,r,position(e));
-    if(p){if(e->loaded_phys[r]!=p){if(e->asm_comments)fprintf(e->out,"    # B++ reload vreg=v%zu physical=%s cell=%zu reason=%s\n",r,cache(e,p),e->plan.cell[r],e->loaded_phys[r]?"allocation-segment-change":"first-payload-use");fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,cache(e,p));e->loaded_phys[r]=p;}fprintf(e->out,"    movq %s, %s\n",cache(e,p),dst);}
+    if(p){if(e->dirty[r]&&e->dirty_phys[r]&&e->dirty_phys[r]!=p){unsigned old=e->dirty_phys[r];if(e->asm_comments)fprintf(e->out,"    # B++ spill vreg=v%zu physical=%s cell=%zu reason=allocation-segment-transition\n",r,cache(e,old),e->plan.cell[r]);fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,old),cell(e,r)+8);e->dirty[r]=0;e->dirty_phys[r]=0;e->loaded_phys[r]=0;}if(e->loaded_phys[r]!=p){if(e->asm_comments)fprintf(e->out,"    # B++ reload vreg=v%zu physical=%s cell=%zu reason=%s\n",r,cache(e,p),e->plan.cell[r],e->loaded_phys[r]?"allocation-segment-change":"first-payload-use");fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,cache(e,p));e->loaded_phys[r]=p;}fprintf(e->out,"    movq %s, %s\n",cache(e,p),dst);}
     else fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,dst);
 }
-static void flush(X *e,unsigned char *dirty,int clear){size_t pos=position(e);for(size_t r=0;r<e->fn->register_count;++r)if(dirty[r]){
-    BPPSpillReason reason=bpp_reg_spill_reason_before(&e->plan,e->b,e->k,r);if(reason!=BPP_SPILL_NONE){unsigned p=physical_at(e,r,pos);if(p){spill_note(e,r,reason,p);fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,r)+8);}}
-    if(clear)dirty[r]=0;
+static void flush(X *e,unsigned char *dirty,int clear){for(size_t r=0;r<e->fn->register_count;++r)if(dirty[r]){
+    BPPSpillReason reason=bpp_reg_spill_reason_before(&e->plan,e->b,e->k,r);unsigned p=e->dirty_phys[r];if(reason!=BPP_SPILL_NONE&&p){spill_note(e,r,reason,p);fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,r)+8);}
+    if(clear){dirty[r]=0;e->dirty_phys[r]=0;}
 }}
-static void edge_flush(X *e,size_t to){size_t pos=position(e);for(size_t r=0;r<e->fn->register_count;++r)if(e->dirty[r]){
-    BPPSpillReason reason=bpp_reg_spill_reason_on_edge(&e->plan,e->b,to,r);unsigned p=physical_at(e,r,pos);if(reason!=BPP_SPILL_NONE&&p){spill_note(e,r,reason,p);fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,r)+8);}
+static void edge_flush(X *e,size_t to){for(size_t r=0;r<e->fn->register_count;++r)if(e->dirty[r]){
+    BPPSpillReason reason=bpp_reg_spill_reason_on_edge(&e->plan,e->b,to,r);unsigned p=e->dirty_phys[r];if(reason!=BPP_SPILL_NONE&&p){spill_note(e,r,reason,p);fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,r)+8);}
 }}
 static void cached(X *e,size_t r,const char *source){unsigned p=physical_at(e,r,position(e));
     if(!p)return;
-    for(size_t a=0;a<e->fn->register_count;++a)if(a!=r&&physical_at(e,a,position(e))==p){if(e->dirty[a]){fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,a)+8);e->dirty[a]=0;}e->loaded_phys[a]=0;}
+    for(size_t a=0;a<e->fn->register_count;++a)if(a!=r&&(physical_at(e,a,position(e))==p||e->dirty_phys[a]==p)){if(e->dirty[a]&&e->dirty_phys[a]==p){BPPSpillReason reason=bpp_reg_spill_reason_before(&e->plan,e->b,e->k,a);if(reason!=BPP_SPILL_NONE){spill_note(e,a,reason,p);fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,a)+8);}e->dirty[a]=0;e->dirty_phys[a]=0;}if(e->loaded_phys[a]==p)e->loaded_phys[a]=0;}
     fprintf(e->out,"    movq %s, %s\n",source,cache(e,p));
     e->loaded_phys[r]=p;
 }
-static void reload_at(X *e,size_t r,size_t pos){unsigned p=physical_at(e,r,pos);if(r!=BL_IR_NONE&&p){if(e->asm_comments){const BLIRInst *i=&e->fn->blocks[e->b].insts[e->k];const char *reason=i->dst==r?"helper-defined-result":"segment-transition-after-clobber";fprintf(e->out,"    # B++ reload vreg=v%zu physical=%s cell=%zu reason=%s\n",r,cache(e,p),e->plan.cell[r],reason);}fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,cache(e,p));e->loaded_phys[r]=p;}}
-static void restore_live_after(X *e){size_t old=position(e),pos=old+1;const BLIRInst *i=&e->fn->blocks[e->b].insts[e->k];size_t dst=i->op==BL_IR_RELEASE?i->a:i->dst;for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_after(&e->plan,e->b,e->k,r)){unsigned before=physical_at(e,r,old),after=physical_at(e,r,pos);if(after&&(after!=before||r==dst))reload_at(e,r,pos);}}
+static void reload_at(X *e,size_t r,size_t pos){unsigned p=physical_at(e,r,pos);if(r!=BL_IR_NONE&&p){if(e->asm_comments)fprintf(e->out,"    # B++ reload vreg=v%zu physical=%s cell=%zu reason=helper-defined-result\n",r,cache(e,p),e->plan.cell[r]);fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,cache(e,p));e->loaded_phys[r]=p;e->dirty[r]=0;e->dirty_phys[r]=0;}}
+static void restore_live_after(X *e){size_t old=position(e),pos=old+1;const BLIRInst *i=&e->fn->blocks[e->b].insts[e->k];size_t dst=i->op==BL_IR_RELEASE?i->a:i->dst;for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_after(&e->plan,e->b,e->k,r)){unsigned before=physical_at(e,r,old),after=physical_at(e,r,pos);if(after&&r==dst)reload_at(e,r,pos);else if(after&&after!=before)e->loaded_phys[r]=0;}}
+static BPPSpillReason slow_edge_reason(X *e,size_t r){
+    const BLIRInst *i=&e->fn->blocks[e->b].insts[e->k];size_t pos=position(e);
+    if(i->dst==r)return BPP_SPILL_DESTINATION;
+    if(e->plan.instruction_visible&&((e->plan.instruction_visible[pos*e->plan.words+r/64]>>(r%64))&1u))return BPP_SPILL_HELPER_INPUT;
+    if(e->plan.alloc_class[r]==BPP_ALLOC_TAGGED_PAIR&&e->plan.begin[r]!=SIZE_MAX&&e->plan.begin[r]<=pos&&e->plan.end[r]>=pos)return BPP_SPILL_ERROR_CLEANUP;
+    if(bpp_reg_live_after(&e->plan,e->b,e->k,r))return BPP_SPILL_LIVE_ACROSS;
+    return bpp_reg_spill_reason_before(&e->plan,e->b,e->k,r);
+}
+static void sync_slow_edge_homes(X *e){size_t pos=position(e);for(size_t r=0;r<e->fn->register_count;++r)if(e->dirty[r]){BPPSpillReason reason=slow_edge_reason(e,r);unsigned p=e->dirty_phys[r];if(reason==BPP_SPILL_LIVE_ACROSS&&p&&physical_at(e,r,pos+1)==p)continue;if(reason!=BPP_SPILL_NONE&&p){spill_note(e,r,reason,p);fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,r)+8);}e->dirty[r]=0;e->dirty_phys[r]=0;}}
 static void guard(X *e,size_t r){if(e->kind[r]==BPP_KIND_INT)return;fprintf(e->out,"    cmpl $1, %zu(%%r12)\n",cell(e,r));jump(e,"jne","slow");}
 static void result(X *e,size_t r,int tag){
     fprintf(e->out,"    cmpl $2, %zu(%%r12)\n",cell(e,r));jump(e,"jne","write");
@@ -63,21 +76,21 @@ static void result(X *e,size_t r,int tag){
     fputs("    movq 104(%r12), %r10\n",e->out);
     restore_live_after(e);
     def(e,"write");fprintf(e->out,"    movl $%d, %zu(%%r12)\n",tag,cell(e,r));
-    if(physical_at(e,r,position(e))){cached(e,r,"%r10");e->dirty[r]=(unsigned char)(tag==1);}
+    if(physical_at(e,r,position(e))){cached(e,r,"%r10");e->dirty[r]=(unsigned char)(tag==1);e->dirty_phys[r]=tag==1?physical_at(e,r,position(e)):0;}
     else if(tag==1)fprintf(e->out,"    movq %%r10, %zu(%%r12)\n",cell(e,r)+8);
     jump(e,"jmp","done");
 }
 static void slot(X *e,size_t n,int g,int flag){
     if(g){fprintf(e->out,"    movq %u(%%r12), %%rax\n",flag?40:8);
     if(n)fprintf(e->out,"    addq $%zu, %%rax\n",flag?n:n*16);}
-    else fprintf(e->out,"    leaq %zu(%%r12), %%rax\n",flag?e->flags+n:e->locals+n*16);
+    else {size_t physical=local_slot(e,n);fprintf(e->out,"    leaq %zu(%%r12), %%rax\n",flag?e->flags+physical:e->locals+physical*16);}
 }
 static int fast(X *e,const BLIRInst *i){FILE *o=e->out;
     switch(i->op){
     case BL_IR_NULL:case BL_IR_INT:fprintf(o,"    movq $%lld, %%r10\n",i->op==BL_IR_INT?i->integer:0LL);result(e,i->dst,i->op==BL_IR_INT);return 1;
     case BL_IR_RELEASE:
         fprintf(o,"    cmpl $2, %zu(%%r12)\n",cell(e,i->a));jump(e,"je","slow");
-        fprintf(o,"    movl $0, %zu(%%r12)\n",cell(e,i->a));e->dirty[i->a]=0;cached(e,i->a,"$0");jump(e,"jmp","done");return 1;
+        fprintf(o,"    movl $0, %zu(%%r12)\n",cell(e,i->a));e->dirty[i->a]=0;e->dirty_phys[i->a]=0;cached(e,i->a,"$0");jump(e,"jmp","done");return 1;
     case BL_IR_LOAD_LOCAL:case BL_IR_LOAD_GLOBAL:{int g=i->op==BL_IR_LOAD_GLOBAL;
         slot(e,i->a,g,1);
     fputs("    cmpb $0, (%rax)\n",o);jump(e,"je","slow");
@@ -86,6 +99,7 @@ static int fast(X *e,const BLIRInst *i){FILE *o=e->out;
     fputs("    movq 8(%rax), %r10\n",o);result(e,i->dst,1);return 1;}
     case BL_IR_STORE_LOCAL:case BL_IR_STORE_GLOBAL:case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:{
         int g=i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL,init=i->op==BL_IR_INIT_GLOBAL||i->op==BL_IR_INIT_LOCAL;
+        if(!g&&i->op==BL_IR_INIT_LOCAL&&e->plan.local_slot_shared[local_slot(e,i->a)])return 0;
         guard(e,i->b);
     if(!init){slot(e,i->a,g,1);
     fputs("    cmpb $0, (%rax)\n",o);jump(e,"je","slow");}
@@ -137,6 +151,11 @@ static void slow(X *e,const BLIRInst *i,int conditional){flush(e,conditional?e->
     arg(e,0,"%r12",0);call(e,"bpp_a_failed");
     fputs("    testl %eax, %eax\n",e->out);jump(e,"je","post_call");fprintf(e->out,"    jmp L_fail_%zu\n",e->f);def(e,"post_call");
     restore_live_after(e);
+    /* The fast arm may keep its result only in the payload cache, while this
+     * helper arm has made the home canonical.  At the shared continuation,
+     * conservatively treat that destination as dirty so the next visibility
+     * point writes it on both paths before any lazy reload can use the home. */
+    if(conditional&&i->dst!=BL_IR_NONE){unsigned p=physical_at(e,i->dst,position(e)+1);if(p){e->dirty[i->dst]=1;e->dirty_phys[i->dst]=p;}}
     jump(e,"jmp","done");
 }
 static void literal(FILE *o,const char *name,const char *s){fprintf(o,"%s:\n    .byte ",name);for(const unsigned char *p=(const unsigned char *)s;*p;++p)fprintf(o,"%u,",(unsigned)*p);
@@ -152,22 +171,23 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     break;}
         if(!bpp_reg_plan_validate(e->fn,&e->plan)){snprintf(m->error,sizeof m->error,"x86-64 register-map verifier failed in function '%s'",e->fn->name);ok=0;
     break;}
-        size_t n=e->fn->register_count;e->dirty=calloc(n?n:1,1);e->before=calloc(n?n:1,1);e->kind=calloc(n?n:1,1);e->constant=calloc(n?n:1,1);e->loaded_phys=calloc(n?n:1,sizeof *e->loaded_phys);e->value=calloc(n?n:1,sizeof *e->value);
-    if(!e->dirty||!e->before||!e->kind||!e->constant||!e->loaded_phys||!e->value){failed_fn=f;ok=0;
+        size_t n=e->fn->register_count;e->dirty=calloc(n?n:1,1);e->before=calloc(n?n:1,1);e->kind=calloc(n?n:1,1);e->constant=calloc(n?n:1,1);e->loaded_phys=calloc(n?n:1,sizeof *e->loaded_phys);e->value=calloc(n?n:1,sizeof *e->value);e->dirty_phys=calloc(n?n:1,sizeof *e->dirty_phys);
+    if(!e->dirty||!e->before||!e->kind||!e->constant||!e->loaded_phys||!e->value||!e->dirty_phys){failed_fn=f;ok=0;
     break;}
         for(size_t b=0;b<e->fn->block_count;++b)for(size_t k=0;k<e->fn->blocks[b].count;++k)if(e->fn->blocks[b].insts[k].arg_count>e->maxargs)e->maxargs=e->fn->blocks[b].insts[k].arg_count;
         if(e->plan.cell_count>INT_MAX/16||e->fn->local_count>INT_MAX/32||e->maxargs>INT_MAX/16){failed_fn=f;ok=0;
     break;}
-        e->locals=BPP_CG_HEADER_BYTES+e->plan.cell_count*16;e->flags=e->locals+e->fn->local_count*16;e->args=(e->flags+e->fn->local_count+15)&~(size_t)15;e->bytes=e->args+e->maxargs*16;
+        BPPNativeFrameLayout frame;if(!bpp_native_frame_layout(e->plan.cell_count,e->plan.local_slot_count,e->maxargs,&frame)){failed_fn=f;ok=0;break;}
+        e->locals=frame.locals_offset;e->flags=frame.flags_offset;e->args=frame.outgoing_offset;e->bytes=frame.frame_bytes;
         if(e->bytes>(size_t)INT_MAX-128){failed_fn=f;ok=0;
     break;}
         e->saved_count=0;save_set(e);
-        e->alloc=e->bytes+((e->saved_count&1)?80:72);
+        BPPNativeStackUsage stack;if(!bpp_native_stack_usage(e->bytes,e->saved_count,0,&stack)){failed_fn=f;ok=0;break;}e->alloc=stack.allocation_bytes;
     }
-    if(!ok&&!m->error[0])snprintf(m->error,sizeof m->error,"x86-64 frame planning failed or exceeded 2 GiB in function '%s'",m->functions[failed_fn].name);
+    if(!ok&&!m->error[0])frame_error(m,&m->functions[failed_fn],"x86-64");
     if(ok){
         bpp_asm_source(o,m);
-        fputs("# B++ native x86-64, private ABI revision 1\n.text\n.globl main\nmain:\n",o);
+        fputs("# B++ native x86-64, private ABI revision 2\n.text\n.globl main\nmain:\n",o);
         X *e=&all[0];
         if(win)fputs("    .seh_proc main\n    subq $40, %rsp\n    .seh_stackalloc 40\n    .seh_endprologue\n",o);
         else fputs("    .cfi_startproc\n    pushq %rbp\n    .cfi_def_cfa_offset 16\n    .cfi_offset %rbp, -16\n    movq %rsp, %rbp\n    .cfi_def_cfa_register %rbp\n",o);
@@ -185,15 +205,22 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
             fputs("    leaq 64(%rsp), %r12\n",o);char layout[80];snprintf(layout,sizeof layout,"L_layout_%zu(%%rip)",f);arg(e,4,layout,1);arg(e,5,"%r12",0);call(e,"bpp_n_enter");
             if(win)fputs("    movq %rbp, 96(%r12)\n",o);else fprintf(o,"    movq -%zu(%%rbp), %%rax\n    movq %%rax, 96(%%r12)\n",e->saved_count*8);
             if(m->instrument_native){char caller[64];if(win)snprintf(caller,sizeof caller,"%zu(%%rsp)",alloc+e->saved_count*8);else snprintf(caller,sizeof caller,"8(%%rbp)");arg(e,0,caller,0);call(e,"bpp_a_trace_enter");}
-            for(size_t b=0;b<e->fn->block_count;++b){e->b=b;memset(e->kind,0,e->fn->register_count);memset(e->constant,0,e->fn->register_count);memset(e->dirty,0,e->fn->register_count);memset(e->loaded_phys,0,e->fn->register_count*sizeof *e->loaded_phys);fprintf(o,"L_f%zu_b%zu:\n",f,b);
+            for(size_t b=0;b<e->fn->block_count;++b){e->b=b;memset(e->kind,0,e->fn->register_count);memset(e->constant,0,e->fn->register_count);memset(e->dirty,0,e->fn->register_count);memset(e->dirty_phys,0,e->fn->register_count*sizeof *e->dirty_phys);memset(e->loaded_phys,0,e->fn->register_count*sizeof *e->loaded_phys);fprintf(o,"L_f%zu_b%zu:\n",f,b);
                 for(size_t k=0;k<e->fn->blocks[b].count;++k){e->k=k;const BLIRInst *i=&e->fn->blocks[b].insts[k];
+                    if(i->dst!=BL_IR_NONE&&e->plan.begin[i->dst]==SIZE_MAX)continue;
                     if(m->debug_path)bpp_asm_location(o,i);
                     if(m->emit_asm_comments)bpp_asm_instruction_comment(o,e->fn,f,b,k,&e->plan,target,1);
                     if(m->instrument_native&&(i->op==BL_IR_LOAD_GLOBAL||i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL)){flush(e,e->dirty,1);arg(e,0,"%r12",0);number(e,1,i->op);number(e,2,i->a);call(e,"bpp_a_access");}
                     if(i->op==BL_IR_RETURN){flush(e,e->dirty,1);number(e,1,i->a);fprintf(o,"    jmp L_cleanup_%zu\n",f);continue;}
-                    if(i->op==BL_IR_JUMP){edge_flush(e,i->a);fprintf(o,"    jmp L_f%zu_b%zu\n",f,i->a);memset(e->dirty,0,e->fn->register_count);continue;}
+                    if(i->op==BL_IR_JUMP){edge_flush(e,i->a);fprintf(o,"    jmp L_f%zu_b%zu\n",f,i->a);memset(e->dirty,0,e->fn->register_count);memset(e->dirty_phys,0,e->fn->register_count*sizeof *e->dirty_phys);continue;}
                     if(i->op==BL_IR_BRANCH){fprintf(o,"    cmpl $0, %zu(%%r12)\n",cell(e,i->a));jump(e,"je","false");fprintf(o,"    cmpl $1, %zu(%%r12)\n",cell(e,i->a));jump(e,"jne","true");payload(e,i->a,"%r10");
-    fputs("    testq %r10, %r10\n",o);jump(e,"jne","true");def(e,"false");edge_flush(e,i->c);fprintf(o,"    jmp L_f%zu_b%zu\n",f,i->c);def(e,"true");edge_flush(e,i->b);fprintf(o,"    jmp L_f%zu_b%zu\n",f,i->b);memset(e->dirty,0,e->fn->register_count);continue;}
+    fputs("    testq %r10, %r10\n",o);jump(e,"jne","true");def(e,"false");edge_flush(e,i->c);fprintf(o,"    jmp L_f%zu_b%zu\n",f,i->c);def(e,"true");edge_flush(e,i->b);fprintf(o,"    jmp L_f%zu_b%zu\n",f,i->b);memset(e->dirty,0,e->fn->register_count);memset(e->dirty_phys,0,e->fn->register_count*sizeof *e->dirty_phys);continue;}
+                    /* The emitted slow arm is a possible helper/error edge for
+                     * every fast lowering, including checks not classified as
+                     * direct clobbers by the IR opcode alone.  Synchronize the
+                     * edge-live homes before the fast/slow split so a later
+                     * shared continuation can reload lazily on either path. */
+                    sync_slow_edge_homes(e);
                     memcpy(e->before,e->dirty,e->fn->register_count);int conditional=fast(e,i);
     if(conditional)def(e,"slow");
                     slow(e,i,conditional);def(e,"done");bpp_known_update(e->kind,e->constant,e->value,i);
@@ -210,8 +237,8 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
         fputs(win?".section .rdata,\"dr\"\n":".section .rodata\n",o);literal(o,"L_path",m->path);
         for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];
     if(i->text){char label[96];snprintf(label,sizeof label,"L_text_%zu_%zu_%zu",f,b,k);literal(o,label,i->text);}}
-        fputs(".p2align 3\n",o);for(size_t f=0;f<m->function_count;++f){e=&all[f];fprintf(o,"L_layout_%zu:\n    .quad %zu,%zu,%zu,%zu,%zu\n",f,e->fn->param_count,e->fn->register_count,e->fn->local_count,e->maxargs,e->plan.cell_count);for(size_t r=0;r<e->fn->register_count;++r)fprintf(o,"    .quad %zu\n",e->plan.cell[r]);}
+        fputs(".p2align 3\n",o);for(size_t f=0;f<m->function_count;++f){e=&all[f];size_t flags=layout_flags(&e->plan,e->fn);fprintf(o,"L_layout_%zu:\n    .quad %zu,%zu,%zu,%zu,%zu,%zu,%zu,%zu\n",f,e->fn->param_count,e->fn->register_count,e->fn->local_count,e->maxargs,e->plan.cell_count,e->plan.local_slot_count,e->plan.root_cell_count,flags);if(flags&BPP_LAYOUT_REGISTER_MAP)for(size_t r=0;r<e->fn->register_count;++r)fprintf(o,"    .quad %zu\n",e->plan.cell[r]);if(flags&BPP_LAYOUT_LOCAL_MAP)for(size_t l=0;l<e->fn->local_count;++l)fprintf(o,"    .quad %zu\n",e->plan.local_map[l]);}
         if(!win)fputs(".section .note.GNU-stack,\"\",@progbits\n",o);
     }
-    for(size_t f=0;f<m->function_count;++f){bpp_reg_plan_destroy(&all[f].plan);free(all[f].dirty);free(all[f].before);free(all[f].kind);free(all[f].constant);free(all[f].loaded_phys);free(all[f].value);}free(all);return ok&&!ferror(o);
+            for(size_t f=0;f<m->function_count;++f){bpp_reg_plan_destroy(&all[f].plan);free(all[f].dirty);free(all[f].before);free(all[f].kind);free(all[f].constant);free(all[f].loaded_phys);free(all[f].value);free(all[f].dirty_phys);}free(all);return ok&&!ferror(o);
 }

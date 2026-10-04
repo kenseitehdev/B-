@@ -52,7 +52,10 @@ typedef struct {
  * spill homes. physical[] is only a legacy summary for uniform allocations. */
 struct BPPRegPlan {
     size_t register_count, block_count, words, cached_count, cell_count;
+    size_t root_cell_count, local_slot_count;
     size_t *cell;
+    size_t *local_map;
+    unsigned char *local_slot_shared;
     unsigned short *physical; /* architecture register id; zero means stack-only */
     unsigned char *physical_flags,*caller_safe,*alloc_class;
     long long *rematerialized_int; /* valid only for BPP_ALLOC_REMATERIALIZABLE */

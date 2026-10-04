@@ -35,6 +35,8 @@ runtime_error() {
 native_case recursion 'return fact(6); define proc fact(n) { if(n <= 1) {return 1;} else {return n * fact(n - 1);} }' '720'
 native_case loop 'new int x=0; while(x<1000){x=x+1;} return x;' '1000'
 native_case shadow 'new int x=8; define proc f(x){return x+1;} return f(4)+x;' '13'
+expected_local_slot=$(printf 'old\n7\n0')
+native_case local_slot_reuse 'define proc f(){new String a="old";println(a);new int b=7;println(b);return 0;} return f();' "$expected_local_slot"
 native_case strings 'new String s="ab"; new String t="cd"; new String u=String.concat(s,t); assert(String.cmp(u,"abcd")==0); return String.length(u);' '4'
 native_case integer_to_decimal_buffer 'new String value=12345; assert(String.cmp(value,"12345")==0); return String.length(value);' '5'
 native_case string_new_integer_byte 'return string_new(65);' 'A'
@@ -105,9 +107,27 @@ grep -E '\.globl (_)?main' "$task_dir/out.s" >/dev/null
 "$project_compiler" --asm-comments --emit-asm -o "$task_dir/placement.s" "$project_dir/tests/arm64_coverage.bpp"
 grep -F 'B++ reload' "$task_dir/placement.s" >/dev/null
 grep -F 'reason=' "$task_dir/placement.s" >/dev/null
+printf '%s\n' 'define proc g(n){return n+1;} define proc f(n){new int a=n+1; return a+g(n);} return f(4);' > "$task_dir/lazy-reload.bpp"
+"$project_compiler" --target macos-arm64 --asm-comments --emit-asm -o "$task_dir/lazy-reload.s" "$task_dir/lazy-reload.bpp"
+if grep -F 'reason=segment-transition-after-clobber' "$task_dir/lazy-reload.s" >/dev/null; then
+    echo 'FAIL lazy reload: allocation transition was reloaded eagerly'; exit 1
+fi
+if ! awk '/B\+\+ reload .*reason=first-payload-use/ { if (getline && $0 ~ /add x12/ && getline && $0 ~ /ldr x[0-9]+, \[x12, #8\]/) found=1 } END { exit !found }' "$task_dir/lazy-reload.s"; then
+    echo 'FAIL lazy reload: no first-use reload group was emitted'; exit 1
+fi
 "$project_compiler" --emit-map -o "$task_dir/placement.json" "$project_dir/tests/arm64_coverage.bpp"
 grep -F '"spill_candidates"' "$task_dir/placement.json" >/dev/null
 grep -F '"spill_reason"' "$task_dir/placement.json" >/dev/null
+printf '%s\n' 'define proc f(){new String a="old";println(a);new int b=7;println(b);return 0;} return f();' > "$task_dir/frame.bpp"
+"$project_compiler" --emit-map -o "$task_dir/frame.json" "$task_dir/frame.bpp"
+grep -F '"local_slots":1' "$task_dir/frame.json" >/dev/null
+grep -F '"local_map":"explicit"' "$task_dir/frame.json" >/dev/null
+grep -F '"root_cells"' "$task_dir/frame.json" >/dev/null
+grep -F '"outgoing_arguments_offset"' "$task_dir/frame.json" >/dev/null
+printf '%s\n' 'return 12;' > "$task_dir/exact-frame.bpp"
+"$project_compiler" --emit-map --target linux-x86_64 -o "$task_dir/exact-frame.json" "$task_dir/exact-frame.bpp"
+grep -F '"frame_data_bytes":144' "$task_dir/exact-frame.json" >/dev/null
+grep -F '"saved_register_bytes":16,"stack_allocation_bytes":216,"frame_bytes":232' "$task_dir/exact-frame.json" >/dev/null
 if bpp --emit-c -o "$task_dir/./case.bpp" "$task_dir/case.bpp" >/dev/null 2>&1; then echo 'FAIL source overwrite'; exit 1; fi
 mkdir -p "$task_dir/space dir"
 printf '%s\n' 'return 12;' > "$task_dir/space dir/input source.bpp"

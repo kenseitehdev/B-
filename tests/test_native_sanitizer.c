@@ -3,7 +3,7 @@
 int main(void){
     BLRuntime vm={"sanitizer-hook",NULL};
     BLValue *globals=calloc(1,sizeof *globals);unsigned char flags[1]={0};
-    _Alignas(16) unsigned char storage[160];BPPNativeLayout layout={0,1,0,0,0};
+    _Alignas(16) unsigned char storage[160];BPPNativeLayout layout={0,1,0,0,0,0,0,0};
     if(!globals)return 2;
     BPPNativeFrame *frame=bpp_n_enter(&vm,globals,flags,NULL,&layout,storage);
     /* This deliberately violates a compiled global index to test the ASAN hook. */

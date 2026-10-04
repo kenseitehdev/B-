@@ -15,8 +15,8 @@ int main(void) {
     numeric_text=bl_value_string_copy("9223372036854775808");
     (void)bl_value_to_int(numeric_text,&converted);assert(!converted);bl_value_release(numeric_text);
 
-    _Alignas(16) unsigned char outer_storage[256], inner_storage[256];
-    BPPNativeLayout layout = {1, 4, 2, 2, 0};
+    _Alignas(16) unsigned char outer_storage[512], inner_storage[512];
+    BPPNativeLayout layout = {1, 4, 2, 2, 4, 2, 4, 0};
     BLRuntime vm = {"frame-test", NULL};
     BLValue globals[1] = {bl_value_null()}, result = bl_value_null();
     unsigned char initialized[1] = {0};
@@ -54,7 +54,7 @@ int main(void) {
     bl_value_release(input);
 
     /* Disjoint virtual values share one physical cell. Cleanup releases the cell once. */
-    struct { BPPNativeLayout layout; size_t map[4]; } compact = {{0,4,0,0,1},{0,0,0,0}};
+    struct { BPPNativeLayout layout; size_t map[4]; } compact = {{0,4,0,0,1,0,1,BPP_LAYOUT_REGISTER_MAP},{0,0,0,0}};
     vm.error=NULL;
     outer=bpp_n_enter(&vm,globals,initialized,NULL,&compact.layout,outer_storage);
     bpp_a_string(outer,0,"first");
@@ -65,6 +65,17 @@ int main(void) {
     assert(result.as.obj->ref_count==1);
     assert(!strcmp(bl_value_as_string(result)->data,"last"));
     bl_value_release(result);
+
+    /* Shared local slots release the prior owned occupant on INIT_LOCAL. */
+    struct { BPPNativeLayout layout; size_t map[2]; } shared_local =
+        {{0,2,2,0,2,1,1,BPP_LAYOUT_LOCAL_MAP},{0,0}};
+    outer=bpp_n_enter(&vm,globals,initialized,NULL,&shared_local.layout,outer_storage);
+    bpp_a_string(outer,0,"replaced");
+    bpp_a_op(outer,BL_IR_INIT_LOCAL,BL_IR_NONE,0,0,BL_IR_NONE,4,1);
+    bpp_a_integer(outer,1,7);
+    bpp_a_op(outer,BL_IR_INIT_LOCAL,BL_IR_NONE,1,1,BL_IR_NONE,5,1);
+    bpp_a_leave(outer,BL_IR_NONE,&result);
+    assert(result.tag==BLV_NULL);
     puts("Native stack-frame ownership tests passed");
     return 0;
 }

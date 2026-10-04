@@ -367,6 +367,35 @@ int main(void) {
     assert(bpp_reg_plan_validate_error_visibility(&fn,&p));
     bpp_reg_plan_destroy(&p);
 
+    /* Straight-line local lifetimes can share physical local/value/flag
+       storage; branch-bearing functions retain unique local slots. */
+    BLIRInst local_reuse[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_INIT_LOCAL,N,0,0,N),
+        I(BL_IR_LOAD_LOCAL,1,0,N,N),I(BL_IR_RELEASE,N,1,N,N),
+        I(BL_IR_INT,2,N,N,N),I(BL_IR_INIT_LOCAL,N,1,2,N),I(BL_IR_RETURN,N,2,N,N)};
+    BLIRBlock local_reuse_block={local_reuse,7,7};fn.blocks=&local_reuse_block;fn.block_count=1;fn.register_count=3;
+    fn.locals=(char *[]){"first","second"};fn.local_count=2;fn.param_count=0;
+    assert(bpp_reg_plan_create(&fn,&p));
+    assert(p.local_slot_count==1&&p.local_map[0]==p.local_map[1]);
+    assert(p.local_slot_shared[0]&&bpp_reg_plan_validate(&fn,&p));
+    bpp_reg_plan_destroy(&p);
+    BLIRInst local_a[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_INIT_LOCAL,N,0,0,N),I(BL_IR_JUMP,N,1,N,N)};
+    BLIRInst local_b[]={I(BL_IR_INT,1,N,N,N),I(BL_IR_INIT_LOCAL,N,1,1,N),I(BL_IR_RETURN,N,1,N,N)};
+    BLIRBlock local_cfg[]={{local_a,3,3},{local_b,3,3}};fn.blocks=local_cfg;fn.block_count=2;fn.register_count=2;
+    assert(bpp_reg_plan_create(&fn,&p));
+    assert(p.local_slot_count==2&&p.local_map[0]!=p.local_map[1]);
+    bpp_reg_plan_destroy(&p);
+
+    /* Primitive-only value cells are outside the ownership-root region. */
+    BLIRInst primitive[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_RETURN,N,0,N,N)};
+    BLIRBlock primitive_block={primitive,2,2};fn.blocks=&primitive_block;fn.block_count=1;fn.register_count=1;fn.local_count=0;fn.locals=NULL;
+    assert(bpp_reg_plan_create(&fn,&p));assert(p.root_cell_count==0&&p.cell_count==1);bpp_reg_plan_destroy(&p);
+    BLIRInst unused_literal[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_RETURN,N,N,N,N)};
+    BLIRBlock unused_literal_block={unused_literal,2,2};fn.blocks=&unused_literal_block;
+    assert(bpp_reg_plan_create(&fn,&p));assert(p.begin[0]==SIZE_MAX&&p.cell[0]==SIZE_MAX&&p.cell_count==0);assert(bpp_reg_plan_validate(&fn,&p));bpp_reg_plan_destroy(&p);
+    BLIRInst owned_inst[]={I(BL_IR_STRING,0,N,N,N),I(BL_IR_RETURN,N,0,N,N)};
+    BLIRBlock owned_block={owned_inst,2,2};fn.blocks=&owned_block;fn.block_count=1;fn.register_count=1;
+    assert(bpp_reg_plan_create(&fn,&p));assert(p.root_cell_count==1&&p.cell_count==1);bpp_reg_plan_destroy(&p);
+
     puts("CFG liveness and payload allocation tests passed");
     return 0;
 }
