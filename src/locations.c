@@ -1,6 +1,7 @@
 #include "../include/target.h"
 #include "../include/regalloc.h"
 #include "../include/codegen_abi.h"
+static const char *phys_name(BPPTarget t,unsigned p);
 static void quote(FILE *o,const char *s){fputc('"',o);for(const unsigned char *p=(const unsigned char *)s;*p;++p){if(*p=='"'||*p=='\\')fputc('\\',o);
     if(*p<32)fprintf(o,"\\u%04x",*p);else fputc(*p,o);}fputc('"',o);}
 int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
@@ -20,10 +21,18 @@ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
     fputs("{\"name\":",o);quote(o,m->functions[f].name);fprintf(o,",\"label\":\"L_proc_%zu\",\"frame_register\":\"%s\",\"value_cells\":%zu,\"locals\":[",f,cap->isa==BPP_ISA_X86_64?"r12":"x19",p.cell_count);
         for(size_t j=0;j<m->functions[f].local_count;++j){if(j)fputc(',',o);
     fputs("{\"name\":",o);quote(o,m->functions[f].locals[j]);fprintf(o,",\"offset\":%zu}",BPP_CG_HEADER_BYTES+p.cell_count*16+j*16);}
-        fputs("],\"instructions\":[",o);int comma=0;
+        fputs("],\"allocation_segments\":[",o);int comma=0;
+        for(size_t r=0;r<p.register_count;++r)for(size_t j=p.segment_offsets[r];j<p.segment_offsets[r+1];++j){const BPPRegSegment *seg=&p.segments[j];if(comma++)fputc(',',o);
+            BPPRegLocation loc=bpp_reg_location_at(&p,r,seg->begin);
+            const char *kind=loc.kind==BPP_LOC_REGISTER?"register":loc.kind==BPP_LOC_CONSTANT?"constant":loc.kind==BPP_LOC_REMATERIALIZABLE?"rematerializable":"spill";
+            fprintf(o,"{\"vreg\":%zu,\"begin\":%zu,\"end\":%zu,\"kind\":",r,seg->begin,seg->end);quote(o,kind);
+            if(loc.kind==BPP_LOC_REGISTER){fputs(",\"physical\":",o);quote(o,phys_name(t,loc.physical));}
+            if(loc.kind==BPP_LOC_CONSTANT||loc.kind==BPP_LOC_REMATERIALIZABLE)fprintf(o,",\"immediate\":%lld",loc.immediate);
+            fprintf(o,",\"spill_cell\":%zu}",loc.spill_cell);}
+        fputs("],\"instructions\":[",o);int instruction_comma=0;
         for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){BLIRInst *i=&m->functions[f].blocks[b].insts[k];
-    if(comma++)fputc(',',o);
-    fprintf(o,"{\"block\":%zu,\"instruction\":%zu,\"line\":%d,\"column\":%d}",b,k,i->line,i->column);}
+    if(instruction_comma++)fputc(',',o);
+    fprintf(o,"{\"block\":%zu,\"instruction\":%zu,\"position\":%zu,\"line\":%d,\"column\":%d}",b,k,bpp_reg_position(&p,b,k),i->line,i->column);}
         fputs("]}",o);bpp_reg_plan_destroy(&p);
     }fputs("]}\n",o);return !ferror(o);
 }
@@ -44,7 +53,13 @@ void bpp_asm_instruction_comment(FILE *o,const BLIRFunction *fn,size_t fi,size_t
     case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:case BL_IR_INDEX_GET:ids[n++]=i->a;ids[n++]=i->b;break;
     case BL_IR_INDEX_SET:ids[n++]=i->a;ids[n++]=i->b;ids[n++]=i->c;break;default:break;}
     if(i->op==BL_IR_INIT_LOCAL||i->op==BL_IR_INIT_GLOBAL||i->op==BL_IR_STORE_LOCAL||i->op==BL_IR_STORE_GLOBAL)ids[n++]=i->b;
-    for(size_t x=0;x<n;++x){BLIRId r=ids[x];if(r>=p->register_count)continue;fprintf(o," vreg=v%zu:phys=%s:spill-cell=%zu",r,phys_name(target,p->physical[r]),p->cell[r]);}
-    if(i->op==BL_IR_CALL)for(size_t x=0;x<i->arg_count;++x){BLIRId r=i->args[x];if(r<p->register_count)fprintf(o," arg%zu:vreg=v%zu:phys=%s:spill-cell=%zu",x,r,phys_name(target,p->physical[r]),p->cell[r]);}
+    size_t pos=bpp_reg_position(p,bi,ki);
+    for(size_t x=0;x<n;++x){BLIRId r=ids[x];if(r>=p->register_count)continue;BPPRegLocation loc=bpp_reg_location_at(p,r,pos);
+        if(loc.kind==BPP_LOC_REGISTER)fprintf(o," vreg=v%zu:phys=%s:spill-cell=%zu",r,phys_name(target,loc.physical),loc.spill_cell);
+        else if(loc.kind==BPP_LOC_CONSTANT)fprintf(o," vreg=v%zu:constant=%lld",r,loc.immediate);
+        else if(loc.kind==BPP_LOC_REMATERIALIZABLE)fprintf(o," vreg=v%zu:remat=%lld:spill-cell=%zu",r,loc.immediate,loc.spill_cell);
+        else if(loc.kind==BPP_LOC_SPILL)fprintf(o," vreg=v%zu:phys=spill:spill-cell=%zu",r,loc.spill_cell);
+        else fprintf(o," vreg=v%zu:location=dead",r);}
+    if(i->op==BL_IR_CALL)for(size_t x=0;x<i->arg_count;++x){BLIRId r=i->args[x];if(r<p->register_count){BPPRegLocation loc=bpp_reg_location_at(p,r,pos);fprintf(o," arg%zu:vreg=v%zu:location=%s",x,r,loc.kind==BPP_LOC_REGISTER?phys_name(target,loc.physical):loc.kind==BPP_LOC_CONSTANT?"constant":"spill");}}
     fputc('\n',o);
 }

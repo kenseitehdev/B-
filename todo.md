@@ -1,6 +1,6 @@
 B++ compiler roadmap and target checklist
-Checklist revision: 1.2
-Status snapshot: 2026-10-03 (after allocation-class and pressure-test update)
+Checklist revision: 1.3
+Status snapshot: 2026-10-03 (after explicit allocation locations, helper-boundary live-range splitting, and refreshed Linux x86-64 validation)
 Codegen target set: macOS ARM64, Linux x86-64, Linux ARM64, Windows x86-64.
 This file tracks work by roadmap stage and native platform. “Implemented” means
 code exists. “Cross-assembled” means an object was produced for a foreign target.
@@ -9,15 +9,15 @@ architecture. Those are different gates. Do not mark an OS verified because its
 assembly assembled on another host or because a calling-convention bridge passed.
 Platform/version matrix
 Platform profile	Target triple	Codegen implementation	Cross-assembly (current snapshot)	Native release execution (current snapshot)	Native debug/sanitizers
-macOS ARM64 v1	macos-arm64 / Mach-O	Implemented	Rerun required after allocation-class update; prior revision passed	Prior revision passed on Apple Silicon; current revision needs rerun	Pending for current revision
-Linux x86-64 v1	linux-x86_64 / ELF	Implemented	Current native assembly passed; cross-target assembly pending	Passed on Linux x86-64: 51 C and 51 native cases	ASAN/UBSAN passed with leak scan disabled; TSAN passed on prior test revision
-Linux ARM64 v1	linux-arm64 / ELF	Implemented	Rerun required after allocation-class update; prior revision passed	Pending native Linux ARM64	Pending native Linux ARM64
-Windows x86-64 v1	windows-x86_64 / COFF/PE	Implemented	Rerun required after allocation-class update; prior revision passed	Pending native Windows x86-64	Windows native toolchain/runtime pending; Linux ms_abi bridge passed
+macOS ARM64 v1	macos-arm64 / Mach-O	Implemented	Current revision pending; clang unavailable in this workspace	Prior revision passed on Apple Silicon; current allocator revision needs rerun	Pending for current revision
+Linux x86-64 v1	linux-x86_64 / ELF	Implemented	Native assembly/linking passed through the current test suite; cross-target assembly pending (clang unavailable)	Passed current revision: 51 C and 51 native cases, plus differential and stress suites	Current revision: ASAN/UBSAN and TSAN suites passed; LSan exit scan disabled
+Linux ARM64 v1	linux-arm64 / ELF	Implemented	Current revision pending; clang unavailable in this workspace	Pending native Linux ARM64	Pending native Linux ARM64
+Windows x86-64 v1	windows-x86_64 / COFF/PE	Implemented	Current revision pending; clang unavailable in this workspace	Pending native Windows x86-64	Windows native toolchain/runtime pending; current Linux ms_abi bridge passed 51 cases
 
 
-Previous macOS evidence: Jay reported a release run on Apple Silicon with 48 C/native cases, 64 optimized/baseline differential cases, cross-assembly for all four targets, and the 5,000-update stress case. That run predates the allocation-class update below and must be repeated for the current snapshot.
-Current Linux x86-64 evidence: release `make test` passed unit tests and 51 C plus 51 native cases. The 64-seed optimized/baseline differential suite, 5,000-update stress case, and 51-case Windows `ms_abi` bridge passed. Debug ASAN/UBSAN tests passed with `ASAN_OPTIONS=detect_leaks=0`; this does not verify the LSAN exit scan. A TSAN run was reported for the previous test revision. The 4096-virtual-value allocator test passed.
-Current cross-target status: assembly text was emitted for macOS ARM64, Linux x86-64, Linux ARM64, and Windows x86-64. The current environment lacks `clang`, so `check-targets` could not produce cross-target objects for this revision; previously recorded cross-assembly applies to the prior revision.
+Previous macOS evidence: Jay reported a release run on Apple Silicon with 48 C/native cases, 64 optimized/baseline differential cases, cross-assembly for all four targets, and the 5,000-update stress case. That run predates the current explicit-location and split-allocation revision and must be repeated before marking this snapshot native-verified.
+Current Linux x86-64 evidence: release `make test`, current debug ASAN/UBSAN `make test`, and current TSAN `make test` each passed unit tests and 51 C plus 51 native cases. Debug used `ASAN_OPTIONS=detect_leaks=0`; the LSan exit scan is therefore unverified. The 64-seed optimized/baseline differential suite, 5,000-update stress case, current 51-case Windows `ms_abi` bridge, and 4096-virtual-value allocator test passed. A focused allocator test confirms physical-register, spill-cell, immediate, rematerializable, and dead locations, including one value switching from register to spill across a helper boundary. `tests/run_tests.sh` now prints each case name while running, so `make check` gives progress instead of remaining silent until completion.
+Current cross-target status: assembly text was emitted for macOS ARM64, Linux x86-64, Linux ARM64, and Windows x86-64. This workspace has no `clang`, so `check-targets` could not produce cross-target objects for this revision; previously recorded cross-assembly applies to the prior revision. Linux x86-64 native assembly and linking are covered by the passing native suite.
 1. Codegen (CG)
 1.1 Shared pipeline and invariants
 - [x] Keep the hand-rolled front end and IR as the common input to every backend.
@@ -42,14 +42,14 @@ Current implementation: up to eleven ARM64 integer payload candidates (eight cal
 - [x] Add caller-saved allocation where its save/restore cost is lower than spilling; model helper and user-call clobbers explicitly.
 - [x] Decide whether tags remain memory-resident or can be cached with payloads; document coherence rules for tag/payload pairs.
 - [x] Classify dynamic tag/payload values as canonical tagged pairs and integer/null literals as immediates. Literals remain in canonical cells for helper/error visibility and no longer take payload registers.
-- [ ] Classify proven-safe rematerializable expressions. The class is reserved, but no current IR expression is marked rematerializable because checked/effectful operations must preserve errors and side effects; literal stack-home removal remains open under spill/frame work.
+- [x] Classify proven-safe rematerializable expressions. Same-block integer expressions with known constant inputs are marked only when checked evaluation succeeds; operations that could overflow, divide by zero, evaluate `INT64_MIN / -1`, depend on dynamic inputs, or have effects remain unclassified. The computed result is allocator metadata and may be reported as a rematerializable location when spilled. The emitter still executes the original IR and every value retains its canonical cell; recomputation and stack-home removal remain open.
 - [x] Generate each function's additional callee-save set from its allocated physical registers; allocator tests check the derived set at zero, exact-capacity, and over-capacity pressure.
-- [ ] Verify stack alignment, callee-saved restoration, scratch ownership, and call-clobber behavior on every native target. Linux x86-64 release/debug tests and the Windows `ms_abi` bridge exercise recursion and calls; ARM64 assembly is emitted, but this revision still needs native ARM64 runs. Native Windows execution is also pending.
+- [ ] Verify stack alignment, callee-saved restoration, scratch ownership, and call-clobber behavior on every native target. Current Linux x86-64 release, ASAN/UBSAN debug (with LSan scanning disabled), and TSAN suites exercise calls, recursion, frames, and errors; the current Windows `ms_abi` bridge passes 51 cases. These do not close native macOS ARM64, Linux ARM64, or Windows x86-64 verification. The matching native runs remain pending.
 - [x] Test zero/one capacity, exact callee-save capacity, pool-plus-one spills, and high-pressure values across calls, CFG joins, loop backedges, returns, and checked-operation error/helper paths for all four target descriptions. Runtime recursion, cleanup-error, and call-pressure cases pass on Linux x86-64; the Windows calling-convention bridge also passes.
 2. Actual spill management
-Current implementation: intervals compete for a cache register; evicted intervals use mapped stack cells. Dirty cache values flush before helpers/control-flow boundaries and reload at block entries. Every virtual IR register still has an ownership cell.
-- [ ] Define allocator locations explicitly: physical register, spill slot, constant/immediate, rematerializable expression, and unallocated/dead. The new value classes do not yet replace the physical/cell location model; every virtual value still has a canonical cell.
-- [ ] Implement live-range splitting so a value can be in a register in a hot region and in a spill cell elsewhere.
+Current implementation: each virtual value has a canonical ownership cell, reused across nonoverlapping value lifetimes. Allocation is represented as per-instruction-position segments: a segment may use a physical register, spill cell, or rematerializable expression; integer/null constants are reported as immediate locations and dead values as unallocated. The legacy `physical[]` field is only a summary when a value uses one register for all of its segments. `--emit-map` exports the segments and instruction positions. Both native emitters query this map, flush before unconditional helpers/calls, and reload live values into the location selected for the following segment. Splitting currently occurs at unconditional helper boundaries; arbitrary hot/cold CFG splitting and edge-specific spill placement remain open.
+- [x] Define allocator locations explicitly: physical register, spill cell, constant/immediate, rematerializable expression, and unallocated/dead. `bpp_reg_location_at` is the per-position query, and `--emit-map` reports allocation segments. Canonical ownership cells remain allocated for all virtual values.
+- [x] Split live ranges at unconditional helper/call boundaries and allocate each segment independently. A focused pressure fixture verifies one value is register-resident in one segment and spilled in another. This is helper-boundary splitting, not general hot/cold CFG splitting; arbitrary split points and edge-specific transitions remain open.
 - [ ] Place spill stores only where a value is live across a clobber or must be visible to a helper/cleanup path.
 - [ ] Place reloads immediately before first use, avoid duplicate reloads, and hoist only when correctness and profiling justify it.
 - [ ] Track dirty state by allocation location and CFG edge; remove conservative flushes when the value is dead or the edge proves it unnecessary.
@@ -57,7 +57,7 @@ Current implementation: intervals compete for a cache register; evicted interval
 - [ ] Handle critical edges and split blocks when a spill/reload belongs on only one successor path.
 - [ ] Verify that every error edge observes a valid tag, payload, and ownership state before cleanup.
 - [ ] Add allocator diagnostics that identify why each spill/reload was inserted.
-- [ ] Add tests where values are live across several calls, selectively live on one branch, reused after a loop, and replaced by an owned object.
+- [ ] Expand split-allocation tests to cover values selectively live on one branch, reused after a loop, and replaced by an owned object. Current tests cover helper/call boundaries, register-to-spill transitions, call pressure, recursion, CFG joins/backedges, and owned objects in the broader execution suite; edge-specific split placement is not implemented.
 3. Smaller stack frames
 Current implementation: non-overlapping virtual-value intervals reuse physical ownership cells. All virtual values still receive a stack home, and local slots remain separately allocated.
 - [ ] Reuse local slots when declaration lifetimes cannot overlap and shadowing/initialization semantics permit it.
@@ -246,8 +246,8 @@ The four emitters exist. macOS ARM64 has a user-reported native release run from
 1.20 Platform-specific CG checklist
 macOS ARM64 — target profile v1
 - [x] Emit ARM64 Mach-O assembly.
-- [ ] Re-run assembly, linking, and execution of the release compiler and generated program on Apple Silicon after the allocation-class update; the prior revision passed.
-- [ ] Re-run unit, C/native execution, differential, cross-target assembly and large-procedure checks for this revision. The prior Apple Silicon run passed 48 cases and predates the allocation-class update.
+- [ ] Re-run assembly, linking, and execution of the release compiler and generated program on Apple Silicon after the explicit-location/live-range-splitting update; the prior revision passed.
+- [ ] Re-run unit, C/native execution, differential, cross-target assembly and large-procedure checks for this revision. The prior Apple Silicon run passed 48 cases and predates the current allocator revision.
 - [ ] Run make BUILD_MODE=debug test check-asan-hook on the Mac and record the exact sanitizer runtimes available.
 - [ ] Run make BUILD_MODE=tsan test on the Mac.
 - [ ] Run and archive repeated native benchmarks and frame/code-size results.
@@ -256,7 +256,7 @@ macOS ARM64 — target profile v1
 Linux x86-64 — target profile v1
 - [x] Emit System V x86-64 ELF assembly.
 - [x] Pass the current Linux x86-64 release suite (51 C/native cases), 64-seed differential suite, 5,000-update stress test and runtime/unit tests.
-- [ ] Re-run TSAN on the current source revision. Current ASAN/UBSAN test suites pass with LSAN exit scanning disabled; TSAN passed on the prior test revision.
+- [x] Run TSAN on the current Linux x86-64 source revision; the complete unit, C, and native suites passed. ASAN/UBSAN debug `make test` also passed with LSAN exit scanning disabled; a host run with LSan scanning enabled remains open.
 - [x] Exercise the Windows calling convention with the Linux ms_abi bridge; keep it classified as a bridge test only.
 - [ ] Run LSAN on a host/container where its exit-time process scan works.
 - [ ] Run repeated isolated benchmarks and inspect CFI/source-line/backtrace behavior.

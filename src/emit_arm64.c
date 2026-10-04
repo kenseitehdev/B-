@@ -74,8 +74,10 @@ static void offset(FILE *out,unsigned dst,unsigned base,size_t n) {
     else {imm(out,16,n);fprintf(out,"    add x%u, x%u, x16\n",dst,base);}
 }
 static void regaddr(Emitter *e,unsigned dst,size_t r) { offset(e->out,dst,19,BPP_CG_HEADER_BYTES+e->plan->cell[r]*16); }
+static size_t position(Emitter *e){return bpp_reg_position(e->plan,e->b,e->k);}
+static unsigned physical_at(Emitter *e,size_t r,size_t pos){BPPRegLocation loc=bpp_reg_location_at(e->plan,r,pos);return loc.kind==BPP_LOC_REGISTER?loc.physical:0;}
 static void payload(Emitter *e,unsigned dst,size_t r) {
-    unsigned physical=e->plan->physical[r];
+    unsigned physical=physical_at(e,r,position(e));
     if(physical) fprintf(e->out,"    mov x%u, x%u\n",dst,physical);
     else {regaddr(e,12,r);fprintf(e->out,"    ldr x%u, [x12, #8]\n",dst);}
 }
@@ -83,27 +85,28 @@ static void payload(Emitter *e,unsigned dst,size_t r) {
  * Conditional slow paths flush the pre-instruction snapshot without changing
  * the conservative state at the fast/slow merge. */
 static void flush(Emitter *e,unsigned char *dirty,int clear) {
-    for(size_t r=0;r<e->fn->register_count;++r) if(dirty[r]) {
-        regaddr(e,12,r);fprintf(e->out,"    str x%u, [x12, #8]\n",e->plan->physical[r]);
+    size_t pos=position(e);for(size_t r=0;r<e->fn->register_count;++r) if(dirty[r]) {
+        unsigned physical=physical_at(e,r,pos);if(physical){regaddr(e,12,r);fprintf(e->out,"    str x%u, [x12, #8]\n",physical);}
         if(clear)dirty[r]=0;
     }
 }
 static void cache_result(Emitter *e,size_t r,unsigned src) {
-    if(e->plan->physical[r]) {
+    unsigned physical=physical_at(e,r,position(e));
+    if(physical) {
         /* Preserve an old dirty owner before this physical register is reused. */
         for(size_t a=0;a<e->fn->register_count;++a)
-            if(a!=r && e->dirty[a] && e->plan->physical[a]==e->plan->physical[r]) {
-                regaddr(e,12,a);fprintf(e->out,"    str x%u, [x12, #8]\n",e->plan->physical[a]);e->dirty[a]=0;
+            if(a!=r && e->dirty[a] && physical_at(e,a,position(e))==physical) {
+                regaddr(e,12,a);fprintf(e->out,"    str x%u, [x12, #8]\n",physical);e->dirty[a]=0;
             }
-        if(src==31) fprintf(e->out,"    mov x%u, xzr\n",e->plan->physical[r]); else fprintf(e->out,"    mov x%u, x%u\n",e->plan->physical[r],src); }
+        if(src==31) fprintf(e->out,"    mov x%u, xzr\n",physical); else fprintf(e->out,"    mov x%u, x%u\n",physical,src); }
 }
-static void cache_reload(Emitter *e,size_t r) {
-    if(r!=BL_IR_NONE && e->plan->physical[r]) {
-        regaddr(e,12,r);fprintf(e->out,"    ldr x%u, [x12, #8]\n",e->plan->physical[r]);
-    }
+static void cache_reload_at(Emitter *e,size_t r,size_t pos) {
+    unsigned physical=physical_at(e,r,pos);
+    if(r!=BL_IR_NONE&&physical){regaddr(e,12,r);fprintf(e->out,"    ldr x%u, [x12, #8]\n",physical);}
 }
 static void restore_live_after(Emitter *e){
-    for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_after(e->plan,e->b,e->k,r)&&e->plan->physical[r])cache_reload(e,r);
+    size_t pos=position(e)+1;
+    for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_after(e->plan,e->b,e->k,r))cache_reload_at(e,r,pos);
 }
 static void intguard(Emitter *e,size_t r) {if(e->kind[r]==BPP_KIND_INT)return;regaddr(e,12,r);fputs("    ldr w11, [x12]\n    cmp w11, #1\n",e->out);branch(e,"b.ne","slow");}
 /* x26 retains the primitive result across an optional object-release call. */
@@ -112,7 +115,7 @@ static void result(Emitter *e,size_t dst,unsigned tag) {
     flush(e,e->dirty,0);
     fputs("    mov x0, x19\n",e->out);imm(e->out,1,dst);fputs("    bl _bpp_a_destination\n    mov x17, x0\n",e->out);restore_live_after(e);fputs("    mov x12, x17\n",e->out);
     define(e,"write");fprintf(e->out,"    mov w11, #%u\n    str w11, [x12]\n",tag);
-    if(e->plan->physical[dst]) {
+    if(physical_at(e,dst,position(e))) {
         cache_result(e,dst,26);e->dirty[dst]=(unsigned char)(tag==1);
     } else if(tag==1) fputs("    str x26, [x12, #8]\n",e->out);
     branch(e,"b","done");
@@ -229,7 +232,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
         imm(o,9,e.layout.bytes);fprintf(o,"L_probe_%zu:\n    cmp x9, #4096\n    b.lo L_probe_tail_%zu\n    sub sp, sp, #4096\n    str xzr, [sp]\n    sub x9, x9, #4096\n    b L_probe_%zu\nL_probe_tail_%zu:\n    sub sp, sp, x9\n    mov x19, sp\n",f,f,f,f);
         char name[64];snprintf(name,sizeof name,"L_layout_%zu",f);addr(o,4,name);fputs("    mov x5, x19\n    bl _bpp_n_enter\n    str x24, [x19, #96]\n",o);if(m->instrument_native)fputs("    ldr x0, [x29, #8]\n    bl _bpp_a_trace_enter\n",o);fprintf(o,"    b L_f%zu_b0\n",f);
         for(size_t b=0;b<fn->block_count;++b){e.b=b;memset(kind,0,fn->register_count);memset(constant,0,fn->register_count);fprintf(o,"L_f%zu_b%zu:\n",f,b);
-            for(size_t r=0;r<fn->register_count;++r)if(bpp_reg_live_in(e.plan,b,r))cache_reload(&e,r);
+            for(size_t r=0;r<fn->register_count;++r)if(bpp_reg_live_in(e.plan,b,r))cache_reload_at(&e,r,bpp_reg_position(e.plan,b,0));
             for(size_t k=0;k<fn->blocks[b].count;++k){e.k=k;const BLIRInst *i=&fn->blocks[b].insts[k];if(m->debug_path)bpp_asm_location(o,i);if(m->emit_asm_comments)bpp_asm_instruction_comment(o,fn,f,b,k,e.plan,BPP_MACOS_ARM64,0);
                 if(m->instrument_native&&(i->op==BL_IR_LOAD_GLOBAL||i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL)){flush(&e,e.dirty,1);fputs("    mov x0, x19\n",o);imm(o,1,i->op);imm(o,2,i->a);fputs("    bl _bpp_a_access\n",o);}
                 if(i->op==BL_IR_JUMP){flush(&e,e.dirty,1);if(i->a!=b+1){char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->a);farjump(o,target,0);}continue;}

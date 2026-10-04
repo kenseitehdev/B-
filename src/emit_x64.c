@@ -18,6 +18,8 @@ static size_t save_set(X *e){
     return e->saved_count;
 }
 static size_t cell(X *e,size_t r){return BPP_CG_HEADER_BYTES+e->plan.cell[r]*16;}
+static size_t position(X *e){return bpp_reg_position(&e->plan,e->b,e->k);}
+static unsigned physical_at(X *e,size_t r,size_t pos){BPPRegLocation loc=bpp_reg_location_at(&e->plan,r,pos);return loc.kind==BPP_LOC_REGISTER?loc.physical:0;}
 static void arg(X *e,unsigned n,const char *source,int address){
     static const char *unixregs[]={"%rdi","%rsi","%rdx","%rcx","%r8","%r9"};
     static const char *winregs[]={"%rcx","%rdx","%r8","%r9"};
@@ -32,20 +34,21 @@ static void def(X *e,const char *name){local(e,name);
     fputs(":\n",e->out);}
 static void jump(X *e,const char *op,const char *name){fprintf(e->out,"    %s ",op);local(e,name);fputc('\n',e->out);}
 static void payload(X *e,size_t r,const char *dst){
-    if(e->plan.physical[r])fprintf(e->out,"    movq %s, %s\n",cache(e,e->plan.physical[r]),dst);
+    unsigned p=physical_at(e,r,position(e));
+    if(p)fprintf(e->out,"    movq %s, %s\n",cache(e,p),dst);
     else fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,dst);
 }
-static void flush(X *e,unsigned char *dirty,int clear){for(size_t r=0;r<e->fn->register_count;++r)if(dirty[r]){
-    fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,e->plan.physical[r]),cell(e,r)+8);
+static void flush(X *e,unsigned char *dirty,int clear){size_t pos=position(e);for(size_t r=0;r<e->fn->register_count;++r)if(dirty[r]){
+    unsigned p=physical_at(e,r,pos);if(p)fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,r)+8);
     if(clear)dirty[r]=0;
 }}
-static void cached(X *e,size_t r,const char *source){unsigned p=e->plan.physical[r];
+static void cached(X *e,size_t r,const char *source){unsigned p=physical_at(e,r,position(e));
     if(!p)return;
-    for(size_t a=0;a<e->fn->register_count;++a)if(a!=r&&e->dirty[a]&&e->plan.physical[a]==p){fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,a)+8);e->dirty[a]=0;}
+    for(size_t a=0;a<e->fn->register_count;++a)if(a!=r&&e->dirty[a]&&physical_at(e,a,position(e))==p){fprintf(e->out,"    movq %s, %zu(%%r12)\n",cache(e,p),cell(e,a)+8);e->dirty[a]=0;}
     fprintf(e->out,"    movq %s, %s\n",source,cache(e,p));
 }
-static void reload(X *e,size_t r){if(r!=BL_IR_NONE&&e->plan.physical[r])fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,cache(e,e->plan.physical[r]));}
-static void restore_live_after(X *e){for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_after(&e->plan,e->b,e->k,r)&&e->plan.physical[r])reload(e,r);}
+static void reload_at(X *e,size_t r,size_t pos){unsigned p=physical_at(e,r,pos);if(r!=BL_IR_NONE&&p)fprintf(e->out,"    movq %zu(%%r12), %s\n",cell(e,r)+8,cache(e,p));}
+static void restore_live_after(X *e){size_t pos=position(e)+1;for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_after(&e->plan,e->b,e->k,r))reload_at(e,r,pos);}
 static void guard(X *e,size_t r){if(e->kind[r]==BPP_KIND_INT)return;fprintf(e->out,"    cmpl $1, %zu(%%r12)\n",cell(e,r));jump(e,"jne","slow");}
 static void result(X *e,size_t r,int tag){
     fprintf(e->out,"    cmpl $2, %zu(%%r12)\n",cell(e,r));jump(e,"jne","write");
@@ -55,7 +58,7 @@ static void result(X *e,size_t r,int tag){
     fputs("    movq 104(%r12), %r10\n",e->out);
     restore_live_after(e);
     def(e,"write");fprintf(e->out,"    movl $%d, %zu(%%r12)\n",tag,cell(e,r));
-    if(e->plan.physical[r]){cached(e,r,"%r10");e->dirty[r]=(unsigned char)(tag==1);}
+    if(physical_at(e,r,position(e))){cached(e,r,"%r10");e->dirty[r]=(unsigned char)(tag==1);}
     else if(tag==1)fprintf(e->out,"    movq %%r10, %zu(%%r12)\n",cell(e,r)+8);
     jump(e,"jmp","done");
 }
@@ -178,7 +181,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
             if(win)fputs("    movq %rbp, 96(%r12)\n",o);else fprintf(o,"    movq -%zu(%%rbp), %%rax\n    movq %%rax, 96(%%r12)\n",e->saved_count*8);
             if(m->instrument_native){char caller[64];if(win)snprintf(caller,sizeof caller,"%zu(%%rsp)",alloc+e->saved_count*8);else snprintf(caller,sizeof caller,"8(%%rbp)");arg(e,0,caller,0);call(e,"bpp_a_trace_enter");}
             for(size_t b=0;b<e->fn->block_count;++b){e->b=b;memset(e->kind,0,e->fn->register_count);memset(e->constant,0,e->fn->register_count);fprintf(o,"L_f%zu_b%zu:\n",f,b);
-                for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_in(&e->plan,b,r))reload(e,r);
+                for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_in(&e->plan,b,r))reload_at(e,r,bpp_reg_position(&e->plan,b,0));
                 for(size_t k=0;k<e->fn->blocks[b].count;++k){e->k=k;const BLIRInst *i=&e->fn->blocks[b].insts[k];
                     if(m->debug_path)bpp_asm_location(o,i);
                     if(m->emit_asm_comments)bpp_asm_instruction_comment(o,e->fn,f,b,k,&e->plan,target,1);

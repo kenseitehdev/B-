@@ -1,0 +1,62 @@
+name: Native codegen
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04, ubuntu-24.04-arm]
+        mode: [release, debug, tsan]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native runner architecture
+        run: |
+          machine=$(uname -m)
+          case "${{ matrix.os }}" in
+            macos-15) test "$machine" = arm64 ;;
+            ubuntu-24.04) test "$machine" = x86_64 ;;
+            ubuntu-24.04-arm) test "$machine" = aarch64 ;;
+            *) echo "Unexpected Unix runner: ${{ matrix.os }} ($machine)" >&2; exit 1 ;;
+          esac
+      - name: Homebrew LLVM
+        if: runner.os == 'macOS'
+        run: brew install llvm
+      - name: Compiler and native execution
+        run: make CC=clang BUILD_MODE=${{ matrix.mode }} -j2 test
+      - name: Differential execution
+        run: make CC=clang BUILD_MODE=${{ matrix.mode }} check-differential
+      - name: Native ASAN access hook
+        if: matrix.mode == 'debug'
+        run: make CC=clang BUILD_MODE=debug check-asan-hook
+      - name: Cross-target assembly
+        if: matrix.mode == 'release'
+        run: make CC=clang BUILD_MODE=release check-targets
+      - name: Large procedure and branches
+        if: matrix.mode == 'release'
+        run: make CC=clang BUILD_MODE=release check-stress
+      - name: Windows calling-convention bridge
+        if: matrix.os == 'ubuntu-24.04' && matrix.mode == 'release'
+        run: make CC=clang BUILD_MODE=release check-msabi
+  windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native runner architecture
+        run: test "$(uname -m)" = x86_64
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            mingw-w64-ucrt-x86_64-clang
+      - name: Windows native execution
+        run: make CC=clang BUILD_MODE=release -j2 test check-differential check-stress
+      - name: Cross-target assembly
+        run: make CC=clang BUILD_MODE=release check-targets
