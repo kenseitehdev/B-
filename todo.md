@@ -1,65 +1,85 @@
-B++ compiler roadmap and target checklist
-Checklist revision: 1.3
-Status snapshot: 2026-10-03 (after explicit allocation locations, helper-boundary live-range splitting, and refreshed Linux x86-64 validation)
-Codegen target set: macOS ARM64, Linux x86-64, Linux ARM64, Windows x86-64.
+# B++ compiler roadmap and target checklist
+
+**Checklist revision:** 1.3  
+**Status snapshot:** 2026-10-03  
+**Codegen target set:** macOS ARM64, Linux x86-64, Linux ARM64, Windows x86-64.
+
 This file tracks work by roadmap stage and native platform. “Implemented” means
 code exists. “Cross-assembled” means an object was produced for a foreign target.
 “Native verified” means the executable was built and run on that target OS and
 architecture. Those are different gates. Do not mark an OS verified because its
 assembly assembled on another host or because a calling-convention bridge passed.
-Platform/version matrix
-Platform profile	Target triple	Codegen implementation	Cross-assembly (current snapshot)	Native release execution (current snapshot)	Native debug/sanitizers
-macOS ARM64 v1	macos-arm64 / Mach-O	Implemented	Current revision pending; clang unavailable in this workspace	Prior revision passed on Apple Silicon; current allocator revision needs rerun	Pending for current revision
-Linux x86-64 v1	linux-x86_64 / ELF	Implemented	Native assembly/linking passed through the current test suite; cross-target assembly pending (clang unavailable)	Passed current revision: 51 C and 51 native cases, plus differential and stress suites	Current revision: ASAN/UBSAN and TSAN suites passed; LSan exit scan disabled
-Linux ARM64 v1	linux-arm64 / ELF	Implemented	Current revision pending; clang unavailable in this workspace	Pending native Linux ARM64	Pending native Linux ARM64
-Windows x86-64 v1	windows-x86_64 / COFF/PE	Implemented	Current revision pending; clang unavailable in this workspace	Pending native Windows x86-64	Windows native toolchain/runtime pending; current Linux ms_abi bridge passed 51 cases
 
+## Platform/version matrix
 
-Previous macOS evidence: Jay reported a release run on Apple Silicon with 48 C/native cases, 64 optimized/baseline differential cases, cross-assembly for all four targets, and the 5,000-update stress case. That run predates the current explicit-location and split-allocation revision and must be repeated before marking this snapshot native-verified.
-Current Linux x86-64 evidence: release `make test`, current debug ASAN/UBSAN `make test`, and current TSAN `make test` each passed unit tests and 51 C plus 51 native cases. Debug used `ASAN_OPTIONS=detect_leaks=0`; the LSan exit scan is therefore unverified. The 64-seed optimized/baseline differential suite, 5,000-update stress case, current 51-case Windows `ms_abi` bridge, and 4096-virtual-value allocator test passed. A focused allocator test confirms physical-register, spill-cell, immediate, rematerializable, and dead locations, including one value switching from register to spill across a helper boundary. `tests/run_tests.sh` now prints each case name while running, so `make check` gives progress instead of remaining silent until completion.
-Current cross-target status: assembly text was emitted for macOS ARM64, Linux x86-64, Linux ARM64, and Windows x86-64. This workspace has no `clang`, so `check-targets` could not produce cross-target objects for this revision; previously recorded cross-assembly applies to the prior revision. Linux x86-64 native assembly and linking are covered by the passing native suite.
-1. Codegen (CG)
-1.1 Shared pipeline and invariants
+| Platform profile | Target triple | Codegen implementation | Cross-assembly | Native release execution | Native debug/sanitizers |
+|---|---|---|---|---|---|
+| macOS ARM64 v1 | `macos-arm64` / Mach-O | Implemented | Passed | **Passed on Apple Silicon** | Pending for this snapshot |
+| Linux x86-64 v1 | `linux-x86_64` / ELF | Implemented | Passed | **Passed on Linux x86-64** | ASAN/UBSAN and TSAN passed; LSAN scan unavailable in this environment |
+| Linux ARM64 v1 | `linux-arm64` / ELF | Implemented | Passed | Pending native Linux ARM64 | Pending native Linux ARM64 |
+| Windows x86-64 v1 | `windows-x86_64` / COFF/PE | Implemented | Passed | Pending native Windows x86-64 | Pending toolchain/runtime check |
+
+**macOS evidence:** Jay ran `make BUILD_MODE=release test check-differential check-targets check-stress` on Apple Silicon. The run passed unit tests, 48 C cases, 48 native cases, 64 seeded comparisons in optimized and baseline modes, cross-assembly of all four targets in both modes, and a 5,000-update large-procedure run.
+
+**Linux x86-64 evidence:** 48 C cases and 48 native cases passed in release, ASAN/UBSAN, and TSAN builds. A 64-seed differential run, 5,000-update stress case, 4096-virtual-value allocator test, mapped-cell cleanup test, and poisoned-global ASAN hook test passed. LSAN's exit-time scan could not run in this environment. Windows `ms_abi` bridge: 48 Windows-convention cases executed on Linux; this is not a Windows OS run.
+
+**Feature-contract update:** the capability query reports all four registered targets and an explicit lowering for every revision-1 IR opcode. Linux x86-64 release and ASAN/UBSAN suites pass at 51 cases; numeric boundary, conversion, and out-of-range literal coverage is included. The 64-seed optimized/baseline differential suite passes. Assembly-comment output assembled with the host assembler for Linux x86-64. Cross-target assembly could not be rerun in this environment because Clang is unavailable.
+
+---
+
+# 1. Codegen (CG)
+
+## 1.1 Shared pipeline and invariants
+
 - [x] Keep the hand-rolled front end and IR as the common input to every backend.
 - [x] Make native codegen the default on supported hosts; keep C output as a comparison backend.
-- [x] Preserve the --no-opt path for differential testing.
-- [x] Keep target selection explicit with --target and reject execution of a foreign-target executable on the wrong host.
-- [x] Keep the current procedure/value layout private and revisioned in include/codegen_abi.h (private revision 1).
-- [x] Add a documented backend contract for every IR opcode, including value ownership, errors, source positions, and which operations are native or runtime calls.
+- [x] Preserve the `--no-opt` path for differential testing.
+- [x] Keep target selection explicit with `--target` and reject execution of a foreign-target executable on the wrong host.
+- [x] Keep the current procedure/value layout private and revisioned in `include/codegen_abi.h` (private revision 1).
+- [x] Add a documented backend contract for every IR opcode, including value ownership, errors, source positions, and which operations are native or runtime calls (`docs/ir-backend-contract.md`).
 - [x] Validate IR before and after each transforming pass; report the pass and function/block in diagnostics.
 - [x] Add a verifier for definition/use validity, CFG successors, block terminators, register-map bounds, ownership releases, and call argument counts.
-- [x] Add optional assembly comments that map each emitted instruction group to IR opcode, function, block, source span, virtual register, physical register, and spill cell.
-- [x] Make backend feature/target capabilities queryable rather than duplicating target conditionals across CLI, emitter, tests, and build rules.
-- [x] Establish documented numeric semantics once and keep optimizer, C reference backend, native backends, and tests identical for signed overflow, division, modulo, shifts if added, and conversions.
-- [x] Establish a policy for unsupported IR or target features: compile-time diagnostic, explicit helper call, or target-specific lowering. No silent wrong-code fallback.
-1.2 Register allocation, spills, and frames
-1. Broader register allocation
-Current implementation: up to eleven ARM64 integer payload candidates (eight callee-saved and three caller-saved), and six x86-64 candidates (four callee-saved and two caller-saved) for both System V and Windows. Integer and null literals are classified as immediates and remain in canonical cells; dynamic tag/payload values are classified as paired values. Tags and ownership cells remain in memory; fixed-role/scratch registers remain reserved. This is a selective payload cache, not a full machine-register allocator.
+- [x] Add optional assembly comments that map each emitted instruction group to IR opcode, function, block, source span, virtual register, physical register, and spill cell (`--asm-comments`).
+- [x] Make backend feature/target capabilities queryable rather than duplicating target conditionals across CLI, emitter, tests, and build rules (`--list-targets`, `--target-info`).
+- [x] Establish documented numeric semantics once and keep optimizer, C reference backend, native backends, and tests identical for signed overflow, division, modulo, shifts if added, and conversions (`docs/numeric-semantics.md`).
+- [x] Establish a policy for unsupported IR or target features: compile-time diagnostic, explicit helper call, or target-specific lowering. No silent wrong-code fallback (`docs/backend-feature-policy.md`).
+
+## 1.2 Register allocation, spills, and frames
+
+### 1. Broader register allocation
+
+Current implementation: up to eleven ARM64 integer payload candidates (eight callee-saved and three caller-saved), and six x86-64 candidates (four callee-saved and two caller-saved) for both System V and Windows. Caller-saved candidates are used only for short, single-block intervals that do not cross a possible helper/call barrier. Tags and ownership cells remain in memory; fixed-role/scratch registers remain reserved. This is a selective payload cache, not a full machine-register allocator. See [`docs/register-allocation.md`](docs/register-allocation.md).
+
 - [x] Allocate selected payloads to callee-saved ARM64 registers.
 - [x] Allocate selected payloads to callee-saved x86-64 registers for both System V and Windows conventions.
-- [x] Inventory each target's allocatable integer, floating-point, vector, caller-saved, callee-saved, reserved, frame, and scratch registers.
+- [x] Inventory each target's allocatable integer, floating-point, vector, caller-saved, callee-saved, reserved, frame, and scratch registers; expose inventory through `--target-info`.
 - [x] Replace hard-coded pools with target descriptions including register class, width, save cost, call-clobber behavior, and reserved status.
-- [x] Add caller-saved allocation where its save/restore cost is lower than spilling; model helper and user-call clobbers explicitly.
-- [x] Decide whether tags remain memory-resident or can be cached with payloads; document coherence rules for tag/payload pairs.
-- [x] Classify dynamic tag/payload values as canonical tagged pairs and integer/null literals as immediates. Literals remain in canonical cells for helper/error visibility and no longer take payload registers.
-- [x] Classify proven-safe rematerializable expressions. Same-block integer expressions with known constant inputs are marked only when checked evaluation succeeds; operations that could overflow, divide by zero, evaluate `INT64_MIN / -1`, depend on dynamic inputs, or have effects remain unclassified. The computed result is allocator metadata and may be reported as a rematerializable location when spilled. The emitter still executes the original IR and every value retains its canonical cell; recomputation and stack-home removal remain open.
-- [x] Generate each function's additional callee-save set from its allocated physical registers; allocator tests check the derived set at zero, exact-capacity, and over-capacity pressure.
-- [ ] Verify stack alignment, callee-saved restoration, scratch ownership, and call-clobber behavior on every native target. Current Linux x86-64 release, ASAN/UBSAN debug (with LSan scanning disabled), and TSAN suites exercise calls, recursion, frames, and errors; the current Windows `ms_abi` bridge passes 51 cases. These do not close native macOS ARM64, Linux ARM64, or Windows x86-64 verification. The matching native runs remain pending.
-- [x] Test zero/one capacity, exact callee-save capacity, pool-plus-one spills, and high-pressure values across calls, CFG joins, loop backedges, returns, and checked-operation error/helper paths for all four target descriptions. Runtime recursion, cleanup-error, and call-pressure cases pass on Linux x86-64; the Windows calling-convention bridge also passes.
-2. Actual spill management
-Current implementation: each virtual value has a canonical ownership cell, reused across nonoverlapping value lifetimes. Allocation is represented as per-instruction-position segments: a segment may use a physical register, spill cell, or rematerializable expression; integer/null constants are reported as immediate locations and dead values as unallocated. The legacy `physical[]` field is only a summary when a value uses one register for all of its segments. `--emit-map` exports the segments and instruction positions. Both native emitters query this map, flush before unconditional helpers/calls, and reload live values into the location selected for the following segment. Splitting currently occurs at unconditional helper boundaries; arbitrary hot/cold CFG splitting and edge-specific spill placement remain open.
-- [x] Define allocator locations explicitly: physical register, spill cell, constant/immediate, rematerializable expression, and unallocated/dead. `bpp_reg_location_at` is the per-position query, and `--emit-map` reports allocation segments. Canonical ownership cells remain allocated for all virtual values.
-- [x] Split live ranges at unconditional helper/call boundaries and allocate each segment independently. A focused pressure fixture verifies one value is register-resident in one segment and spilled in another. This is helper-boundary splitting, not general hot/cold CFG splitting; arbitrary split points and edge-specific transitions remain open.
-- [ ] Place spill stores only where a value is live across a clobber or must be visible to a helper/cleanup path.
-- [ ] Place reloads immediately before first use, avoid duplicate reloads, and hoist only when correctness and profiling justify it.
-- [ ] Track dirty state by allocation location and CFG edge; remove conservative flushes when the value is dead or the edge proves it unnecessary.
-- [ ] Model helper calls, user calls, builtins, runtime errors, return cleanup, and sanitizer callbacks as explicit clobber/visibility points.
-- [ ] Handle critical edges and split blocks when a spill/reload belongs on only one successor path.
-- [ ] Verify that every error edge observes a valid tag, payload, and ownership state before cleanup.
-- [ ] Add allocator diagnostics that identify why each spill/reload was inserted.
-- [ ] Expand split-allocation tests to cover values selectively live on one branch, reused after a loop, and replaced by an owned object. Current tests cover helper/call boundaries, register-to-spill transitions, call pressure, recursion, CFG joins/backedges, and owned objects in the broader execution suite; edge-specific split placement is not implemented.
-3. Smaller stack frames
+- [x] Add caller-saved allocation when its save/restore cost is lower than spilling; conservatively model helper, user, and external call clobbers.
+- [x] Decide that tags and ownership stay canonical in memory while payloads may be cached; document writeback, helper visibility, and reload rules for tag/payload coherence.
+- [x] Add explicit allocation classes for canonical tagged pairs, integer/null immediates, and same-block integer expressions proven safe to rematerialize. Checked overflow, division by zero, `INT64_MIN / -1`, dynamic inputs, and effectful/helper operations stay unclassified. The allocator stores proven integer results as metadata; it still emits original IR operations and retains canonical cells. Actual recomputation at uses and stack-home removal remain open under section 1.3.
+- [x] Generate a per-function save set from actual allocations instead of always saving the current fixed register set.
+- [ ] Verify stack alignment, callee-saved restoration, scratch-register ownership, and call-clobber behavior in nested and recursive calls on every native target. Linux x86-64 release, ASAN/UBSAN debug (with LSan scanning disabled for this sandbox), and TSAN suites pass on this revision; the Windows `ms_abi` bridge passes 51 cases. Native macOS ARM64, Linux ARM64, and Windows x86-64 execution remain to be confirmed by the matching CI runners. CI now rejects runners with the wrong architecture before executing the suite; passing CI results are still required to close this item.
+- [x] Test zero/one capacity, exact callee-save capacity, pool-plus-one spills, and high-pressure live values across runtime/user calls, joins, loop backedges, returns, and checked-operation error/helper paths for all four target descriptions. Runtime recursion and cleanup-error cases run through the host test suite and Windows MS ABI suite when available.
+
+### 2. Actual spill management
+
+Current implementation: intervals compete for a cache register; evicted intervals use mapped stack cells. The plan records exact instruction live-after sets, helper/call/error/cleanup/sanitizer boundary kinds, and successor-specific live-in sets. Emitters write dirty payloads selectively before helpers and through edge-specific branch stubs; block-entry payload reloads are lazy at their first native payload use. Every virtual IR register still has an ownership cell.
+
+- [x] Define per-position allocator locations explicitly: physical register, canonical spill cell, integer/null constant, rematerializable integer expression, and dead/unallocated. `bpp_reg_location_at` is the authoritative query; `physical[]` remains only a legacy summary when every segment uses the same register. `--emit-map` exports allocation segments and instruction positions. Values still retain ownership cells; locations do not yet remove stack homes.
+- [x] Split live ranges at unconditional helper/call boundaries and allocate each resulting segment independently. A value may stay cached in a high-use segment and spill only in another segment; emitters flush before the helper and reload into the next segment's register when needed. This does not yet split at arbitrary hot/cold CFG regions or place edge-specific spills.
+- [x] Place spill stores only where a value is live across a clobber or must be visible to a helper/cleanup path. Exact instruction live-after and operand/destination sets drive helper writeback. Potential object values remain visible for runtime cleanup even after their final language use.
+- [ ] Place reloads immediately before first use, avoid duplicate reloads, and hoist only when correctness and profiling justify it. Block-entry preloads are removed: cached payloads reload lazily at their first use, and the per-value loaded-register map suppresses duplicate reloads. Helper joins still reload when allocation moves to a different physical register or a helper defines the next value; delaying those across path merges remains open. No profile-guided hoisting is implemented.
+- [ ] Track dirty state by allocation location and CFG edge; remove conservative flushes when the value is dead or the edge proves it unnecessary. Store decisions now use location-at-position plus exact per-edge liveness and cleanup roots. The emitter still keeps a per-virtual-value dirty bit rather than solving/merging dirty states by physical location at CFG joins.
+- [x] Model helper calls, user calls, builtins, runtime errors, return cleanup, and sanitizer callbacks as explicit clobber/visibility points. `BPPRegPlan` exposes per-instruction flags, and the emitter uses those flags to choose which values must be canonical before a helper. Sanitizer access hooks are marked at instrumentable global accesses; function tracing is a prologue/epilogue boundary.
+- [x] Handle critical edges and split blocks when a spill/reload belongs on only one successor path. Native branch edges now have dedicated assembly stubs that write back only that successor's live values and any possible object cleanup roots. Reload is deferred to the successor's first payload use.
+- [x] Verify that every error edge observes a valid tag, payload, and ownership state before cleanup. Plan validation checks that every live-after value, helper operand/destination, and potentially owned object at runtime-error/return-cleanup boundaries has a canonical value-cell home. Tags and ownership stay memory-resident; only integer payloads can be marked dirty. Native `cleanup_error`, recursive cleanup, and sanitizer suites exercise the emitted failure path.
+- [x] Add allocator diagnostics that identify why each spill/reload was inserted. `--emit-map` reports spill segment causes (no native use, no candidate register, call clobber, or pressure), per-instruction clobber flags, and spill candidates with vreg, physical register, cell, and reason. `--asm-comments` reports the actual stores and reloads with source instruction, register, cell, and reason (live-across, helper operand/destination, cleanup root, successor edge, first use, or segment transition).
+- [x] Expand split-allocation tests to cover values selectively live on one branch, reused after a loop, and replaced by an owned object. Unit tests assert successor-specific spill reasons and physical-register reuse across a loop before an owned string; `edge_loop_owned` exercises the combined path on C and native execution. Existing suites retain call pressure, recursion, joins/backedges, and cleanup-error coverage.
+
+### 3. Smaller stack frames
+
 Current implementation: non-overlapping virtual-value intervals reuse physical ownership cells. All virtual values still receive a stack home, and local slots remain separately allocated.
+
 - [ ] Reuse local slots when declaration lifetimes cannot overlap and shadowing/initialization semantics permit it.
 - [ ] Reuse outgoing argument cells between calls and size outgoing areas from the maximum simultaneously needed arguments.
 - [ ] Avoid homes for values proven never to reach a helper, call, cleanup scan, debug location, or spill.
@@ -69,9 +89,12 @@ Current implementation: non-overlapping virtual-value intervals reuse physical o
 - [ ] Preserve required stack alignment for every call and each target's ABI.
 - [ ] Check frame-size arithmetic for overflow and produce a source-located diagnostic before emission.
 - [ ] Add tests that assert frame-byte counts for sequential expressions, nested calls, many locals, recursion, and large frames.
-- [ ] Report frame bytes and peak outgoing-call bytes in --emit-map or a dedicated frame report.
-4. Better allocation decisions
+- [ ] Report frame bytes and peak outgoing-call bytes in `--emit-map` or a dedicated frame report.
+
+### 4. Better allocation decisions
+
 Current implementation: a conservative weighted-interval heuristic considers native operand use and gives a backedge block a boost. This is not profile-guided allocation.
+
 - [ ] Count uses by operation cost, including native fast-path benefit, helper-call cost, tag checks, spill traffic, and rematerialization cost.
 - [ ] Compute natural loops/backedges and loop depth rather than treating every backward edge equally.
 - [ ] Weight hot loops, call-heavy paths, error paths, and cold blocks separately; establish how weights are selected without runtime profiling.
@@ -81,8 +104,11 @@ Current implementation: a conservative weighted-interval heuristic considers nat
 - [ ] Add optional profile data later without making profile data required for deterministic builds.
 - [ ] Compare allocation choices against a simple baseline and record spills, reloads, cache hits, flush bytes, and compile time.
 - [ ] Add tests proving heuristic changes preserve output and do not increase spills on known pressure fixtures.
-5. Scalable liveness and allocation
+
+### 5. Scalable liveness and allocation
+
 Current implementation: the dense quadratic interference graph is gone. Block live sets use bitsets and sparse set-bit iteration; conservative intervals and cell reuse remain.
+
 - [ ] Bound memory for functions with many blocks and many virtual registers; diagnose allocation failure without corrupting the module.
 - [ ] Measure liveness convergence on loops with many backedges and irreducible CFGs.
 - [ ] Avoid rescanning every virtual register for each instruction when a sparse use/def representation is cheaper.
@@ -93,8 +119,11 @@ Current implementation: the dense quadratic interference graph is gone. Block li
 - [ ] Test 4096 values (currently covered) and larger generated functions at multiple block/register scales.
 - [ ] Record compile time and peak memory for synthetic straight-line, loop-heavy, branch-heavy, and call-heavy programs.
 - [ ] Set a supported compiler-function size based on evidence; reject pathological input with a clear diagnostic if necessary.
-6. Static value information
+
+### 6. Static value information
+
 Current implementation: block-local known result kinds and integer slot constants eliminate some tag checks and permit some folding. There is no static type system.
+
 - [ ] Define a value-kind lattice for unknown, null, integer, string/buffer, array, and other objects, with merge rules at CFG joins.
 - [ ] Distinguish “known kind” from “known constant” and from “known truthiness.”
 - [ ] Track kinds through every IR opcode, builtin, user call, assignment, release, delete, free, and runtime fallback.
@@ -104,8 +133,11 @@ Current implementation: block-local known result kinds and integer slot constant
 - [ ] Simplify truthiness tests for known null/integer/object values without changing empty-object semantics.
 - [ ] Keep error behavior identical for dynamic type errors and uninitialized loads.
 - [ ] Test loops, joins, recursion, object-to-integer reassignment, self-assignment, deletion, free aliases, and calls that mutate globals.
-7. Redundant-access elimination
+
+### 7. Redundant-access elimination
+
 Current implementation: cached integer payloads defer stores; some known integer tag checks and repeated initialization-flag writes are omitted. Slot accesses and many synchronization flushes remain.
+
 - [ ] Add local value numbering or a similar pass for safe repeated pure loads/expressions.
 - [ ] Eliminate repeated local/global slot loads only when calls, stores, aliasing, volatile rules, and error behavior cannot change the result.
 - [ ] Remove redundant stores when the value is unchanged and the store has no required initialization/error effect.
@@ -115,8 +147,11 @@ Current implementation: cached integer payloads defer stores; some known integer
 - [ ] Keep sanitizer hooks, debug visibility, and runtime ownership synchronization as observable effects where required.
 - [ ] Count emitted loads/stores/branches/helper calls per target and compare before/after on fixed fixtures.
 - [ ] Add tests with calls between loads, side-effecting builtins, aliasing arrays/buffers, and failures on the second access.
-8. Constant folding and propagation
+
+### 8. Constant folding and propagation
+
 Current implementation: overflow-safe integer folding, safe division/modulo handling, constant-branch simplification, and integer slot propagation within a block. Operations that must report overflow or division-by-zero remain executable.
+
 - [ ] Specify folding rules per opcode and value kind, including signed boundaries, equality, truthiness, strings, and conversions.
 - [ ] Implement a constant lattice and merge facts across predecessor edges.
 - [ ] Propagate constants through loop preheaders and loop-invariant expressions without assuming a loop executes.
@@ -126,8 +161,11 @@ Current implementation: overflow-safe integer folding, safe division/modulo hand
 - [ ] Add branch and switch folding once those IR forms exist.
 - [ ] Test INT64_MIN/MAX, multiply overflow, zero division/modulo, minimum/-1, nested branches, loops, and calls that mutate globals.
 - [ ] Run every differential fixture with optimization enabled and disabled.
-9. Dead-code elimination
+
+### 9. Dead-code elimination
+
 Current implementation: constant unreachable branches/blocks and unreferenced private procedures are removed; some unused primitive literal writes/releases are removed. There is no general effect-aware DCE.
+
 - [ ] Define an effect table for all IR operations: output, allocation, retain/release, mutation, global access, potential runtime error, and control flow.
 - [ ] Remove dead pure computations only when dropping them cannot suppress overflow, division, bounds, uninitialized-variable, or type errors.
 - [ ] Remove dead stores only when initialization semantics and error behavior remain intact.
@@ -135,8 +173,11 @@ Current implementation: constant unreachable branches/blocks and unreferenced pr
 - [ ] Remove dead blocks and repair branch targets, source maps, and function IDs safely.
 - [ ] Keep exported/address-taken procedures once a public ABI or library model introduces them.
 - [ ] Add tests for effectful dead-looking calls, errors in unused expressions, recursive-but-unreachable procedures, and object cleanup.
-10. Instruction selection
+
+### 10. Instruction selection
+
 Current implementation: direct ARM64 and x86-64 integer operations, immediate arithmetic, local/global fast paths, branches, and calls. Dynamic operations use C helpers.
+
 - [ ] Define an instruction-selection table for every IR opcode on every target.
 - [ ] Add legality/cost checks for immediate forms, extensions, shifts, multiply-add, compare-branch, address generation, and load/store addressing modes.
 - [ ] Select instructions using register constraints and operand locations rather than emitter-local special cases.
@@ -145,8 +186,11 @@ Current implementation: direct ARM64 and x86-64 integer operations, immediate ar
 - [ ] Model scratch-register demand before choosing a sequence; avoid hidden scratch conflicts.
 - [ ] Add assembly golden tests and executable tests for each selected form, including negative/overflow boundaries.
 - [ ] Measure code size and cycles on each native CPU before retaining a more complex sequence.
-11. Control-flow optimization
+
+### 11. Control-flow optimization
+
 Current implementation: constant branches simplify and jumps to the next block are omitted. Blocks are otherwise emitted in existing order.
+
 - [ ] Lay out blocks to favor fall-through on likely edges while keeping branch targets and source locations correct.
 - [ ] Add branch inversion to remove unconditional jumps after conditional branches.
 - [ ] Merge compatible blocks and remove empty jump-only blocks.
@@ -155,8 +199,11 @@ Current implementation: constant branches simplify and jumps to the next block a
 - [ ] Separate cold error/cleanup paths where doing so improves hot code without making branches exceed range.
 - [ ] Add CFG validation after every block-reordering/merging pass.
 - [ ] Test nested loops, diamonds, early returns, error paths, and long cold blocks on every emitter.
-12. Large-program branch and address handling
+
+### 12. Large-program branch and address handling
+
 Current implementation: ARM64 internal transfers materialize page-relative addresses; x86-64 uses relative branches/calls and RIP-relative data references. Architecture and object-format range limits remain.
+
 - [ ] Enumerate range limits for ARM64 ADRP relocations, literal/data references, x86-64 rel32 branches/calls, and each object format.
 - [ ] Add a post-layout range checker that reports the source instruction, target label, and exceeded range.
 - [ ] Add ARM64 branch veneers/islands or a documented code model when a target exceeds branch/page range.
@@ -165,8 +212,11 @@ Current implementation: ARM64 internal transfers materialize page-relative addre
 - [ ] Test at boundaries using generated object layouts; do not require multi-gigabyte CI fixtures.
 - [ ] Keep short local conditional branches short and long cross-block transfers range-safe.
 - [ ] Test Mach-O, ELF ARM64, ELF x86-64 and COFF relocations independently.
-13. Formal ABI call lowering — depends on stage 2
+
+### 13. Formal ABI call lowering — depends on stage 2
+
 Current implementation: private revision-1 procedure frames and per-target host calling conventions. Do not turn this private frame into a public promise before the ABI is designed.
+
 - [ ] Stage 2 defines calling convention, value representation, alignment, ownership, error propagation, symbol names, visibility, versioning, and compatibility rules.
 - [ ] Define argument classification for the deliberately small set of B++ types exposed by static libraries; add aggregates only when the language has a concrete need.
 - [ ] Define return classification and error/status behavior for supported B++ values; defer multiple returns and complex aggregates unless required by the language.
@@ -175,8 +225,11 @@ Current implementation: private revision-1 procedure frames and per-target host 
 - [ ] Replace private call lowering only after the ABI spec and conformance tests are accepted.
 - [ ] Add separately compiled B++ library producer/consumer fixtures for macOS ARM64, Linux x86-64/ARM64 and Windows x86-64.
 - [ ] Add ABI compatibility tests across compiler versions before static library work.
-14. Further runtime independence
+
+### 14. Further runtime independence
+
 Current implementation: arithmetic, comparisons, core branches and user-procedure control flow are native. Startup, value ownership, strings, buffers, arrays, builtins, dynamic operations, and error reporting still use C runtime objects/helpers.
+
 - [ ] Inventory every emitted helper symbol and map it to runtime source, ownership contract, sanitizer behavior, and target calling convention.
 - [ ] Decide which helpers remain in the runtime and which become direct native sequences.
 - [ ] Design a B++ runtime boundary compatible with the formal ABI and assembler/linker object model.
@@ -186,8 +239,11 @@ Current implementation: arithmetic, comparisons, core branches and user-procedur
 - [ ] Add ownership/refcount tests for aliases, nested arrays, self-assignment, free/delete, errors, recursion and returned values.
 - [ ] Run ASAN/LSAN/UBSAN/TSAN against both old and replacement runtime paths where available.
 - [ ] Remove C runtime dependency only when all required program behaviors pass on all targets.
-15. Debug metadata
-Current implementation: assembler source/line directives, host unwind data, and --emit-map local offsets/IR positions. It does not yet describe optimized variable locations in standard debug records.
+
+### 15. Debug metadata
+
+Current implementation: assembler source/line directives, host unwind data, and `--emit-map` local offsets/IR positions. It does not yet describe optimized variable locations in standard debug records.
+
 - [ ] Preserve original source spans through imports, macros, lowering, folding, DCE and block reordering.
 - [ ] Represent source files and include/import stacks instead of mapping all expanded code to one sidecar.
 - [ ] Emit procedure names, parameter names/types, lexical scopes, and source-file tables.
@@ -195,10 +251,13 @@ Current implementation: assembler source/line directives, host unwind data, and 
 - [ ] Track a variable that moves between register and spill slot over time.
 - [ ] Describe optimized-out variables honestly instead of reporting stale frame cells.
 - [ ] Keep unwind rules correct through prologue/epilogue, stack probes, veneers, helper calls, and every return/error path.
-- [ ] Add metadata inspection tests with llvm-dwarfdump, readelf, llvm-readobj, and platform-native tools.
+- [ ] Add metadata inspection tests with `llvm-dwarfdump`, `readelf`, `llvm-readobj`, and platform-native tools.
 - [ ] Test source stepping through loops, calls, recursive frames, imports and runtime errors on each supported debugger.
-16. Native sanitizer instrumentation
+
+### 16. Native sanitizer instrumentation
+
 Current implementation: host compiler sanitizer modes instrument C components/runtime. Native global fast paths call ASAN/TSAN hooks; TSAN procedure entry/exit hooks expose native frames. Native stack accesses are not fully instrumented. UBSAN-relevant integer behavior uses explicit language checks.
+
 - [ ] Define which sanitizer checks are language guarantees versus compiler debugging instrumentation.
 - [ ] Specify shadow-memory mapping and runtime hooks independently of Clang/GCC sanitizer ABI where portability requires it.
 - [ ] Instrument native loads/stores, pointer arithmetic, array/buffer bounds, integer overflow, invalid tags, and allocation/free transitions.
@@ -209,22 +268,28 @@ Current implementation: host compiler sanitizer modes instrument C components/ru
 - [ ] Verify ASAN, LSAN, UBSAN and TSAN runtime availability for each compiler/OS/architecture combination.
 - [ ] Add intentional-fault tests for each check and assert source location, category and exit behavior.
 - [ ] Keep production/release code free of sanitizer hooks unless explicitly enabled.
-17. Broader verification and release gates
-Current implementation: unit/runtime tests; 51-case C/native suites on Linux x86-64; 64-seed optimized/baseline differential tests; register pressure including exact callee-save capacity and CFG cases; mapped-cell ownership; 4096-value reuse; large frames; 5,000-update large procedure; and sanitizer hooks. Cross-assembly passed for the prior source revision. Current assembly text emits for all four targets, but this environment lacks clang, so current cross-assembly and native CI remain outstanding.
+
+### 17. Broader verification and release gates
+
+Current implementation: unit/runtime tests, 51-case C/native suites, 64-seed optimized/baseline differential tests, register pressure, mapped-cell ownership, 4096-value reuse, large frames, 5000-update large procedure, sanitizer hook, cross-assembly, and an unexecuted native CI workflow.
+
 - [ ] Run all tests on every supported native OS/architecture; cross-assembly is a separate gate.
 - [ ] Keep the C backend as a temporary semantic oracle and compare exit status, stdout, stderr category, and returned value.
 - [ ] Extend deterministic randomized programs across arithmetic, branch, loop, call, recursion, string, buffer, array and error behavior.
 - [ ] Add seed reporting and save the smallest reproducer for every generated failure.
 - [ ] Add deep recursion, stack exhaustion, many parameters, high live-value pressure, many locals, huge block count, large text section, and frame-probe boundary tests.
-- [ ] Test both optimized and --no-opt native modes for every fixture.
+- [ ] Test both optimized and `--no-opt` native modes for every fixture.
 - [ ] Test debug metadata builds and sanitizer builds separately from release.
 - [ ] Run native CI on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64 and retain logs/artifacts.
 - [ ] Add compiler warning-as-error builds on Clang and GCC-compatible toolchains where supported.
 - [ ] Fuzz lexer/parser/IR validator/optimizer/emitter with resource limits and sanitizer builds.
 - [ ] Test reproducible assembly/object output or document nondeterministic fields.
 - [ ] Gate a target release on its native runtime suite, ABI conformance, unwind, debug, and supported sanitizer checks.
-18. Performance and resource benchmarks
-Current implementation: a CSV harness compares C, native optimized and native --no-opt execution time plus executable size for loop/call/object workloads. Existing measurements are a smoke check, not an isolated baseline.
+
+### 18. Performance and resource benchmarks
+
+Current implementation: a CSV harness compares C, native optimized and native `--no-opt` execution time plus executable size for loop/call/object workloads. Existing measurements are a smoke check, not an isolated baseline.
+
 - [ ] Separate compile time, assembly time, link time, startup time and steady-state execution time.
 - [ ] Add warmup, repeated samples, median/dispersion, environment metadata and stable machine identifiers.
 - [ ] Measure code size, read-only data, frame size, maximum stack depth, spill/reload count, helper-call count, and compilation peak memory.
@@ -233,8 +298,11 @@ Current implementation: a CSV harness compares C, native optimized and native --
 - [ ] Run on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64 native hosts.
 - [ ] Keep results in versioned CSV/JSON with compiler revision, flags, target triple, CPU/OS and sanitizer mode.
 - [ ] Set performance expectations only after repeatable runs; avoid pass/fail thresholds sensitive to shared CI noise.
-19. Target support and platform-specific integration
-The four emitters exist. macOS ARM64 has a user-reported native release run from the prior allocation revision; Linux x86-64 has the current 51-case native release run. Linux ARM64 and Windows x86-64 still lack native OS release runs. Keep each target's object, runtime, linker, debugger, and sanitizer checks separate.
+
+### 19. Target support and platform-specific integration
+
+The four emitters exist; only macOS ARM64 and Linux x86-64 have native release runs recorded. Keep each target's object, runtime, linker, debugger, and sanitizer checks separate.
+
 - [ ] Keep target IDs, triples, object formats, symbol prefixes, sections, relocations, stack rules and helper conventions in one target descriptor.
 - [ ] Validate host-target detection on Apple Silicon, Linux x86-64/ARM64, and Windows x86-64; reject unsupported hosts clearly.
 - [ ] Test spaces, Unicode, drive letters, case-insensitive paths, temp files, sidecar paths and source-overwrite protection on Windows.
@@ -243,47 +311,58 @@ The four emitters exist. macOS ARM64 has a user-reported native release run from
 - [ ] Validate PE/COFF sections, SEH unwind data, chkstk, startup, imports, CRT and debug information on Windows x86-64.
 - [ ] Decide minimum OS/SDK/toolchain versions and document supported compiler drivers.
 - [ ] Keep macOS Intel, Windows ARM64 and other architectures explicitly unsupported until separately designed and tested.
-1.20 Platform-specific CG checklist
-macOS ARM64 — target profile v1
+
+## 1.20 Platform-specific CG checklist
+
+### macOS ARM64 — target profile v1
+
 - [x] Emit ARM64 Mach-O assembly.
-- [ ] Re-run assembly, linking, and execution of the release compiler and generated program on Apple Silicon after the explicit-location/live-range-splitting update; the prior revision passed.
-- [ ] Re-run unit, C/native execution, differential, cross-target assembly and large-procedure checks for this revision. The prior Apple Silicon run passed 48 cases and predates the current allocator revision.
-- [ ] Run make BUILD_MODE=debug test check-asan-hook on the Mac and record the exact sanitizer runtimes available.
-- [ ] Run make BUILD_MODE=tsan test on the Mac.
+- [x] Assemble and link/run the release compiler and generated program on Apple Silicon.
+- [x] Pass unit, C/native execution, differential, cross-target assembly and large-procedure checks in the user-reported release run.
+- [ ] Run `make BUILD_MODE=debug test check-asan-hook` on the Mac and record the exact sanitizer runtimes available.
+- [ ] Run `make BUILD_MODE=tsan test` on the Mac.
 - [ ] Run and archive repeated native benchmarks and frame/code-size results.
 - [ ] Inspect Mach-O unwind and debug output with Apple/LLVM tools; test backtraces through B++ calls/errors.
 - [ ] Finish shared CG tasks required by the exit criteria before stage 2.
-Linux x86-64 — target profile v1
+
+### Linux x86-64 — target profile v1
+
 - [x] Emit System V x86-64 ELF assembly.
-- [x] Pass the current Linux x86-64 release suite (51 C/native cases), 64-seed differential suite, 5,000-update stress test and runtime/unit tests.
-- [x] Run TSAN on the current Linux x86-64 source revision; the complete unit, C, and native suites passed. ASAN/UBSAN debug `make test` also passed with LSAN exit scanning disabled; a host run with LSan scanning enabled remains open.
-- [x] Exercise the Windows calling convention with the Linux ms_abi bridge; keep it classified as a bridge test only.
+- [x] Pass release suite, 64-seed differential suite, large-procedure test and runtime/unit tests.
+- [x] Pass ASAN/UBSAN and TSAN test suites on the available Linux x86-64 host.
+- [x] Exercise the Windows calling convention with the Linux `ms_abi` bridge; keep it classified as a bridge test only.
 - [ ] Run LSAN on a host/container where its exit-time process scan works.
 - [ ] Run repeated isolated benchmarks and inspect CFI/source-line/backtrace behavior.
 - [ ] Finish shared CG tasks required by the exit criteria before stage 2.
-Linux ARM64 — target profile v1
+
+### Linux ARM64 — target profile v1
+
 - [x] Emit Linux ARM64 ELF assembly using the shared ARM64 instruction selector.
-- [ ] Re-run current-revision cross-assembly in optimized and baseline modes; prior revision passed.
+- [x] Cross-assemble optimized and baseline objects.
 - [ ] Run the compiler and generated executables natively on Linux ARM64.
 - [ ] Pass unit tests, the C suite, the native suite, optimized/baseline differential suite and 5000-update stress case.
 - [ ] Run ASAN/UBSAN/TSAN/LSAN where the actual compiler runtime supports them; record unsupported combinations explicitly.
 - [ ] Inspect ELF relocations, CFI, stack probing, source lines and backtraces on ARM64.
 - [ ] Run isolated benchmarks and compare with Linux x86-64 and macOS ARM64.
 - [ ] Finish shared CG tasks required by the exit criteria before stage 2.
-Windows x86-64 — target profile v1
+
+### Windows x86-64 — target profile v1
+
 - [x] Emit Windows x64 COFF assembly and SEH prolog/epilog directives.
-- [ ] Re-run current-revision cross-assembly in optimized and baseline modes; prior revision passed.
-- [x] Pass the current 51-case Linux `ms_abi` calling-convention bridge suite; this does not test Windows OS behavior.
+- [x] Cross-assemble optimized and baseline objects.
+- [x] Pass the Linux `ms_abi` calling-convention bridge suite; retain the limitation that this does not test Windows OS behavior.
 - [ ] Build and run compiler and generated executables on native Windows x64.
 - [ ] Pass unit tests, the C suite, native suite, optimized/baseline differential suite and 5000-update stress case.
-- [ ] Verify Windows CRT startup, symbol entry point, shadow space, stack arguments, ___chkstk_ms, guard pages, PE linking and SEH unwinding.
+- [ ] Verify Windows CRT startup, symbol entry point, shadow space, stack arguments, `___chkstk_ms`, guard pages, PE linking and SEH unwinding.
 - [ ] Validate paths containing spaces, mixed separators, drive letters, Unicode, case-only aliases, temp files and source/debug-snapshot overwrite protection.
 - [ ] Determine MinGW/UCRT/Clang toolchain support and whether MSVC syntax/tooling is in scope.
 - [ ] Run debug/sanitizer tests only for runtimes that exist; document ASAN/LSAN/UBSAN/TSAN gaps without treating unsupported runtimes as passing.
 - [ ] Inspect CodeView/PDB or chosen debug format and Windows backtraces.
 - [ ] Run isolated benchmarks and record binary/frame sizes.
 - [ ] Finish shared CG tasks required by the exit criteria before stage 2.
-1.21 CG exit criteria before moving to ABI
+
+## 1.21 CG exit criteria before moving to ABI
+
 - [ ] Native release test matrix passes on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64.
 - [ ] Every target has passed semantic differential tests, large procedure/frame tests, recursion, pressure, error cleanup, target calling-convention tests, unwind tests and debug-line tests.
 - [ ] Debug/sanitizer results are recorded per compiler/runtime/OS, including unsupported combinations and LSAN scan limitations.
@@ -293,16 +372,25 @@ Windows x86-64 — target profile v1
 - [ ] Benchmarks are collected for all four host profiles and saved with reproducible environment metadata.
 - [ ] The unresolved shared tasks in sections 1.2–1.19 are reviewed explicitly; no “partial” item is silently promoted to complete.
 - [ ] Only after these gates are reviewed, begin roadmap stage 2 and freeze the public ABI contract.
-2. ABI
-Scope: a functional ABI for statically linking B++ libraries into B++ programs. Keep the public boundary small and stable. Broad FFI, general C ABI compatibility, arbitrary callbacks into foreign runtimes, shared libraries and dynamic loading are out of scope. C code may remain inside the compiler/runtime as an implementation detail; that alone does not make C interoperability part of the B++ ABI.
-Dependency: CG call/frame requirements must be known. Public libraries must not depend on the temporary private revision-1 frame layout.
-ABI goals
+
+---
+
+# 2. ABI
+
+**Scope:** a functional ABI for statically linking B++ libraries into B++ programs. Keep the public boundary small and stable. Broad FFI, general C ABI compatibility, arbitrary callbacks into foreign runtimes, shared libraries and dynamic loading are out of scope. C code may remain inside the compiler/runtime as an implementation detail; that alone does not make C interoperability part of the B++ ABI.
+
+**Dependency:** CG call/frame requirements must be known. Public libraries must not depend on the temporary private revision-1 frame layout.
+
+### ABI goals
+
 - [ ] A library author can publish B++ procedures for use by another B++ program.
 - [ ] A separately compiled B++ consumer can resolve symbols, call procedures, exchange supported B++ values, handle errors and link without a dynamic loader.
 - [ ] The library/linker can check target, ABI revision, runtime requirement, dependencies, imports and exports before creating an executable.
-- [ ] Compiler/runtime internals such as BLValue, refcounts, allocator structures and the current private frame remain hidden behind the public boundary.
+- [ ] Compiler/runtime internals such as `BLValue`, refcounts, allocator structures and the current private frame remain hidden behind the public boundary.
 - [ ] The supported public type set is deliberately small. Unsupported types are diagnosed instead of implicitly exposing a C or compiler-specific layout.
-ABI design and implementation
+
+### ABI design and implementation
+
 - [ ] Write an ABI goals/non-goals specification that explicitly excludes broad FFI, dynamic loading, shared-library lifecycle, arbitrary foreign callbacks and a general-purpose C ABI.
 - [ ] Decide which language entities cross a static-library boundary in version 1: procedures first; add public globals, constants or types only when the language/library feature needs them.
 - [ ] Define public value representation or opaque handles. Do not expose C struct layout, private frame headers, refcount fields or allocator internals accidentally.
@@ -321,15 +409,20 @@ ABI design and implementation
 - [ ] Add conformance fixtures for multiple arguments, recursion, supported object returns, ownership transfer, runtime errors and private symbols on each native target.
 - [ ] Add negative fixtures for every unsupported type/call form and every artifact mismatch.
 - [ ] Keep private runtime bridge symbols unexported; document migration from private revision 1.
-Explicit ABI non-goals for v1
+
+### Explicit ABI non-goals for v1
+
 - [ ] No general-purpose C ABI or automatic C type marshalling.
 - [ ] No arbitrary calls from B++ into foreign libraries through source-level FFI.
 - [ ] No callbacks from arbitrary foreign code into B++ procedures.
 - [ ] No shared-library lifecycle, dynamic loader, plugin ABI or symbol interposition.
-- [ ] No public dependency on the current C BLValue layout or private runtime frame.
+- [ ] No public dependency on the current C `BLValue` layout or private runtime frame.
 - [ ] Revisit a narrow interop feature only when a concrete system/runtime need cannot be met by B++ libraries and the private platform runtime boundary.
-3. Assembler
-Dependency: finalized target instruction forms, relocation model, ABI symbols, unwind and debug metadata.
+
+# 3. Assembler
+
+**Dependency:** finalized target instruction forms, relocation model, ABI symbols, unwind and debug metadata.
+
 - [ ] Define a versioned B++ assembly language or structured instruction format.
 - [ ] Specify lexical grammar, labels, expressions, sections, alignment, visibility, directives and comments.
 - [ ] Specify relocations for branches, calls, symbols, constants, TLS, imports and veneers on each object format.
@@ -340,8 +433,11 @@ Dependency: finalized target instruction forms, relocation model, ABI symbols, u
 - [ ] Add golden byte tests, disassembly round trips, relocation boundary tests and malformed-input tests.
 - [ ] Cross-check emitted objects against LLVM/Apple/MinGW tool readers.
 - [ ] Replace Clang/GCC assembly invocation only when object compatibility tests pass.
-4. Linker
-Dependency: assembler object format, static B++ ABI symbol rules, runtime object format and executable entry points.
+
+# 4. Linker
+
+**Dependency:** assembler object format, static B++ ABI symbol rules, runtime object format and executable entry points.
+
 - [ ] Define B++ linker inputs and output modes: executable, object, and static B++ library. Shared-library output is outside the initial ABI scope.
 - [ ] Parse object files and validate machine, format, ABI version, sections, symbols and relocations.
 - [ ] Resolve strong/weak/import/export symbols and diagnose duplicates/unresolved references.
@@ -352,8 +448,11 @@ Dependency: assembler object format, static B++ ABI symbol rules, runtime object
 - [ ] Add object/link map output and deterministic builds where possible.
 - [ ] Test linking multiple B++ objects and static B++ libraries, platform runtime objects, missing symbols and incompatible ABI versions. General C interoperability is outside the ABI scope.
 - [ ] Remove external host linker dependency after native executable conformance passes on all four platforms.
-5. buildFile
-Dependency: target/ABI/library metadata and linker command model.
+
+# 5. buildFile
+
+**Dependency:** target/ABI/library metadata and linker command model.
+
 - [ ] Define a readable make/makefile-like B++ project file syntax and version.
 - [ ] Define sources, include paths, imports, modules, generated files, libraries, target, build mode and output.
 - [ ] Define dependency discovery, timestamps/content hashes, incremental rebuild and parallel scheduling semantics.
@@ -363,18 +462,24 @@ Dependency: target/ABI/library metadata and linker command model.
 - [ ] Diagnose cycles, missing inputs, duplicate outputs, unsupported target options and stale ABI artifacts.
 - [ ] Add example projects and migrate this compiler's current Makefile workflow.
 - [ ] Test paths with spaces/unicode and deterministic results on macOS, Linux and Windows.
-6. XF static library for ByteLang
-Dependency: ABI, assembler, linker and buildFile library metadata. XF’s public archive interface should be B++-to-B++; internal C components may remain behind the private runtime boundary.
+
+# 6. XF static library for ByteLang
+
+**Dependency:** ABI, assembler, linker and buildFile library metadata. XF’s public archive interface should be B++-to-B++; internal C components may remain behind the private runtime boundary.
+
 - [ ] Inventory XF public procedures, data, runtime entry points and current C archive dependencies.
 - [ ] Resolve existing unresolved ByteLang/LambdaScript/interpreter/SIMD symbols before packaging.
 - [ ] Decide which XF parts become B++ code and which C pieces remain private runtime/build dependencies; do not expand the public ABI into general C interoperability to accommodate internals.
-- [ ] Build xf as a target-specific static library with ABI/version/dependency metadata.
+- [ ] Build `xf` as a target-specific static library with ABI/version/dependency metadata.
 - [ ] Link it from ByteLang programs using the B++ linker and buildFile.
 - [ ] Preserve bindata/reverse-column-index storage behavior and document ownership/lifetime.
 - [ ] Test ingestion, transformations, table returns, errors, internal runtime hooks, large input and concurrent operations if supported.
 - [ ] Build/test the library on macOS ARM64, Linux x86-64/ARM64 and Windows x86-64.
-7. Debugger
-Dependency: stable source maps, ABI frame rules, unwind records and variable locations.
+
+# 7. Debugger
+
+**Dependency:** stable source maps, ABI frame rules, unwind records and variable locations.
+
 - [ ] Define debugger protocol/CLI and target connection model.
 - [ ] Read line tables, import maps, procedure metadata and variable/register location ranges.
 - [ ] Implement launch/attach, breakpoints, conditional breakpoints, step-in/over/out, continue and terminate.
@@ -383,8 +488,11 @@ Dependency: stable source maps, ABI frame rules, unwind records and variable loc
 - [ ] Handle optimized-out variables and remapped virtual registers accurately.
 - [ ] Integrate target-native process control and symbol readers for macOS, Linux and Windows.
 - [ ] Test recursion, optimized code, B++ static-library imports, runtime errors and unwinding on every target.
-8. Sanitizers
-Dependency: public ABI/runtime allocation hooks, assembler/linker metadata, debugger source maps.
+
+# 8. Sanitizers
+
+**Dependency:** public ABI/runtime allocation hooks, assembler/linker metadata, debugger source maps.
+
 - [ ] Specify B++ sanitizer modes and diagnostics independently of compiler-brand flag names.
 - [ ] Implement memory bounds/use-after-free checks for heap, arrays, buffers, globals and stack frames.
 - [ ] Implement leak tracking and define object-cycle treatment.

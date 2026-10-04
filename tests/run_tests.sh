@@ -1,13 +1,17 @@
 #!/bin/sh
 set -eu
 compiler=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
+project_compiler=${BPP_REAL_COMPILER:-$compiler}
+project_dir=$(cd "$(dirname "$project_compiler")/../.." && pwd)
 task_dir=$(mktemp -d)
 if command -v cygpath >/dev/null 2>&1; then task_dir=$(cygpath -m "$task_dir"); fi
 trap 'rm -rf "$task_dir"' EXIT HUP INT TERM
 count=0
+progress() { printf '[%02d] %s\n' "$count" "$1" >&2; }
 bpp() { "$compiler" --backend "${BPP_TEST_BACKEND:-c}" "$@"; }
 native_case() {
     count=$((count + 1))
+    progress "$1"
     printf '%s\n' "$2" > "$task_dir/case.bpp"
     bpp --print-result -o "$task_dir/program" "$task_dir/case.bpp"
     actual=$("$task_dir/program")
@@ -15,12 +19,14 @@ native_case() {
 }
 compile_error() {
     count=$((count + 1))
+    progress "$1"
     printf '%s\n' "$2" > "$task_dir/error.bpp"
     if bpp --check "$task_dir/error.bpp" > "$task_dir/out" 2> "$task_dir/err"; then echo "FAIL $1: expected compilation error"; exit 1; fi
     if ! LC_ALL=C grep -F "$3" "$task_dir/err" >/dev/null; then cat "$task_dir/err"; echo "FAIL $1"; exit 1; fi
 }
 runtime_error() {
     count=$((count + 1))
+    progress "$1"
     printf '%s\n' "$2" > "$task_dir/error.bpp"
     bpp -o "$task_dir/program" "$task_dir/error.bpp"
     if "$task_dir/program" > "$task_dir/out" 2> "$task_dir/err"; then echo "FAIL $1: expected runtime error"; exit 1; fi
@@ -36,6 +42,7 @@ native_case buffer 'new ptr b=malloc 4; b[0]=65; new ptr alias=b; free b; assert
 native_case arrays 'new Array a=Array.new(3); Array.set(a,0,"a"); Array.set(a,1,"b"); Array.set(a,2,"c"); Array.grow(a,1); assert(Array.get(a,0)=="a"); Array.grow(a,4); Array.set(a,3,"d"); new Array alias=a; free a; assert(Array.length(alias)==0); Array.grow(a,2); Array.set(a,0,"e"); return Array.get(a,0);' 'e'
 native_case selfassign 'new String s="x"; s=s; new Array a=Array.new(1); Array.set(a,0,s); Array.set(a,0,Array.get(a,0)); delete s; return string_new(Array.get(a,0));' 'x'
 native_case branch 'new int x=1; if(!x){x=9;} else {x=3;} return (x%2)+(x/2)+(x!=0)+(x>=3)+(x>2)+(x==3);' '6'
+native_case edge_loop_owned 'define proc grow(n){new String s="start";while(n>0){s=s+"x";n=n-1;}s=s+"owned";return s;} new int edge_value=5;new int result=0;if(1){result=String.length(grow(3))+edge_value;}else{result=0;}return result;' '18'
 native_case cleanup 'define proc f(n){new String s="x"; while(n>0){s=s+"y"; n=n-1;} return s;} return string_new(f(100));' "x$(printf '%100s' '' | tr ' ' y)"
 native_case signed_arithmetic 'assert(-7/3 == -2); assert(-7%3 == -1); assert(7%-3 == 1); assert(-4*-3 == 12); return -7-3;' '-10'
 native_case many_arguments 'return many(1,2,3,4,5,6,7,8,9); define proc many(a,b,c,d,e,f,g,h,i){return a+b+c+d+e+f+g+h+i;}' '45'
@@ -88,12 +95,19 @@ while [ "$j" -lt 320 ]; do large="$large new int v$j=n+$j;"; j=$((j+1)); done
 large="$large return v0+v319;} return large(2);"
 native_case large_frame "$large" '323'
 # Output modes and output-path protection.
+progress "output-mode checks"
 bpp --emit-ir -o "$task_dir/out.ir" "$task_dir/case.bpp"
 grep -F 'call f1' "$task_dir/out.ir" >/dev/null
 bpp --emit-c -o "$task_dir/out.c" "$task_dir/case.bpp"
 grep -F 'bpp_f1' "$task_dir/out.c" >/dev/null
 bpp --emit-asm -o "$task_dir/out.s" "$task_dir/case.bpp"
 grep -E '\.globl (_)?main' "$task_dir/out.s" >/dev/null
+"$project_compiler" --asm-comments --emit-asm -o "$task_dir/placement.s" "$project_dir/tests/arm64_coverage.bpp"
+grep -F 'B++ reload' "$task_dir/placement.s" >/dev/null
+grep -F 'reason=' "$task_dir/placement.s" >/dev/null
+"$project_compiler" --emit-map -o "$task_dir/placement.json" "$project_dir/tests/arm64_coverage.bpp"
+grep -F '"spill_candidates"' "$task_dir/placement.json" >/dev/null
+grep -F '"spill_reason"' "$task_dir/placement.json" >/dev/null
 if bpp --emit-c -o "$task_dir/./case.bpp" "$task_dir/case.bpp" >/dev/null 2>&1; then echo 'FAIL source overwrite'; exit 1; fi
 mkdir -p "$task_dir/space dir"
 printf '%s\n' 'return 12;' > "$task_dir/space dir/input source.bpp"

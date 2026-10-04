@@ -303,6 +303,70 @@ int main(void) {
         assert(bpp_reg_plan_validate(&fn,&p));bpp_reg_plan_destroy(&p);
     }
 
+    /* Clobber points carry semantic roles; stores cover exact uses, live
+       values, and helper destinations while block edges get successor masks. */
+    BLIRInst visibility[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_INT,1,N,N,N),
+        {.op=BL_IR_CALL,.dst=2,.a=N,.args=(BLIRId[]){1},.arg_count=1},
+        I(BL_IR_ADD,3,0,0,N),I(BL_IR_RETURN,N,3,N,N)};
+    BLIRBlock visibility_block={visibility,5,5};fn.blocks=&visibility_block;fn.block_count=1;fn.register_count=4;
+    assert(bpp_reg_plan_create(&fn,&p));
+    unsigned point=bpp_reg_clobber_at(&p,0,2);
+    assert((point&(BPP_CLOBBER_HELPER|BPP_CLOBBER_BUILTIN|BPP_CLOBBER_RUNTIME_ERROR))==
+           (BPP_CLOBBER_HELPER|BPP_CLOBBER_BUILTIN|BPP_CLOBBER_RUNTIME_ERROR));
+    assert(bpp_reg_live_after(&p,0,2,0));
+    assert(!bpp_reg_live_after(&p,0,2,1));
+    assert(bpp_reg_spill_before(&p,0,2,0)); /* live through call */
+    assert(bpp_reg_spill_before(&p,0,2,1)); /* builtin argument */
+    assert(bpp_reg_spill_before(&p,0,2,2)); /* destination cell */
+    assert(!bpp_reg_spill_before(&p,0,2,3));
+    assert(bpp_reg_spill_reason_before(&p,0,2,0)==BPP_SPILL_LIVE_ACROSS);
+    assert(bpp_reg_spill_reason_before(&p,0,2,1)==BPP_SPILL_HELPER_INPUT);
+    assert(bpp_reg_spill_reason_before(&p,0,2,2)==BPP_SPILL_DESTINATION);
+    assert(bpp_reg_clobber_at(&p,0,4)&BPP_CLOBBER_RETURN_CLEANUP);
+    bpp_reg_plan_destroy(&p);
+
+    BLIRInst edge0[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_INT,1,N,N,N),I(BL_IR_BRANCH,N,0,1,2)};
+    BLIRInst edge1[]={I(BL_IR_RETURN,N,1,N,N)};
+    BLIRInst edge2[]={I(BL_IR_RETURN,N,0,N,N)};
+    BLIRBlock edge_blocks[]={{edge0,3,3},{edge1,1,1},{edge2,1,1}};
+    fn.blocks=edge_blocks;fn.block_count=3;fn.register_count=2;
+    assert(bpp_reg_plan_create(&fn,&p));
+    assert(bpp_reg_live_in(&p,1,1)&&!bpp_reg_live_in(&p,2,1));
+    assert(bpp_reg_spill_on_edge(&p,0,1,1));
+    assert(!bpp_reg_spill_on_edge(&p,0,2,1));
+    assert(bpp_reg_spill_reason_on_edge(&p,0,1,1)==BPP_SPILL_EDGE_LIVE);
+    bpp_reg_plan_destroy(&p);
+
+    /* A value needed only by one successor is written only on that critical
+       edge. The erroring operation must also preserve its live return value
+       and both operands before the common cleanup path. */
+    BLIRInst err0[]={I(BL_IR_LOAD_LOCAL,0,0,N,N),I(BL_IR_INT,1,N,N,N),I(BL_IR_INT,2,N,N,N),I(BL_IR_DIV,3,1,2,N),I(BL_IR_RETURN,N,0,N,N)};
+    BLIRBlock err_block={err0,5,5};fn.blocks=&err_block;fn.block_count=1;fn.register_count=4;
+    assert(bpp_reg_plan_create(&fn,&p));
+    assert(bpp_reg_plan_validate_error_visibility(&fn,&p));
+    assert(bpp_reg_clobber_at(&p,0,3)&BPP_CLOBBER_RUNTIME_ERROR);
+    assert(bpp_reg_spill_reason_before(&p,0,3,0)==BPP_SPILL_LIVE_ACROSS);
+    assert(bpp_reg_spill_reason_before(&p,0,3,1)==BPP_SPILL_HELPER_INPUT);
+    assert(bpp_reg_spill_reason_before(&p,0,3,2)==BPP_SPILL_HELPER_INPUT);
+    bpp_reg_plan_destroy(&p);
+
+    /* Reuse a cache register after a loop-carried value dies, then place a
+       new owned object into that same physical register. */
+    BLIRInst loop0[]={I(BL_IR_LOAD_LOCAL,0,0,N,N),I(BL_IR_LOAD_LOCAL,1,1,N,N),I(BL_IR_JUMP,N,1,N,N)};
+    BLIRInst loop1[]={I(BL_IR_ADD,2,0,1,N),I(BL_IR_BRANCH,N,2,1,2)};
+    BLIRInst loop2[]={I(BL_IR_LOAD_LOCAL,3,3,N,N),I(BL_IR_RELEASE,N,3,N,N),I(BL_IR_STRING,4,N,N,N),I(BL_IR_ADD,5,4,4,N),I(BL_IR_RETURN,N,5,N,N)};
+    BLIRBlock reuse_blocks[]={{loop0,3,3},{loop1,2,2},{loop2,5,5}};
+    fn.blocks=reuse_blocks;fn.block_count=3;fn.register_count=6;
+    assert(bpp_reg_plan_create_limit(&fn,&p,BPP_LINUX_X64,1));
+    size_t r0_pos=bpp_reg_position(&p,0,0),owned_pos=bpp_reg_position(&p,2,3);
+    BPPRegLocation before_loop=bpp_reg_location_at(&p,0,r0_pos),owned=bpp_reg_location_at(&p,4,owned_pos);
+    assert(before_loop.kind==BPP_LOC_REGISTER&&owned.kind==BPP_LOC_REGISTER);
+    assert(before_loop.physical==owned.physical);
+    assert(bpp_reg_spill_reason_before(&p,2,3,4)==BPP_SPILL_HELPER_INPUT ||
+           bpp_reg_spill_reason_before(&p,2,3,4)==BPP_SPILL_LIVE_ACROSS);
+    assert(bpp_reg_plan_validate_error_visibility(&fn,&p));
+    bpp_reg_plan_destroy(&p);
+
     puts("CFG liveness and payload allocation tests passed");
     return 0;
 }

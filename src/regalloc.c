@@ -6,6 +6,7 @@
 static void *array(size_t n,size_t size){if(size&&n>SIZE_MAX/size)return NULL;return calloc(n?n:1,size);}
 static int has(const uint64_t *bits,size_t r){return (int)((bits[r/64]>>(r%64))&1);}
 static void set(uint64_t *bits,size_t r){bits[r/64]|=UINT64_C(1)<<(r%64);}
+static void clear_bit(uint64_t *bits,size_t r){bits[r/64]&=~(UINT64_C(1)<<(r%64));}
 static size_t definition(const BLIRInst *i){return i->op==BL_IR_RELEASE?i->a:i->dst;}
 static unsigned char allocation_class(BLIROp op){
  if(op==BL_IR_INT)return BPP_ALLOC_IMMEDIATE_INT;
@@ -58,6 +59,25 @@ static unsigned char call_clobber_mask(const BLIRInst *i){
     ownership, or bounds checks. */
  return BPP_CALL_RUNTIME;
 }
+static unsigned char visibility_kind(const BLIRInst *i){
+ unsigned char flags=0;
+ switch(i->op){
+ case BL_IR_RETURN:return BPP_CLOBBER_HELPER|BPP_CLOBBER_RETURN_CLEANUP|BPP_CLOBBER_SANITIZER;
+ case BL_IR_JUMP:case BL_IR_BRANCH:return 0;
+ case BL_IR_NULL:case BL_IR_INT:return BPP_CLOBBER_HELPER;
+ case BL_IR_CALL:
+  flags=(unsigned char)(BPP_CLOBBER_HELPER|BPP_CLOBBER_RUNTIME_ERROR);
+  return (unsigned char)(flags|(i->a==BL_IR_NONE?BPP_CLOBBER_BUILTIN:BPP_CLOBBER_USER_CALL));
+ case BL_IR_STRING:case BL_IR_INDEX_GET:case BL_IR_INDEX_SET:
+ case BL_IR_TO_STRING_BUFFER:case BL_IR_FREE_LOCAL:case BL_IR_FREE_GLOBAL:
+ case BL_IR_DELETE_LOCAL:case BL_IR_DELETE_GLOBAL:
+  return BPP_CLOBBER_HELPER|BPP_CLOBBER_RUNTIME_ERROR;
+ case BL_IR_RELEASE:return BPP_CLOBBER_HELPER;
+ case BL_IR_LOAD_GLOBAL:case BL_IR_STORE_GLOBAL:case BL_IR_INIT_GLOBAL:
+  return BPP_CLOBBER_HELPER|BPP_CLOBBER_RUNTIME_ERROR|BPP_CLOBBER_SANITIZER;
+ default:return BPP_CLOBBER_HELPER|BPP_CLOBBER_RUNTIME_ERROR;
+ }
+}
 static int candidate_is_clobbered(BPPTarget target,const unsigned *candidates,size_t count,unsigned char mask){
  for(size_t c=0;c<count;++c){const BPPRegisterInfo *r=bpp_target_register(target,candidates[c]);
   if(r&&(r->flags&BPP_REG_CALLER_SAVED)&&(r->call_clobbers&mask))return 1;
@@ -99,17 +119,58 @@ static int order(const void *a,const void *b){const Interval *x=a,*y=b;if(x->beg
 static int segment_order(const void *a,const void *b){const SegmentWork *x=a,*y=b;if(x->begin!=y->begin)return x->begin<y->begin?-1:1;if(x->reg!=y->reg)return x->reg<y->reg?-1:1;return x->segment<y->segment?-1:x->segment!=y->segment;}
 void bpp_reg_plan_destroy(BPPRegPlan *p){
  if(!p)return;
- free(p->cell);free(p->physical);free(p->physical_flags);free(p->caller_safe);free(p->alloc_class);free(p->rematerialized_int);free(p->segment_offsets);free(p->segments);free(p->begin);free(p->end);free(p->instruction_positions);free(p->block_positions);free(p->live_in);free(p->live_out);memset(p,0,sizeof *p);
+ free(p->cell);free(p->physical);free(p->physical_flags);free(p->caller_safe);free(p->alloc_class);free(p->rematerialized_int);free(p->segment_offsets);free(p->segments);free(p->begin);free(p->end);free(p->instruction_positions);free(p->block_positions);free(p->instruction_live_after);free(p->instruction_visible);free(p->instruction_destination);free(p->clobber_points);free(p->live_in);free(p->live_out);memset(p,0,sizeof *p);
 }
 int bpp_reg_live_in(const BPPRegPlan *p,size_t block,size_t reg){return has(p->live_in+block*p->words,reg);}
 int bpp_reg_live_after(const BPPRegPlan *p,size_t block,size_t instruction,size_t reg){
  if(!p||block>=p->block_count||reg>=p->register_count||!p->instruction_positions||!p->block_positions)return 0;
- size_t pos=p->block_positions[block]+instruction;if(pos>=p->instruction_count)return 0;size_t at=p->instruction_positions[pos];return p->begin[reg]<=at&&p->end[reg]>at;
+ size_t pos=p->block_positions[block]+instruction;if(pos>=p->instruction_count||!p->instruction_live_after)return 0;return has(p->instruction_live_after+pos*p->words,reg);
 }
 size_t bpp_reg_position(const BPPRegPlan *p,size_t block,size_t instruction){
  if(!p||block>=p->block_count||!p->block_positions)return SIZE_MAX;
  size_t pos=p->block_positions[block]+instruction;
  return pos<p->instruction_count?pos:SIZE_MAX;
+}
+unsigned bpp_reg_clobber_at(const BPPRegPlan *p,size_t block,size_t instruction){
+ size_t pos=bpp_reg_position(p,block,instruction);
+ return pos!=SIZE_MAX&&p->clobber_points?p->clobber_points[pos]:0;
+}
+static int may_own_object(const BPPRegPlan *p,size_t r){
+ return p->alloc_class[r]==BPP_ALLOC_TAGGED_PAIR;
+}
+BPPSpillReason bpp_reg_spill_reason_before(const BPPRegPlan *p,size_t block,size_t instruction,size_t reg){
+ if(!p||reg>=p->register_count)return BPP_SPILL_NONE;
+ unsigned point=bpp_reg_clobber_at(p,block,instruction);
+ if(!point)return BPP_SPILL_NONE;
+ size_t pos=bpp_reg_position(p,block,instruction);
+ if(pos==SIZE_MAX)return BPP_SPILL_NONE;
+ if(bpp_reg_live_after(p,block,instruction,reg))return BPP_SPILL_LIVE_ACROSS;
+ if(p->instruction_visible&&has(p->instruction_visible+pos*p->words,reg))
+  return p->instruction_destination[pos]==reg?BPP_SPILL_DESTINATION:BPP_SPILL_HELPER_INPUT;
+ /* Runtime helpers and the frame cleanup path own every potentially-object
+  * cell, including a value whose final language use is this instruction. */
+ if(may_own_object(p,reg)&&p->begin[reg]!=SIZE_MAX&&p->begin[reg]<=pos&&p->end[reg]>=pos)return BPP_SPILL_ERROR_CLEANUP;
+ return BPP_SPILL_NONE;
+}
+BPPSpillReason bpp_reg_spill_reason_on_edge(const BPPRegPlan *p,size_t from,size_t to,size_t reg){
+ if(!p||from>=p->block_count||to>=p->block_count||reg>=p->register_count)return BPP_SPILL_NONE;
+ if(bpp_reg_live_in(p,to,reg))return BPP_SPILL_EDGE_LIVE;
+ size_t last=p->block_positions[from];
+ /* Find the terminator's flattened position without requiring a function
+  * pointer: block positions are monotonically increasing and the edge is
+  * only queried for a valid successor. */
+ size_t end=from+1<p->block_count?p->block_positions[from+1]:p->instruction_count;
+ if(end<=last)return BPP_SPILL_NONE;
+ size_t pos=end-1;
+ return may_own_object(p,reg)&&p->begin[reg]!=SIZE_MAX&&p->begin[reg]<=pos&&p->end[reg]>=pos?BPP_SPILL_EDGE_CLEANUP:BPP_SPILL_NONE;
+}
+int bpp_reg_spill_before(const BPPRegPlan *p,size_t block,size_t instruction,size_t reg){return bpp_reg_spill_reason_before(p,block,instruction,reg)!=BPP_SPILL_NONE;}
+int bpp_reg_spill_on_edge(const BPPRegPlan *p,size_t from,size_t to,size_t reg){return bpp_reg_spill_reason_on_edge(p,from,to,reg)!=BPP_SPILL_NONE;}
+const char *bpp_reg_spill_reason_name(BPPSpillReason reason){
+ switch(reason){case BPP_SPILL_LIVE_ACROSS:return "live-across-clobber";case BPP_SPILL_HELPER_INPUT:return "helper-visible-operand";case BPP_SPILL_DESTINATION:return "helper-visible-destination";case BPP_SPILL_ERROR_CLEANUP:return "owned-value-for-error-cleanup";case BPP_SPILL_EDGE_LIVE:return "live-on-successor-edge";case BPP_SPILL_EDGE_CLEANUP:return "owned-value-for-edge-cleanup";default:return "none";}
+}
+const char *bpp_reg_segment_spill_reason_name(BPPRegSegmentSpillReason reason){
+ switch(reason){case BPP_SEGMENT_SPILL_NO_CANDIDATES:return "no-allocatable-register";case BPP_SEGMENT_SPILL_NO_NATIVE_USES:return "no-native-payload-uses";case BPP_SEGMENT_SPILL_CALL_CLOBBER:return "all-registers-clobbered";case BPP_SEGMENT_SPILL_PRESSURE:return "register-pressure";default:return "none";}
 }
 BPPRegLocation bpp_reg_location_at(const BPPRegPlan *p,size_t reg,size_t position){
  BPPRegLocation loc={BPP_LOC_DEAD,0,0,0,0};
@@ -132,15 +193,16 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
  if(limit!=SIZE_MAX&&candidate_count>limit)candidate_count=limit;
  if(candidate_count>BPP_MAX_ALLOCATABLE_REGS)return 0;
  size_t n=fn->register_count,blocks=fn->block_count,inst_count=instruction_count(fn);if(inst_count==SIZE_MAX||n>SIZE_MAX-63)return 0;
- size_t words=(n+63)/64;if(words&&blocks>SIZE_MAX/words)return 0;
+ size_t words=(n+63)/64;if((words&&blocks>SIZE_MAX/words)||(words&&inst_count>SIZE_MAX/words))return 0;
  p->register_count=n;p->block_count=blocks;p->words=words;p->instruction_count=inst_count;
  p->physical=array(n,sizeof *p->physical);p->physical_flags=array(n,1);p->caller_safe=array(n,1);p->alloc_class=array(n,1);p->rematerialized_int=array(n,sizeof *p->rematerialized_int);p->segment_offsets=array(n+1,sizeof *p->segment_offsets);p->cell=array(n,sizeof *p->cell);
  p->begin=array(n,sizeof *p->begin);p->end=array(n,sizeof *p->end);p->instruction_positions=array(inst_count,sizeof *p->instruction_positions);p->block_positions=array(blocks,sizeof *p->block_positions);
+ p->instruction_live_after=array(inst_count*words,sizeof(uint64_t));p->instruction_visible=array(inst_count*words,sizeof(uint64_t));p->instruction_destination=array(inst_count,sizeof *p->instruction_destination);p->clobber_points=array(inst_count,1);
  p->live_in=array(blocks*words,sizeof(uint64_t));p->live_out=array(blocks*words,sizeof(uint64_t));
- uint64_t *use=array(blocks*words,sizeof(uint64_t)),*def=array(blocks*words,sizeof(uint64_t)),*temp=array(words,sizeof(uint64_t));
+ uint64_t *use=array(blocks*words,sizeof(uint64_t)),*def=array(blocks*words,sizeof(uint64_t)),*temp=array(words,sizeof(uint64_t)),*backward_uses=array(words,sizeof(uint64_t));
  Interval *intervals=array(n,sizeof *intervals);size_t *cell_end=array(n,sizeof(size_t)),*weight=array(n,sizeof(size_t)),*def_position=array(n,sizeof(size_t));
  unsigned char *barriers=array(inst_count,1),*split=array(inst_count,1),*caller_safe=array(n,1);
- int ok=p->physical&&p->physical_flags&&p->caller_safe&&p->alloc_class&&p->rematerialized_int&&p->segment_offsets&&p->cell&&p->begin&&p->end&&p->instruction_positions&&p->block_positions&&p->live_in&&p->live_out&&use&&def&&temp&&intervals&&cell_end&&weight&&def_position&&barriers&&split&&caller_safe;
+ int ok=p->physical&&p->physical_flags&&p->caller_safe&&p->alloc_class&&p->rematerialized_int&&p->segment_offsets&&p->cell&&p->begin&&p->end&&p->instruction_positions&&p->block_positions&&p->instruction_live_after&&p->instruction_visible&&p->instruction_destination&&p->clobber_points&&p->live_in&&p->live_out&&use&&def&&temp&&backward_uses&&intervals&&cell_end&&weight&&def_position&&barriers&&split&&caller_safe;
  if(!ok)goto done;
  for(size_t r=0;r<n;++r){intervals[r]=(Interval){r,SIZE_MAX,0,0,SIZE_MAX,0};caller_safe[r]=1;def_position[r]=SIZE_MAX;}
  unsigned char *known_int=array(n,1);long long *known_value=array(n,sizeof *known_value);
@@ -149,11 +211,11 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
  size_t instruction_base=0;
  for(size_t b=0;b<blocks;++b){p->block_positions[b]=instruction_base;memset(known_int,0,n);
   for(size_t k=0;k<fn->blocks[b].count;++k,++pos){const BLIRInst *i=&fn->blocks[b].insts[k];p->instruction_positions[pos]=pos;
-   barriers[pos]=call_clobber_mask(i);
+   barriers[pos]=call_clobber_mask(i);p->clobber_points[pos]=visibility_kind(i);p->instruction_destination[pos]=i->op==BL_IR_RELEASE?BL_IR_NONE:i->dst;
    split[pos]=(unsigned char)is_unconditional_helper(i);
-   memset(temp,0,words*sizeof *temp);uses(i,temp);for(size_t w=0;w<words;++w)use[b*words+w]|=temp[w]&~def[b*words+w];
+   memset(temp,0,words*sizeof *temp);uses(i,temp);for(size_t w=0;w<words;++w){use[b*words+w]|=temp[w]&~def[b*words+w];p->instruction_visible[pos*words+w]=temp[w];}
    for(size_t w=0;w<words;++w){uint64_t mask=temp[w];while(mask){size_t r=w*64+(unsigned)__builtin_ctzll(mask);mask&=mask-1;if(native_payload_use(i,r)){size_t boost=1;const BLIRInst *last=&fn->blocks[b].insts[fn->blocks[b].count-1];if((last->op==BL_IR_JUMP&&last->a<=b)||(last->op==BL_IR_BRANCH&&(last->b<=b||last->c<=b)))boost=8;if(weight[r]<=SIZE_MAX-boost)weight[r]+=boost;}}}
-   size_t d=definition(i);if(d!=BL_IR_NONE){set(def+b*words,d);if(i->op!=BL_IR_RELEASE){def_position[d]=pos;unsigned char kind=allocation_class(i->op);long long remat=0;
+   size_t d=definition(i);if(d!=BL_IR_NONE){set(def+b*words,d);set(p->instruction_visible+pos*words,d);if(i->op!=BL_IR_RELEASE){def_position[d]=pos;unsigned char kind=allocation_class(i->op);long long remat=0;
      if(kind==BPP_ALLOC_IMMEDIATE_INT){known_int[d]=1;known_value[d]=i->integer;p->rematerialized_int[d]=i->integer;}
      else if(kind==BPP_ALLOC_IMMEDIATE_NULL)known_int[d]=0;
      else if((i->op==BL_IR_NEG||i->op==BL_IR_NOT)&&i->a<n&&known_int[i->a]&&safe_integer_result(i,known_value[i->a],0,&remat)){kind=BPP_ALLOC_REMATERIALIZABLE;known_int[d]=1;known_value[d]=remat;}
@@ -166,6 +228,16 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
  }
  free(known_int);free(known_value);
  int changed;do{changed=0;for(size_t b=blocks;b-- >0;){memset(temp,0,words*sizeof *temp);const BLIRInst *last=&fn->blocks[b].insts[fn->blocks[b].count-1];size_t succ[2]={BL_IR_NONE,BL_IR_NONE};if(last->op==BL_IR_JUMP)succ[0]=last->a;if(last->op==BL_IR_BRANCH){succ[0]=last->b;succ[1]=last->c;}for(size_t j=0;j<2;++j)if(succ[j]!=BL_IR_NONE)for(size_t w=0;w<words;++w)temp[w]|=p->live_in[succ[j]*words+w];for(size_t w=0;w<words;++w){uint64_t in=use[b*words+w]|(temp[w]&~def[b*words+w]);if(p->live_in[b*words+w]!=in||p->live_out[b*words+w]!=temp[w])changed=1;p->live_in[b*words+w]=in;p->live_out[b*words+w]=temp[w];}}}while(changed);
+ /* Record exact instruction-level live-after sets. These are used for
+  * selective stores and avoid treating holes in linear intervals as live. */
+ for(size_t b=0;b<blocks;++b){
+  memcpy(temp,p->live_out+b*words,words*sizeof *temp);
+  for(size_t k=fn->blocks[b].count;k-- >0;){
+   size_t ip=p->block_positions[b]+k;memcpy(p->instruction_live_after+ip*words,temp,words*sizeof *temp);
+   const BLIRInst *i=&fn->blocks[b].insts[k];size_t d=definition(i);if(d!=BL_IR_NONE)clear_bit(temp,d);
+   memset(backward_uses,0,words*sizeof *backward_uses);uses(i,backward_uses);for(size_t w=0;w<words;++w)temp[w]|=backward_uses[w];
+  }
+ }
  size_t block_pos=0;
  for(size_t b=0;b<blocks;++b){note(intervals,p->live_in+b*words,words,block_pos,b);
   for(size_t k=0;k<fn->blocks[b].count;++k){size_t ip=block_pos+k;memset(temp,0,words*sizeof *temp);uses(&fn->blocks[b].insts[k],temp);size_t d=definition(&fn->blocks[b].insts[k]);if(d!=BL_IR_NONE)set(temp,d);note(intervals,temp,words,ip,b);}
@@ -198,7 +270,7 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
    size_t end=p->end[r];
    if(split[start])end=start;
    else for(size_t ip=start+1;ip<=end;++ip)if(split[ip]){end=ip;break;}
-   BPPRegSegment *s=&p->segments[wi];s->begin=start;s->end=end;s->physical=0;s->physical_flags=0;
+   BPPRegSegment *s=&p->segments[wi];s->begin=start;s->end=end;s->physical=0;s->physical_flags=0;s->spill_reason=BPP_SEGMENT_SPILL_NONE;
    s->kind=p->alloc_class[r]==BPP_ALLOC_REMATERIALIZABLE?BPP_LOC_REMATERIALIZABLE:BPP_LOC_SPILL;
    SegmentWork *w=&work[wi];w->segment=wi;w->reg=r;w->begin=start;w->end=end;w->weight=0;w->caller_safe=(unsigned char)!intervals[r].multi_block;
    if(w->caller_safe)for(size_t ip=start+1;ip<end;++ip)if(candidate_is_clobbered(target,candidates,candidate_count,barriers[ip])){w->caller_safe=0;break;}
@@ -222,7 +294,8 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
     therefore spill just that range without displacing the value everywhere. */
  qsort(work,segment_total,sizeof *work,segment_order);
  for(size_t j=0;j<segment_total;++j){SegmentWork *w=&work[j];BPPRegSegment *s=&p->segments[w->segment];size_t r=w->reg;
-  if(!w->weight||p->alloc_class[r]==BPP_ALLOC_IMMEDIATE_INT||p->alloc_class[r]==BPP_ALLOC_IMMEDIATE_NULL)continue;
+  if(!w->weight){s->spill_reason=BPP_SEGMENT_SPILL_NO_NATIVE_USES;continue;}
+  if(p->alloc_class[r]==BPP_ALLOC_IMMEDIATE_INT||p->alloc_class[r]==BPP_ALLOC_IMMEDIATE_NULL)continue;
   size_t chosen=SIZE_MAX;unsigned chosen_cost=UINT_MAX;
   for(size_t c=0;c<candidate_count;++c){const BPPRegisterInfo *ri=bpp_target_register(target,candidates[c]);if(!ri||!(ri->flags&BPP_REG_ALLOCATABLE))continue;if((ri->flags&BPP_REG_CALLER_SAVED)&&!w->caller_safe)continue;
    if(segment_owner[c]==BL_IR_NONE||work[segment_owner[c]].end<s->begin){if(ri->save_cost<chosen_cost){chosen=c;chosen_cost=ri->save_cost;}}
@@ -230,8 +303,8 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
   if(chosen==SIZE_MAX){size_t victim=SIZE_MAX,least=SIZE_MAX;
    for(size_t c=0;c<candidate_count;++c){const BPPRegisterInfo *ri=bpp_target_register(target,candidates[c]);if(!ri||!(ri->flags&BPP_REG_ALLOCATABLE)||segment_owner[c]==BL_IR_NONE)continue;if((ri->flags&BPP_REG_CALLER_SAVED)&&!w->caller_safe)continue;
     size_t old=segment_owner[c];if(work[old].end>=s->begin&&work[old].weight<least){least=work[old].weight;victim=c;}}
-   if(victim==SIZE_MAX||least>=w->weight)continue;
-   size_t old=segment_owner[victim];BPPRegSegment *victim_segment=&p->segments[work[old].segment];victim_segment->kind=p->alloc_class[work[old].reg]==BPP_ALLOC_REMATERIALIZABLE?BPP_LOC_REMATERIALIZABLE:BPP_LOC_SPILL;victim_segment->physical=0;victim_segment->physical_flags=0;chosen=victim;
+   if(victim==SIZE_MAX||least>=w->weight){int allocatable=0,eligible=0;for(size_t c=0;c<candidate_count;++c){const BPPRegisterInfo *ri=bpp_target_register(target,candidates[c]);if(ri&&(ri->flags&BPP_REG_ALLOCATABLE)){allocatable=1;if(!(ri->flags&BPP_REG_CALLER_SAVED)||w->caller_safe)eligible=1;}}s->spill_reason=!allocatable?BPP_SEGMENT_SPILL_NO_CANDIDATES:!eligible?BPP_SEGMENT_SPILL_CALL_CLOBBER:BPP_SEGMENT_SPILL_PRESSURE;continue;}
+   size_t old=segment_owner[victim];BPPRegSegment *victim_segment=&p->segments[work[old].segment];victim_segment->kind=p->alloc_class[work[old].reg]==BPP_ALLOC_REMATERIALIZABLE?BPP_LOC_REMATERIALIZABLE:BPP_LOC_SPILL;victim_segment->physical=0;victim_segment->physical_flags=0;victim_segment->spill_reason=BPP_SEGMENT_SPILL_PRESSURE;chosen=victim;
   }
   const BPPRegisterInfo *ri=bpp_target_register(target,candidates[chosen]);segment_owner[chosen]=j;s->kind=BPP_LOC_REGISTER;s->physical=(unsigned short)ri->id;s->physical_flags=(unsigned char)ri->flags;
  }
@@ -252,14 +325,14 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
  }
  if(!p->cell_count)p->cell_count=1;
 done:
- free(use);free(def);free(temp);free(intervals);free(cell_end);free(weight);free(def_position);free(barriers);free(split);free(caller_safe);
+ free(use);free(def);free(temp);free(backward_uses);free(intervals);free(cell_end);free(weight);free(def_position);free(barriers);free(split);free(caller_safe);
  if(!ok)bpp_reg_plan_destroy(p);
  return ok;
 }
 int bpp_reg_plan_create_target(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget target){return bpp_reg_plan_create_limit(fn,p,target,SIZE_MAX);}
 int bpp_reg_plan_create(const BLIRFunction *fn,BPPRegPlan *p){return bpp_reg_plan_create_target(fn,p,BPP_MACOS_ARM64);}
 int bpp_reg_plan_validate(const BLIRFunction *fn,const BPPRegPlan *p){
- if(!fn||!p||fn->register_count>SIZE_MAX-63||p->register_count!=fn->register_count||p->block_count!=fn->block_count||p->words!=(fn->register_count+63)/64||!p->cell||!p->physical||!p->physical_flags||!p->caller_safe||!p->alloc_class||!p->rematerialized_int||!p->segment_offsets||!p->segments||!p->begin||!p->end||!p->block_positions||!p->cell_count)return 0;
+ if(!fn||!p||fn->register_count>SIZE_MAX-63||p->register_count!=fn->register_count||p->block_count!=fn->block_count||p->words!=(fn->register_count+63)/64||!p->cell||!p->physical||!p->physical_flags||!p->caller_safe||!p->alloc_class||!p->rematerialized_int||!p->segment_offsets||!p->segments||!p->begin||!p->end||!p->block_positions||!p->instruction_live_after||!p->instruction_visible||!p->instruction_destination||!p->clobber_points||!p->cell_count)return 0;
  if(p->words&&(!p->live_in||!p->live_out))return 0;
  size_t cached=0;
  for(size_t r=0;r<fn->register_count;++r){if(p->cell[r]>=p->cell_count||p->alloc_class[r]>BPP_ALLOC_REMATERIALIZABLE||p->segment_offsets[r]>p->segment_offsets[r+1]||p->segment_offsets[r+1]>p->segment_count)return 0;
@@ -277,6 +350,31 @@ int bpp_reg_plan_validate(const BLIRFunction *fn,const BPPRegPlan *p){
  for(size_t a=0;a<fn->register_count;++a)for(size_t sa=p->segment_offsets[a];sa<p->segment_offsets[a+1];++sa)if(p->segments[sa].kind==BPP_LOC_REGISTER)
   for(size_t b=a;b<fn->register_count;++b)for(size_t sb=p->segment_offsets[b];sb<p->segment_offsets[b+1];++sb)if(p->segments[sb].kind==BPP_LOC_REGISTER&&(a!=b||sa!=sb)&&p->segments[sa].physical==p->segments[sb].physical&&p->segments[sa].begin<=p->segments[sb].end&&p->segments[sb].begin<=p->segments[sa].end)return 0;
  for(size_t b=0;b<fn->block_count;++b)for(size_t r=fn->register_count;r<p->words*64;++r)if(has(p->live_in+b*p->words,r)||has(p->live_out+b*p->words,r))return 0;
+ return bpp_reg_plan_validate_error_visibility(fn,p);
+}
+int bpp_reg_plan_validate_error_visibility(const BLIRFunction *fn,const BPPRegPlan *p){
+ if(!fn||!p||p->register_count!=fn->register_count)return 0;
+ for(size_t b=0;b<fn->block_count;++b)for(size_t k=0;k<fn->blocks[b].count;++k){
+  unsigned point=bpp_reg_clobber_at(p,b,k);
+  if(!(point&(BPP_CLOBBER_RUNTIME_ERROR|BPP_CLOBBER_RETURN_CLEANUP)))continue;
+  size_t pos=bpp_reg_position(p,b,k);if(pos==SIZE_MAX)return 0;
+  for(size_t r=0;r<p->register_count;++r){
+   BPPSpillReason reason=bpp_reg_spill_reason_before(p,b,k,r);
+   int visible=p->instruction_visible&&has(p->instruction_visible+pos*p->words,r);
+   int cleanup_root=may_own_object(p,r)&&p->begin[r]!=SIZE_MAX&&p->begin[r]<=pos&&p->end[r]>=pos;
+   if((bpp_reg_live_after(p,b,k,r)||visible||cleanup_root)&&reason==BPP_SPILL_NONE)return 0;
+   if(reason==BPP_SPILL_NONE)continue;
+   BPPRegLocation loc=bpp_reg_location_at(p,r,pos);
+   if(p->cell[r]>=p->cell_count)return 0;
+   if(loc.kind!=BPP_LOC_REGISTER&&loc.kind!=BPP_LOC_SPILL&&loc.kind!=BPP_LOC_CONSTANT&&loc.kind!=BPP_LOC_REMATERIALIZABLE)return 0;
+   if(reason==BPP_SPILL_LIVE_ACROSS&&!bpp_reg_live_after(p,b,k,r))return 0;
+   if(reason==BPP_SPILL_HELPER_INPUT&&(!visible||p->instruction_destination[pos]==r))return 0;
+   if(reason==BPP_SPILL_DESTINATION&&(!visible||p->instruction_destination[pos]!=r))return 0;
+   if(reason==BPP_SPILL_ERROR_CLEANUP&&!cleanup_root)return 0;
+   /* All tags and ownership cells are canonical; only payloads have physical
+    * locations. Thus every validated spill has a stable value-cell home. */
+  }
+ }
  return 1;
 }
 size_t bpp_reg_saved_set(const BPPRegPlan *p,unsigned *ids,size_t cap){unsigned local[BPP_MAX_ALLOCATABLE_REGS];size_t n=0;if(!p)return 0;for(size_t s=0;s<p->segment_count;++s)if(p->segments[s].kind==BPP_LOC_REGISTER&&(p->segments[s].physical_flags&BPP_REG_CALLEE_SAVED)){unsigned id=p->segments[s].physical;int seen=0;for(size_t i=0;i<n;++i)if(local[i]==id)seen=1;if(!seen&&n<BPP_MAX_ALLOCATABLE_REGS){local[n]=id;if(ids&&n<cap)ids[n]=id;++n;}}return n;}

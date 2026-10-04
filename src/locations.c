@@ -4,6 +4,15 @@
 static const char *phys_name(BPPTarget t,unsigned p);
 static void quote(FILE *o,const char *s){fputc('"',o);for(const unsigned char *p=(const unsigned char *)s;*p;++p){if(*p=='"'||*p=='\\')fputc('\\',o);
     if(*p<32)fprintf(o,"\\u%04x",*p);else fputc(*p,o);}fputc('"',o);}
+static void clobbers(FILE *o,unsigned flags){
+    fputc('[',o);int comma=0;
+#define CLOBBER(bit,name) do{if(flags&(bit)){if(comma++)fputc(',',o);quote(o,name);}}while(0)
+    CLOBBER(BPP_CLOBBER_HELPER,"helper");CLOBBER(BPP_CLOBBER_USER_CALL,"user-call");
+    CLOBBER(BPP_CLOBBER_BUILTIN,"builtin");CLOBBER(BPP_CLOBBER_RUNTIME_ERROR,"runtime-error");
+    CLOBBER(BPP_CLOBBER_RETURN_CLEANUP,"return-cleanup");CLOBBER(BPP_CLOBBER_SANITIZER,"sanitizer");
+#undef CLOBBER
+    fputc(']',o);
+}
 int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
     if(!bl_ir_validate_pass(m,"location-map backend input"))return 0;
     fputs("{\"target\":",o);quote(o,bpp_target_name(t));
@@ -28,11 +37,13 @@ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
             fprintf(o,"{\"vreg\":%zu,\"begin\":%zu,\"end\":%zu,\"kind\":",r,seg->begin,seg->end);quote(o,kind);
             if(loc.kind==BPP_LOC_REGISTER){fputs(",\"physical\":",o);quote(o,phys_name(t,loc.physical));}
             if(loc.kind==BPP_LOC_CONSTANT||loc.kind==BPP_LOC_REMATERIALIZABLE)fprintf(o,",\"immediate\":%lld",loc.immediate);
+            if(seg->kind==BPP_LOC_SPILL){fputs(",\"spill_reason\":",o);quote(o,bpp_reg_segment_spill_reason_name((BPPRegSegmentSpillReason)seg->spill_reason));}
             fprintf(o,",\"spill_cell\":%zu}",loc.spill_cell);}
         fputs("],\"instructions\":[",o);int instruction_comma=0;
         for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){BLIRInst *i=&m->functions[f].blocks[b].insts[k];
     if(instruction_comma++)fputc(',',o);
-    fprintf(o,"{\"block\":%zu,\"instruction\":%zu,\"position\":%zu,\"line\":%d,\"column\":%d}",b,k,bpp_reg_position(&p,b,k),i->line,i->column);}
+    size_t pos=bpp_reg_position(&p,b,k);fprintf(o,"{\"block\":%zu,\"instruction\":%zu,\"position\":%zu,\"line\":%d,\"column\":%d,\"clobbers\":",b,k,pos,i->line,i->column);clobbers(o,bpp_reg_clobber_at(&p,b,k));
+    fputs(",\"spill_candidates\":[",o);int spill_comma=0;for(size_t r=0;r<p.register_count;++r){BPPSpillReason reason=bpp_reg_spill_reason_before(&p,b,k,r);BPPRegLocation loc=bpp_reg_location_at(&p,r,pos);if(reason==BPP_SPILL_NONE||loc.kind!=BPP_LOC_REGISTER)continue;if(spill_comma++)fputc(',',o);fprintf(o,"{\"vreg\":%zu,\"physical\":",r);quote(o,phys_name(t,loc.physical));fprintf(o,",\"spill_cell\":%zu,\"reason\":",loc.spill_cell);quote(o,bpp_reg_spill_reason_name(reason));fputc('}',o);}fputs("]}",o);}
         fputs("]}",o);bpp_reg_plan_destroy(&p);
     }fputs("]}\n",o);return !ferror(o);
 }
