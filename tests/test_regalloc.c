@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define I(op_, dst_, a_, b_, c_) { .op=op_, .dst=dst_, .a=a_, .b=b_, .c=c_ }
 #define N BL_IR_NONE
@@ -29,6 +30,7 @@ static void call_pressure(BPPTarget target,size_t live_values,size_t limit,int e
     BPPRegPlan p;
     assert(bpp_reg_plan_create_limit(&fn,&p,target,limit));
     assert(bpp_reg_plan_validate(&fn,&p));
+    assert(p.metrics.spill_segments<=p.metrics.baseline_spill_segments);
     int spilled=0;
     for(size_t n=0;n<live_values;++n){
         size_t r=n;
@@ -67,8 +69,11 @@ static void cfg_pressure(BPPTarget target,size_t live_values,int join,int expect
     assert(entry&&tail&&(!join||(left&&right)));
     size_t at=0;
     for(size_t n=0;n<live_values;++n){
-        entry[at++]=(BLIRInst)I(BL_IR_INT,n*2,N,N,N);
-        entry[at++]=(BLIRInst)I(BL_IR_INT,n*2+1,N,N,N);
+        /* Loads make these real tagged values rather than safely
+           rematerializable constant expressions: this fixture measures
+           payload-register pressure across a CFG boundary. */
+        entry[at++]=(BLIRInst)I(BL_IR_LOAD_LOCAL,n*2,n*2,N,N);
+        entry[at++]=(BLIRInst)I(BL_IR_LOAD_LOCAL,n*2+1,n*2+1,N,N);
         entry[at++]=(BLIRInst)I(BL_IR_ADD,live_values*2+n,n*2,n*2+1,N);
     }
     entry[at++]=(BLIRInst)I(BL_IR_INT,live_values*3,N,N,N);
@@ -95,17 +100,46 @@ static void cfg_pressure(BPPTarget target,size_t live_values,int join,int expect
     }
     tail[at++]=(BLIRInst)I(BL_IR_RETURN,N,value,N,N);
     blocks[tail_block]=(BLIRBlock){tail,at,at};
-    BLIRFunction fn={.blocks=blocks,.block_count=block_count,.register_count=reg_count};BPPRegPlan p;
+    BLIRFunction fn={.blocks=blocks,.block_count=block_count,.register_count=reg_count,.local_count=live_values*2+1};BPPRegPlan p;
     assert(bpp_reg_plan_create_target(&fn,&p,target));assert(bpp_reg_plan_validate(&fn,&p));
     int spilled=0;
     for(size_t n=0;n<live_values;++n){size_t r=live_values*2+n;
-        if(!p.physical[r])spilled=1;else assert(p.physical_flags[r]&BPP_REG_CALLEE_SAVED);
+        BPPRegLocation location=bpp_reg_location_at(&p,r,bpp_reg_position(&p,0,n*3+2));
+        if(location.kind==BPP_LOC_SPILL)spilled=1;
+        else {assert(location.kind==BPP_LOC_REGISTER);assert(location.physical_flags&BPP_REG_CALLEE_SAVED);}
         for(size_t m=0;m<n;++m)distinct(&p,r,live_values*2+m);
         if(join){assert(bpp_reg_live_in(&p,1,r)&&bpp_reg_live_in(&p,2,r)&&bpp_reg_live_in(&p,3,r));}
         else assert(bpp_reg_live_in(&p,1,r)&&bpp_reg_live_in(&p,2,r));
     }
     assert(spilled==expect_spill);bpp_reg_plan_destroy(&p);
     free(entry);free(left);free(right);free(tail);
+}
+static void report_scale(const char *shape,size_t registers,size_t blocks,const BPPRegPlan *p){
+    assert(p->metrics.workspace_peak_bytes>0);
+    printf("allocator-scale shape=%s registers=%zu blocks=%zu sparse-uses=%zu live-pieces=%zu live-holes=%zu cpu-ns=%zu workspace-peak-bytes=%zu\n",
+           shape,registers,blocks,p->metrics.sparse_use_entries,p->metrics.live_range_pieces,
+           p->metrics.live_range_holes,p->metrics.allocator_cpu_ns,p->metrics.workspace_peak_bytes);
+}
+static void straight_scale(size_t registers){
+    BLIRInst *inst=calloc(registers*2,sizeof *inst);assert(inst);
+    for(size_t r=0;r<registers;++r){inst[r*2]=(BLIRInst)I(BL_IR_INT,r,N,N,N);inst[r*2+1]=(BLIRInst)I(BL_IR_RELEASE,N,r,N,N);}
+    inst[registers*2-1]=(BLIRInst)I(BL_IR_RETURN,N,registers-1,N,N);
+    BLIRBlock block={inst,registers*2,registers*2};BLIRFunction fn={.blocks=&block,.block_count=1,.register_count=registers};BPPRegPlan p;
+    assert(bpp_reg_plan_create_target(&fn,&p,BPP_LINUX_X64));assert(p.cell_count==1&&bpp_reg_plan_validate(&fn,&p));report_scale("straight",registers,1,&p);bpp_reg_plan_destroy(&p);free(inst);
+}
+static void cfg_scale(const char *shape,size_t blocks,size_t registers){
+    BLIRInst *inst=calloc(blocks,sizeof *inst);BLIRBlock *cfg=calloc(blocks,sizeof *cfg);assert(inst&&cfg&&blocks>=4&&registers);
+    for(size_t b=0;b<blocks;++b){
+        if(b==0)inst[b]=(BLIRInst)I(BL_IR_INT,0,N,N,N);
+        else if(b+1==blocks)inst[b]=(BLIRInst)I(BL_IR_RETURN,N,0,N,N);
+        else if(strcmp(shape,"call")==0)inst[b]=(BLIRInst){.op=BL_IR_CALL,.dst=0,.a=N,.arg_count=0};
+        else if(strcmp(shape,"branch")==0)inst[b]=(BLIRInst)I(BL_IR_BRANCH,N,0,b+1,b+2<blocks?b+2:blocks-1);
+        else if(b+2==blocks)inst[b]=(BLIRInst)I(BL_IR_BRANCH,N,0,b,blocks-1);
+        else inst[b]=(BLIRInst)I(BL_IR_JUMP,N,b+1,N,N);
+        cfg[b]=(BLIRBlock){&inst[b],1,1};
+    }
+    BLIRFunction fn={.blocks=cfg,.block_count=blocks,.register_count=registers};BPPRegPlan p;
+    assert(bpp_reg_plan_create_target(&fn,&p,BPP_LINUX_X64));assert(bpp_reg_plan_validate(&fn,&p));report_scale(shape,registers,blocks,&p);bpp_reg_plan_destroy(&p);free(cfg);free(inst);
 }
 int main(void) {
     /* Each supported ABI exposes a complete inventory and candidate pool. */
@@ -143,6 +177,9 @@ int main(void) {
     assert(p.alloc_class[13]==BPP_ALLOC_TAGGED_PAIR); /* negating LLONG_MIN */
     assert(p.alloc_class[14]==BPP_ALLOC_REMATERIALIZABLE&&p.rematerialized_int[14]==0);
     assert(p.alloc_class[15]==BPP_ALLOC_REMATERIALIZABLE&&p.rematerialized_int[15]==1);
+    /* Recomputing these proven-safe values has a distinct, weighted cost;
+       they do not consume an ordinary payload-cache register. */
+    assert(p.metrics.rematerialization_cost>0);
     assert(bpp_reg_location_at(&p,0,bpp_reg_position(&p,0,0)).kind==BPP_LOC_CONSTANT);
     assert(bpp_reg_location_at(&p,0,bpp_reg_position(&p,0,0)).immediate==9);
     assert(bpp_reg_plan_validate(&class_fn,&p));
@@ -155,6 +192,11 @@ int main(void) {
     assert(bpp_reg_location_at(&no_registers,2,bpp_reg_position(&no_registers,0,2)).kind==BPP_LOC_REMATERIALIZABLE);
     assert(bpp_reg_location_at(&no_registers,2,bpp_reg_position(&no_registers,0,2)).immediate==18);
     bpp_reg_plan_destroy(&no_registers);
+    BLIRInst dead_pure[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_INT,1,N,N,N),I(BL_IR_EQ,2,0,1,N),I(BL_IR_NOT,3,2,N,N),I(BL_IR_RETURN,N,N,N,N)};
+    BLIRBlock dead_pure_block={dead_pure,5,5};BLIRFunction dead_pure_fn={.blocks=&dead_pure_block,.block_count=1,.register_count=4};
+    assert(bpp_reg_plan_create_target(&dead_pure_fn,&p,BPP_MACOS_ARM64));
+    for(size_t r=0;r<4;++r)assert(p.begin[r]==SIZE_MAX&&p.cell[r]==SIZE_MAX);
+    assert(bpp_reg_plan_validate(&dead_pure_fn,&p));bpp_reg_plan_destroy(&p);
     BLIRInst dead_inst[]={I(BL_IR_INT,0,N,N,N)};BLIRBlock unused_block={dead_inst,1,1};
     BLIRFunction dead_fn={.blocks=&unused_block,.block_count=1,.register_count=2};
     assert(bpp_reg_plan_create_target(&dead_fn,&p,BPP_MACOS_ARM64));
@@ -178,19 +220,22 @@ int main(void) {
     size_t saved_cell=p.cell[0];p.cell[0]=p.cell_count;
     assert(!bpp_reg_plan_validate(&fn,&p));p.cell[0]=saved_cell;
     bpp_reg_plan_destroy(&p);
-    /* Thousands of nonoverlapping virtual values need one ownership cell. */
-    size_t n=4096;
-    BLIRInst *sequence=calloc(n*2,sizeof *sequence);assert(sequence);
-    for(size_t r=0;r<n;++r){
-        sequence[r*2]=(BLIRInst)I(BL_IR_INT,r,N,N,N);
-        sequence[r*2+1]=(BLIRInst)I(BL_IR_RELEASE,N,r,N,N);
-    }
-    sequence[n*2-1]=(BLIRInst)I(BL_IR_RETURN,N,n-1,N,N);
-    BLIRBlock sequential={sequence,n*2,n*2};
-    fn.blocks=&sequential;fn.block_count=1;fn.register_count=n;
-    assert(bpp_reg_plan_create(&fn,&p));assert(p.cell_count==1&&bpp_reg_plan_validate(&fn,&p));
-    for(size_t r=0;r<n;++r)assert(p.cell[r]==0);
-    bpp_reg_plan_destroy(&p);free(sequence);
+    /* Thousands of nonoverlapping virtual values need one ownership cell.
+     * Keep the historical 4096 threshold and exercise the next scale too. */
+    straight_scale(4096);
+    straight_scale(16384);
+
+    /* Flattened block order used to make this value appear live through the
+     * non-taking branch.  Exact range pieces now leave a hole in block one. */
+    BLIRInst hole_entry[]={I(BL_IR_LOAD_LOCAL,0,0,N,N),I(BL_IR_INT,1,N,N,N),I(BL_IR_BRANCH,N,1,2,1)};
+    BLIRInst hole_cold[]={I(BL_IR_RETURN,N,1,N,N)};
+    BLIRInst hole_hot[]={I(BL_IR_ADD,2,0,0,N),I(BL_IR_RETURN,N,2,N,N)};
+    BLIRBlock hole_blocks[]={{hole_entry,3,3},{hole_cold,1,1},{hole_hot,2,2}};
+    fn.blocks=hole_blocks;fn.block_count=3;fn.register_count=3;
+    assert(bpp_reg_plan_create_limit(&fn,&p,BPP_LINUX_X64,1));
+    assert(p.metrics.live_range_holes>0&&p.segment_offsets[0]+1<p.segment_offsets[1]);
+    assert(bpp_reg_location_at(&p,0,bpp_reg_position(&p,1,0)).kind==BPP_LOC_SPILL);
+    assert(bpp_reg_plan_validate(&fn,&p));bpp_reg_plan_destroy(&p);
 
     /* Backedge reaches a fixed point; a mutable register is defined and used. */
     BLIRInst start[] = {I(BL_IR_INT,0,N,N,N), I(BL_IR_INT,1,N,N,N), I(BL_IR_JUMP,N,1,N,N)};
@@ -201,6 +246,12 @@ int main(void) {
     assert(bpp_reg_plan_create(&fn,&p));
     assert(bpp_reg_live_in(&p,1,0) && bpp_reg_live_in(&p,1,1));
     assert(!bpp_reg_live_in(&p,0,0) && !bpp_reg_live_in(&p,0,1));
+    /* Loop depth comes from the self backedge's dominance relation, rather
+       than the numerical order of the two branch targets. */
+    assert(p.metrics.natural_loop_headers==1&&p.metrics.max_loop_depth==1);
+    assert(p.block_loop_depth[0]==0&&p.block_loop_depth[1]==1&&p.block_loop_depth[2]==0);
+    assert(p.block_weight[1]>p.block_weight[0]&&p.block_weight[0]==p.block_weight[2]);
+    assert(p.block_hot_successor[1]==1&&p.block_hot_probability[1]==88);
     distinct(&p,0,1);
     bpp_reg_plan_destroy(&p);
 
@@ -228,6 +279,11 @@ int main(void) {
         for(size_t b=2;b<a;b+=3)distinct(&p,a,b);
     }
     assert(spilled);
+    assert(p.metrics.native_payload_uses>0&&p.metrics.weighted_fast_path_cost>0);
+    assert(p.metrics.spill_traffic_cost>0);
+    assert(p.metrics.spill_segments>0&&p.metrics.estimated_reload_sites>0);
+    assert(p.metrics.baseline_register_segments+p.metrics.baseline_spill_segments>0);
+    assert(p.metrics.spill_segments<=p.metrics.baseline_spill_segments);
     for(size_t r=0;r<p.register_count;++r)if(p.physical[r]){
         int found=0;
         size_t count=0;const unsigned *pool=bpp_target_allocatable_registers(BPP_MACOS_ARM64,&count);
@@ -261,6 +317,7 @@ int main(void) {
         assert(p.segments[p.segment_offsets[5]].end < p.segments[p.segment_offsets[5]+1].begin);
         assert(bpp_reg_location_at(&p,2,bpp_reg_position(&p,0,2)).kind==BPP_LOC_REGISTER ||
                bpp_reg_location_at(&p,2,bpp_reg_position(&p,0,2)).kind==BPP_LOC_SPILL);
+        assert(p.metrics.helper_visibility_cost>0&&p.metrics.call_boundaries==1);
         assert(bpp_reg_plan_validate(&fn,&p));bpp_reg_plan_destroy(&p);
     }
 
@@ -288,8 +345,11 @@ int main(void) {
         for(size_t c=0;c<count;++c)if(bpp_target_register(t,pool[c])->flags&BPP_REG_CALLEE_SAVED)++safe;
         assert(safe>0);call_pressure(t,safe,SIZE_MAX,0);call_pressure(t,safe+1,SIZE_MAX,1);
         call_pressure(t,1,0,1);call_pressure(t,1,1,0);
-        cfg_pressure(t,safe,1,0);cfg_pressure(t,safe+1,1,1);
-        cfg_pressure(t,safe,0,0);cfg_pressure(t,safe+1,0,1);
+        /* The current pair of input operands is also live while the next
+           CFG-carried value is defined, so safe-1 is the exact non-spilling
+           carried-value capacity; safe is one value beyond it. */
+        cfg_pressure(t,safe-1,1,0);cfg_pressure(t,safe,1,1);
+        cfg_pressure(t,safe-1,0,0);cfg_pressure(t,safe,0,1);
     }
     /* Checked division can enter an error/helper path. A live payload must
        therefore avoid caller-clobbered registers on every target. */
@@ -367,8 +427,8 @@ int main(void) {
     assert(bpp_reg_plan_validate_error_visibility(&fn,&p));
     bpp_reg_plan_destroy(&p);
 
-    /* Straight-line local lifetimes can share physical local/value/flag
-       storage; branch-bearing functions retain unique local slots. */
+    /* Local lifetimes can share physical local/value/flag storage across
+       basic blocks when the CFG and initialization analysis prove safety. */
     BLIRInst local_reuse[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_INIT_LOCAL,N,0,0,N),
         I(BL_IR_LOAD_LOCAL,1,0,N,N),I(BL_IR_RELEASE,N,1,N,N),
         I(BL_IR_INT,2,N,N,N),I(BL_IR_INIT_LOCAL,N,1,2,N),I(BL_IR_RETURN,N,2,N,N)};
@@ -382,8 +442,22 @@ int main(void) {
     BLIRInst local_b[]={I(BL_IR_INT,1,N,N,N),I(BL_IR_INIT_LOCAL,N,1,1,N),I(BL_IR_RETURN,N,1,N,N)};
     BLIRBlock local_cfg[]={{local_a,3,3},{local_b,3,3}};fn.blocks=local_cfg;fn.block_count=2;fn.register_count=2;
     assert(bpp_reg_plan_create(&fn,&p));
-    assert(p.local_slot_count==2&&p.local_map[0]!=p.local_map[1]);
+    assert(p.local_slot_count==1&&p.local_map[0]==p.local_map[1]);
     bpp_reg_plan_destroy(&p);
+    BLIRInst unsafe_entry[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_BRANCH,N,0,1,2)};
+    BLIRInst unsafe_yes[]={I(BL_IR_INT,1,N,N,N),I(BL_IR_INIT_LOCAL,N,0,1,N),I(BL_IR_JUMP,N,3,N,N)};
+    BLIRInst unsafe_no[]={I(BL_IR_JUMP,N,3,N,N)};
+    BLIRInst unsafe_join[]={I(BL_IR_LOAD_LOCAL,2,0,N,N),I(BL_IR_INT,3,N,N,N),I(BL_IR_INIT_LOCAL,N,1,3,N),I(BL_IR_RETURN,N,2,N,N)};
+    BLIRBlock unsafe_cfg[]={{unsafe_entry,2,2},{unsafe_yes,3,3},{unsafe_no,1,1},{unsafe_join,4,4}};
+    fn.blocks=unsafe_cfg;fn.block_count=4;fn.register_count=4;fn.local_count=2;fn.locals=(char *[]){"maybe","later"};
+    assert(bpp_reg_plan_create(&fn,&p));assert(p.local_slot_count==2&&p.local_map[0]!=p.local_map[1]);bpp_reg_plan_destroy(&p);
+    BLIRInst safe_entry[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_BRANCH,N,0,1,2)};
+    BLIRInst safe_yes[]={I(BL_IR_INT,1,N,N,N),I(BL_IR_INIT_LOCAL,N,0,1,N),I(BL_IR_JUMP,N,3,N,N)};
+    BLIRInst safe_no[]={I(BL_IR_INT,2,N,N,N),I(BL_IR_INIT_LOCAL,N,0,2,N),I(BL_IR_JUMP,N,3,N,N)};
+    BLIRInst safe_join[]={I(BL_IR_LOAD_LOCAL,3,0,N,N),I(BL_IR_INT,4,N,N,N),I(BL_IR_INIT_LOCAL,N,1,4,N),I(BL_IR_RETURN,N,3,N,N)};
+    BLIRBlock safe_cfg[]={{safe_entry,2,2},{safe_yes,3,3},{safe_no,3,3},{safe_join,4,4}};
+    fn.blocks=safe_cfg;fn.block_count=4;fn.register_count=5;fn.local_count=2;fn.locals=(char *[]){"both-branches","after-join"};
+    assert(bpp_reg_plan_create(&fn,&p));assert(p.local_slot_count==1&&p.local_map[0]==p.local_map[1]);bpp_reg_plan_destroy(&p);
 
     /* Primitive-only value cells are outside the ownership-root region. */
     BLIRInst primitive[]={I(BL_IR_INT,0,N,N,N),I(BL_IR_RETURN,N,0,N,N)};
@@ -395,6 +469,62 @@ int main(void) {
     BLIRInst owned_inst[]={I(BL_IR_STRING,0,N,N,N),I(BL_IR_RETURN,N,0,N,N)};
     BLIRBlock owned_block={owned_inst,2,2};fn.blocks=&owned_block;fn.block_count=1;fn.register_count=1;
     assert(bpp_reg_plan_create(&fn,&p));assert(p.root_cell_count==1&&p.cell_count==1);bpp_reg_plan_destroy(&p);
+
+    /* Dirty payload state crosses a join only when every incoming edge has
+       the same physical owner. A helper on one arm forces that arm to its
+       canonical home and therefore invalidates the merged cache state. */
+    BLIRInst dirty_entry[]={I(BL_IR_LOAD_LOCAL,0,0,N,N),I(BL_IR_INT,0,N,N,N),I(BL_IR_BRANCH,N,1,1,2)};
+    dirty_entry[1].integer=17;
+    BLIRInst dirty_left[]={I(BL_IR_JUMP,N,3,N,N)};
+    BLIRInst dirty_right[]={I(BL_IR_JUMP,N,3,N,N)};
+    BLIRInst dirty_join[]={I(BL_IR_ADD,2,0,0,N),I(BL_IR_RETURN,N,2,N,N)};
+    BLIRBlock dirty_cfg[]={{dirty_entry,3,3},{dirty_left,1,1},{dirty_right,1,1},{dirty_join,2,2}};
+    fn.blocks=dirty_cfg;fn.block_count=4;fn.register_count=4;fn.param_count=2;fn.local_count=1;fn.locals=(char *[]){"dirty"};
+    assert(bpp_reg_plan_create(&fn,&p));
+    unsigned dirty_p=bpp_reg_dirty_entry(&p,3,0);
+    assert(dirty_p&&bpp_reg_keep_dirty_on_edge(&p,1,3,0,dirty_p));
+    assert(bpp_reg_keep_dirty_on_edge(&p,2,3,0,dirty_p));
+    bpp_reg_plan_destroy(&p);
+
+    BLIRInst dirty_call[]={ {.op=BL_IR_CALL,.dst=3,.a=BL_IR_NONE,.arg_count=0}, I(BL_IR_JUMP,N,3,N,N) };
+    BLIRBlock mixed_dirty_cfg[]={{dirty_entry,3,3},{dirty_left,1,1},{dirty_call,2,2},{dirty_join,2,2}};
+    fn.blocks=mixed_dirty_cfg;fn.block_count=4;fn.register_count=4;
+    assert(bpp_reg_plan_create(&fn,&p));
+    dirty_p=bpp_reg_dirty_entry(&p,3,0);
+    assert(!dirty_p);
+    assert(!bpp_reg_keep_dirty_on_edge(&p,1,3,0,1));
+    bpp_reg_plan_destroy(&p);
+
+    /* Reject a dense-table request before allocating any of its workspace. */
+    BLIRInst oversized_inst[]={I(BL_IR_RETURN,N,N,N,N)};
+    BLIRBlock oversized_block={oversized_inst,1,1};
+    BLIRFunction oversized_fn={.blocks=&oversized_block,.block_count=1,.register_count=5000000};
+    assert(!bpp_reg_plan_create_target(&oversized_fn,&p,BPP_LINUX_X64));
+    assert(strstr(bpp_reg_plan_last_error(&p),"workspace exceeds")!=NULL);
+    bpp_reg_plan_destroy(&p);
+
+    /* A long dependency chain should converge through predecessors, not
+     * repeated full-CFG sweeps. */
+    enum { LARGE_CFG_BLOCKS = 4096 };
+    BLIRInst *large_insts=calloc(LARGE_CFG_BLOCKS,sizeof *large_insts);
+    BLIRBlock *large_blocks=calloc(LARGE_CFG_BLOCKS,sizeof *large_blocks);
+    assert(large_insts&&large_blocks);
+    for(size_t b=0;b<LARGE_CFG_BLOCKS-1;++b){large_insts[b]=(BLIRInst)I(BL_IR_JUMP,N,b+1,N,N);large_blocks[b]=(BLIRBlock){&large_insts[b],1,1};}
+    large_insts[LARGE_CFG_BLOCKS-1]=(BLIRInst)I(BL_IR_RETURN,N,0,N,N);large_blocks[LARGE_CFG_BLOCKS-1]=(BLIRBlock){&large_insts[LARGE_CFG_BLOCKS-1],1,1};
+    BLIRFunction large_cfg={.blocks=large_blocks,.block_count=LARGE_CFG_BLOCKS,.register_count=1};
+    assert(bpp_reg_plan_create_target(&large_cfg,&p,BPP_LINUX_X64));
+    assert(p.metrics.liveness_worklist_pops<LARGE_CFG_BLOCKS*3);
+    assert(p.metrics.liveness_updates>=LARGE_CFG_BLOCKS);
+    assert(bpp_reg_plan_validate(&large_cfg,&p));
+    bpp_reg_plan_destroy(&p);free(large_blocks);free(large_insts);
+
+    /* Deterministic synthetic measurements cover the shapes that stress the
+     * sparse use table and CFG dataflow differently.  They are intentionally
+     * allocator-plan metrics (CPU time and allocator-owned peak workspace),
+     * not host-specific process-RSS samples. */
+    cfg_scale("loop",128,4096);
+    cfg_scale("branch",128,4096);
+    cfg_scale("call",128,4096);
 
     puts("CFG liveness and payload allocation tests passed");
     return 0;

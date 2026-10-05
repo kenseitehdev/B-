@@ -24,22 +24,53 @@ jobs:
       - name: Homebrew LLVM
         if: runner.os == 'macOS'
         run: brew install llvm
+      - name: Record native runner and toolchain
+        run: |
+          log="verification-${{ matrix.os }}-${{ matrix.mode }}.log"
+          {
+            echo "revision=$GITHUB_SHA"
+            echo "runner=${{ matrix.os }}"
+            echo "mode=${{ matrix.mode }}"
+            echo "uname=$(uname -a)"
+            clang --version
+            make --version
+          } | tee "$log"
       - name: Compiler and native execution
-        run: make CC=clang BUILD_MODE=${{ matrix.mode }} -j2 test
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=${{ matrix.mode }} -j2 test 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
       - name: Differential execution
-        run: make CC=clang BUILD_MODE=${{ matrix.mode }} check-differential
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=${{ matrix.mode }} check-differential 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
       - name: Native ASAN access hook
         if: matrix.mode == 'debug'
-        run: make CC=clang BUILD_MODE=debug check-asan-hook
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=debug check-asan-hook 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
       - name: Cross-target assembly
         if: matrix.mode == 'release'
-        run: make CC=clang BUILD_MODE=release check-targets
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=release check-targets 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
       - name: Large procedure and branches
         if: matrix.mode == 'release'
-        run: make CC=clang BUILD_MODE=release check-stress
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=release check-stress 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
       - name: Windows calling-convention bridge
         if: matrix.os == 'ubuntu-24.04' && matrix.mode == 'release'
-        run: make CC=clang BUILD_MODE=release check-msabi
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=release check-msabi 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
+      - name: Upload native verification transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-${{ matrix.os }}-${{ matrix.mode }}
+          path: verification-${{ matrix.os }}-${{ matrix.mode }}.log
+          if-no-files-found: warn
+          retention-days: 30
   windows:
     runs-on: windows-2022
     defaults:
@@ -56,7 +87,69 @@ jobs:
           install: >-
             make
             mingw-w64-ucrt-x86_64-clang
+      - name: Record native runner and toolchain
+        run: |
+          log=verification-windows-2022-release.log
+          {
+            echo "revision=$GITHUB_SHA"
+            echo "runner=windows-2022 UCRT64"
+            echo "mode=release"
+            echo "uname=$(uname -a)"
+            clang --version
+            make --version
+          } | tee "$log"
       - name: Windows native execution
-        run: make CC=clang BUILD_MODE=release -j2 test check-differential check-stress
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=release -j2 test check-differential check-stress 2>&1 | tee -a verification-windows-2022-release.log
       - name: Cross-target assembly
-        run: make CC=clang BUILD_MODE=release check-targets
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=release check-targets 2>&1 | tee -a verification-windows-2022-release.log
+      - name: Upload native verification transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-windows-2022-release
+          path: verification-windows-2022-release.log
+          if-no-files-found: warn
+          retention-days: 30
+  msan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Linux x86-64 MSAN runner
+        run: |
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+      - name: Record MSAN toolchain
+        run: |
+          log=verification-ubuntu-24.04-msan.log
+          {
+            echo "revision=$GITHUB_SHA"
+            echo 'runner=ubuntu-24.04 x86_64'
+            echo 'mode=msan'
+            echo "uname=$(uname -a)"
+            clang --version
+            make --version
+          } | tee "$log"
+      - name: MemorySanitizer native execution
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=msan -j2 test 2>&1 | tee -a verification-ubuntu-24.04-msan.log
+      - name: MemorySanitizer differential execution
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=msan check-differential 2>&1 | tee -a verification-ubuntu-24.04-msan.log
+      - name: MemorySanitizer large procedure
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=msan check-stress 2>&1 | tee -a verification-ubuntu-24.04-msan.log
+      - name: Upload MSAN verification transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-ubuntu-24.04-msan
+          path: verification-ubuntu-24.04-msan.log
+          if-no-files-found: warn
+          retention-days: 30

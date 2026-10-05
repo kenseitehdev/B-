@@ -7,7 +7,7 @@
 #include <string.h>
 
 typedef struct { size_t locals, flags, args, bytes, maxargs, local_slots; } Layout;
-typedef struct { FILE *out; size_t f,b,k; const BLIRFunction *fn; Layout layout; const BPPRegPlan *plan; unsigned char *dirty, *before, *kind, *constant;unsigned *loaded_phys;long long *value;size_t near;int asm_comments;unsigned *dirty_phys; } Emitter;
+typedef struct { FILE *out; size_t f,b,k; const BLIRFunction *fn; Layout layout; const BPPRegPlan *plan; unsigned char *dirty, *before, *kind, *constant;unsigned *loaded_phys;long long *value;size_t near,emitted_spills,emitted_reloads,emitted_rematerializations;int asm_comments,instrument_native;unsigned *dirty_phys; } Emitter;
 static void imm(FILE *out, unsigned reg, uint64_t n) {
     fprintf(out,"    movz x%u, #%u\n",reg,(unsigned)(n&65535));
     for(unsigned s=16;s<64;s+=16) if((n>>s)&65535) fprintf(out,"    movk x%u, #%u, lsl #%u\n",reg,(unsigned)((n>>s)&65535),s);
@@ -76,8 +76,10 @@ static void spill_note(Emitter *e,size_t r,BPPSpillReason reason,unsigned physic
 static const BLIRInst *frame_site(const BLIRFunction *fn){const BLIRInst *first=NULL,*largest=NULL;size_t maxargs=0;for(size_t b=0;b<fn->block_count;++b)for(size_t k=0;k<fn->blocks[b].count;++k){const BLIRInst *i=&fn->blocks[b].insts[k];if(!first)first=i;if(i->arg_count>maxargs){maxargs=i->arg_count;largest=i;}}return largest?largest:first;}
 static void frame_error(BLIRModule *m,const BLIRFunction *fn){const BLIRInst *site=frame_site(fn);snprintf(m->error,sizeof m->error,"%s:%d:%d: ARM64 frame layout overflow in function '%s'",m->path?m->path:"<input>",site?site->line:1,site?site->column:1,fn->name);}
 static void payload(Emitter *e,unsigned dst,size_t r) {
-    unsigned physical=physical_at(e,r,position(e));
-    if(physical){if(e->dirty[r]&&e->dirty_phys[r]&&e->dirty_phys[r]!=physical){unsigned old=e->dirty_phys[r];if(e->asm_comments){const BPPRegisterInfo *ri=bpp_target_register(BPP_MACOS_ARM64,old);fprintf(e->out,"    // B++ spill vreg=v%zu physical=%s cell=%zu reason=allocation-segment-transition\n",r,ri?ri->name:"?",e->plan->cell[r]);}regaddr(e,12,r);fprintf(e->out,"    str x%u, [x12, #8]\n",old);e->dirty[r]=0;e->dirty_phys[r]=0;e->loaded_phys[r]=0;}if(e->loaded_phys[r]!=physical){if(e->asm_comments){const BPPRegisterInfo *ri=bpp_target_register(BPP_MACOS_ARM64,physical);fprintf(e->out,"    // B++ reload vreg=v%zu physical=%s cell=%zu reason=%s\n",r,ri?ri->name:"?",e->plan->cell[r],e->loaded_phys[r]?"allocation-segment-change":"first-payload-use");}regaddr(e,12,r);fprintf(e->out,"    ldr x%u, [x12, #8]\n",physical);e->loaded_phys[r]=physical;}fprintf(e->out,"    mov x%u, x%u\n",dst,physical);}
+    BPPRegLocation location=bpp_reg_location_at(e->plan,r,position(e));
+    if(location.kind==BPP_LOC_REMATERIALIZABLE){if(e->asm_comments)fprintf(e->out,"    // B++ rematerialize vreg=v%zu immediate=%lld reason=safe-integer-expression\n",r,location.immediate);imm(e->out,dst,(uint64_t)location.immediate);++e->emitted_rematerializations;return;}
+    unsigned physical=location.kind==BPP_LOC_REGISTER?location.physical:0;
+    if(physical){if(e->dirty[r]&&e->dirty_phys[r]&&e->dirty_phys[r]!=physical){unsigned old=e->dirty_phys[r];if(e->asm_comments){const BPPRegisterInfo *ri=bpp_target_register(BPP_MACOS_ARM64,old);fprintf(e->out,"    // B++ spill vreg=v%zu physical=%s cell=%zu reason=allocation-segment-transition\n",r,ri?ri->name:"?",e->plan->cell[r]);}regaddr(e,12,r);fprintf(e->out,"    str x%u, [x12, #8]\n",old);++e->emitted_spills;e->dirty[r]=0;e->dirty_phys[r]=0;e->loaded_phys[r]=0;}if(e->loaded_phys[r]!=physical){if(e->asm_comments){const BPPRegisterInfo *ri=bpp_target_register(BPP_MACOS_ARM64,physical);fprintf(e->out,"    // B++ reload vreg=v%zu physical=%s cell=%zu reason=%s\n",r,ri?ri->name:"?",e->plan->cell[r],e->loaded_phys[r]?"allocation-segment-change":"first-payload-use");}regaddr(e,12,r);fprintf(e->out,"    ldr x%u, [x12, #8]\n",physical);++e->emitted_reloads;e->loaded_phys[r]=physical;}fprintf(e->out,"    mov x%u, x%u\n",dst,physical);}
     else {regaddr(e,12,r);fprintf(e->out,"    ldr x%u, [x12, #8]\n",dst);}
 }
 /* Dirty payloads remain in callee-saved registers until a consumer needs cells.
@@ -85,13 +87,14 @@ static void payload(Emitter *e,unsigned dst,size_t r) {
  * the conservative state at the fast/slow merge. */
 static void flush(Emitter *e,unsigned char *dirty,int clear) {
     for(size_t r=0;r<e->fn->register_count;++r) if(dirty[r]) {
-        BPPSpillReason reason=bpp_reg_spill_reason_before(e->plan,e->b,e->k,r);unsigned physical=e->dirty_phys[r];if(reason!=BPP_SPILL_NONE&&physical){spill_note(e,r,reason,physical);regaddr(e,12,r);fprintf(e->out,"    str x%u, [x12, #8]\n",physical);}
+        BPPSpillReason reason=bpp_reg_spill_reason_before(e->plan,e->b,e->k,r);unsigned physical=e->dirty_phys[r];if(reason!=BPP_SPILL_NONE&&physical){spill_note(e,r,reason,physical);regaddr(e,12,r);fprintf(e->out,"    str x%u, [x12, #8]\n",physical);++e->emitted_spills;}
         if(clear){dirty[r]=0;e->dirty_phys[r]=0;}
     }
 }
 static void edge_flush(Emitter *e,size_t to) {
     for(size_t r=0;r<e->fn->register_count;++r)if(e->dirty[r]){
-        BPPSpillReason reason=bpp_reg_spill_reason_on_edge(e->plan,e->b,to,r);unsigned physical=e->dirty_phys[r];if(reason!=BPP_SPILL_NONE&&physical){spill_note(e,r,reason,physical);regaddr(e,12,r);fprintf(e->out,"    str x%u, [x12, #8]\n",physical);}
+        unsigned physical=e->dirty_phys[r];if(!e->instrument_native&&physical&&bpp_reg_keep_dirty_on_edge(e->plan,e->b,to,r,physical))continue;
+        BPPSpillReason reason=bpp_reg_spill_reason_on_edge(e->plan,e->b,to,r);if(reason!=BPP_SPILL_NONE&&physical){spill_note(e,r,reason,physical);regaddr(e,12,r);fprintf(e->out,"    str x%u, [x12, #8]\n",physical);++e->emitted_spills;}
     }
 }
 static void cache_result(Emitter *e,size_t r,unsigned src) {
@@ -100,7 +103,7 @@ static void cache_result(Emitter *e,size_t r,unsigned src) {
         /* Preserve an old dirty owner before this physical register is reused. */
         for(size_t a=0;a<e->fn->register_count;++a)
             if(a!=r && (physical_at(e,a,position(e))==physical || e->dirty_phys[a]==physical)) {
-                if(e->dirty[a]&&e->dirty_phys[a]==physical){BPPSpillReason reason=bpp_reg_spill_reason_before(e->plan,e->b,e->k,a);if(reason!=BPP_SPILL_NONE){spill_note(e,a,reason,physical);regaddr(e,12,a);fprintf(e->out,"    str x%u, [x12, #8]\n",e->dirty_phys[a]);}e->dirty[a]=0;e->dirty_phys[a]=0;}
+                if(e->dirty[a]&&e->dirty_phys[a]==physical){BPPSpillReason reason=bpp_reg_spill_reason_before(e->plan,e->b,e->k,a);if(reason!=BPP_SPILL_NONE){spill_note(e,a,reason,physical);regaddr(e,12,a);fprintf(e->out,"    str x%u, [x12, #8]\n",e->dirty_phys[a]);++e->emitted_spills;}e->dirty[a]=0;e->dirty_phys[a]=0;}
                 if(e->loaded_phys[a]==physical)e->loaded_phys[a]=0;
             }
         if(src==31) fprintf(e->out,"    mov x%u, xzr\n",physical); else fprintf(e->out,"    mov x%u, x%u\n",physical,src);e->loaded_phys[r]=physical; }
@@ -109,18 +112,17 @@ static void restore_live_after(Emitter *e){
     size_t old=position(e),pos=old+1;const BLIRInst *i=&e->fn->blocks[e->b].insts[e->k];size_t dst=i->op==BL_IR_RELEASE?i->a:i->dst;
     for(size_t r=0;r<e->fn->register_count;++r)if(bpp_reg_live_after(e->plan,e->b,e->k,r)){
         unsigned before=physical_at(e,r,old),after=physical_at(e,r,pos);
-        if(after&&r==dst){if(e->asm_comments){const BPPRegisterInfo *ri=bpp_target_register(BPP_MACOS_ARM64,after);fprintf(e->out,"    // B++ reload vreg=v%zu physical=%s cell=%zu reason=helper-defined-result\n",r,ri?ri->name:"?",e->plan->cell[r]);}regaddr(e,12,r);fprintf(e->out,"    ldr x%u, [x12, #8]\n",after);e->loaded_phys[r]=after;e->dirty[r]=0;e->dirty_phys[r]=0;}
-        else if(after&&after!=before)e->loaded_phys[r]=0;
+        if(after&&(r==dst||after!=before))e->loaded_phys[r]=0;
     }
 }
 static BPPSpillReason slow_edge_reason(Emitter *e,size_t r){
     size_t pos=position(e);if(e->fn->blocks[e->b].insts[e->k].dst==r)return BPP_SPILL_DESTINATION;
-    if(e->plan->instruction_visible&&((e->plan->instruction_visible[pos*e->plan->words+r/64]>>(r%64))&1u))return BPP_SPILL_HELPER_INPUT;
+    if(bpp_reg_instruction_visible(e->plan,e->b,e->k,r))return BPP_SPILL_HELPER_INPUT;
     if(e->plan->alloc_class[r]==BPP_ALLOC_TAGGED_PAIR&&e->plan->begin[r]!=SIZE_MAX&&e->plan->begin[r]<=pos&&e->plan->end[r]>=pos)return BPP_SPILL_ERROR_CLEANUP;
     if(bpp_reg_live_after(e->plan,e->b,e->k,r))return BPP_SPILL_LIVE_ACROSS;
     return bpp_reg_spill_reason_before(e->plan,e->b,e->k,r);
 }
-static void sync_slow_edge_homes(Emitter *e){size_t pos=position(e);for(size_t r=0;r<e->fn->register_count;++r)if(e->dirty[r]){BPPSpillReason reason=slow_edge_reason(e,r);unsigned physical=e->dirty_phys[r];if(reason==BPP_SPILL_LIVE_ACROSS&&physical&&physical_at(e,r,pos+1)==physical)continue;if(reason!=BPP_SPILL_NONE&&physical){spill_note(e,r,reason,physical);regaddr(e,12,r);fprintf(e->out,"    str x%u, [x12, #8]\n",physical);}e->dirty[r]=0;e->dirty_phys[r]=0;}}
+static void sync_slow_edge_homes(Emitter *e){size_t pos=position(e);for(size_t r=0;r<e->fn->register_count;++r)if(e->dirty[r]){BPPSpillReason reason=slow_edge_reason(e,r);unsigned physical=e->dirty_phys[r];if(reason==BPP_SPILL_LIVE_ACROSS&&physical&&physical_at(e,r,pos+1)==physical)continue;if(reason!=BPP_SPILL_NONE&&physical){spill_note(e,r,reason,physical);regaddr(e,12,r);fprintf(e->out,"    str x%u, [x12, #8]\n",physical);++e->emitted_spills;}e->dirty[r]=0;e->dirty_phys[r]=0;}}
 static void intguard(Emitter *e,size_t r) {if(e->kind[r]==BPP_KIND_INT)return;regaddr(e,12,r);fputs("    ldr w11, [x12]\n    cmp w11, #1\n",e->out);branch(e,"b.ne","slow");}
 /* x26 retains the primitive result across an optional object-release call. */
 static void result(Emitter *e,size_t dst,unsigned tag) {
@@ -129,7 +131,9 @@ static void result(Emitter *e,size_t dst,unsigned tag) {
     fputs("    mov x0, x19\n",e->out);imm(e->out,1,dst);fputs("    bl _bpp_a_destination\n    mov x17, x0\n",e->out);restore_live_after(e);fputs("    mov x12, x17\n",e->out);
     define(e,"write");fprintf(e->out,"    mov w11, #%u\n    str w11, [x12]\n",tag);
     if(physical_at(e,dst,position(e))) {
-        cache_result(e,dst,26);e->dirty[dst]=(unsigned char)(tag==1);e->dirty_phys[dst]=tag==1?physical_at(e,dst,position(e)):0;
+        cache_result(e,dst,26);const BLIRInst *current=&e->fn->blocks[e->b].insts[e->k];int helper_join=current->op!=BL_IR_INT&&current->op!=BL_IR_NULL;
+        if(tag==1&&helper_join){fputs("    str x26, [x12, #8]\n",e->out);e->dirty[dst]=0;e->dirty_phys[dst]=0;}
+        else{e->dirty[dst]=(unsigned char)(tag==1);e->dirty_phys[dst]=tag==1?physical_at(e,dst,position(e)):0;}
     } else if(tag==1) fputs("    str x26, [x12, #8]\n",e->out);
     branch(e,"b","done");
 }
@@ -203,10 +207,9 @@ static void slow(Emitter *e,const BLIRInst *i,int conditional) {
     fputs("    mov x0, x19\n    bl _bpp_a_failed\n",o);branch(e,"cbz w0,","post_call");char failed[64];snprintf(failed,sizeof failed,"L_fail_%zu",e->f);farjump(o,failed,0);
     define(e,"post_call");
     restore_live_after(e);
-    /* The fast arm may keep its result only in the cache, while this helper
-     * arm made the canonical home current.  Mark the shared result dirty so
-     * a later helper/edge sync preserves the fast arm's value too. */
-    if(conditional&&i->dst!=BL_IR_NONE){unsigned physical=physical_at(e,i->dst,position(e)+1);if(physical){e->dirty[i->dst]=1;e->dirty_phys[i->dst]=physical;}}
+    /* Both paths leave the destination home current. Let its next native use
+     * perform the reload instead of reloading it at this join. */
+    if(i->dst!=BL_IR_NONE){e->loaded_phys[i->dst]=0;e->dirty[i->dst]=0;e->dirty_phys[i->dst]=0;}
     branch(e,"b","done");
 }
 int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
@@ -216,7 +219,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
     if(!plans){free(layouts);return 0;}
     for(size_t f=0;f<m->function_count;++f) {
         if(!bpp_reg_plan_create_target(&m->functions[f],&plans[f],target)) {
-            snprintf(m->error,sizeof m->error,"ARM64 register allocation failed in function '%s'",m->functions[f].name);
+            snprintf(m->error,sizeof m->error,"ARM64 register allocation failed in function '%s': %s",m->functions[f].name,bpp_reg_plan_last_error(&plans[f]));
             for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);
             free(plans);free(layouts);return 0;
         }
@@ -243,14 +246,14 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
     fputs("// B++ native codegen; compiler-private ABI placeholder revision 2\n.section __TEXT,__text,regular,pure_instructions\n.p2align 2\n.globl _main\n_main:\n    .cfi_startproc\n    stp x29, x30, [sp, #-16]!\n    .cfi_def_cfa_offset 16\n    .cfi_offset w29, -16\n    .cfi_offset w30, -8\n    mov x29, sp\n",o);
     addr(o,0,"L_proc_0");addr(o,1,"L_path");imm(o,2,m->global_count);imm(o,3,(uint64_t)(print_result!=0));
     fputs("    bl _bpp_a_run\n    ldp x29, x30, [sp], #16\n    .cfi_def_cfa_offset 0\n    .cfi_restore w29\n    .cfi_restore w30\n    ret\n    .cfi_endproc\n",o);
-    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];Emitter e={o,f,0,0,fn,layouts[f],&plans[f],dirty,before,kind,constant,loaded_phys,value,0,m->emit_asm_comments,dirty_phys};
+    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];Emitter e={o,f,0,0,fn,layouts[f],&plans[f],dirty,before,kind,constant,loaded_phys,value,0,0,0,0,m->emit_asm_comments,m->instrument_native,dirty_phys};
         memset(dirty,0,fn->register_count);memset(dirty_phys,0,fn->register_count*sizeof *dirty_phys);
         fprintf(o,"// payload registers: %zu of %zu IR values cached in x20/x21/x22/x23/x24/x25/x27/x28\n.p2align 2\nL_proc_%zu:\n    .cfi_startproc\n",plans[f].cached_count,fn->register_count,f);
         arm_save_prologue(o,&plans[f]);
         fputs("    mov x20, x0\n    mov x21, x1\n    mov x22, x2\n    mov x24, x4\n",o);
         imm(o,9,e.layout.bytes);fprintf(o,"L_probe_%zu:\n    cmp x9, #4096\n    b.lo L_probe_tail_%zu\n    sub sp, sp, #4096\n    str xzr, [sp]\n    sub x9, x9, #4096\n    b L_probe_%zu\nL_probe_tail_%zu:\n    sub sp, sp, x9\n    mov x19, sp\n",f,f,f,f);
         char name[64];snprintf(name,sizeof name,"L_layout_%zu",f);addr(o,4,name);fputs("    mov x5, x19\n    bl _bpp_n_enter\n    str x24, [x19, #96]\n",o);if(m->instrument_native)fputs("    ldr x0, [x29, #8]\n    bl _bpp_a_trace_enter\n",o);fprintf(o,"    b L_f%zu_b0\n",f);
-        for(size_t b=0;b<fn->block_count;++b){e.b=b;memset(kind,0,fn->register_count);memset(constant,0,fn->register_count);memset(dirty,0,fn->register_count);memset(dirty_phys,0,fn->register_count*sizeof *dirty_phys);memset(loaded_phys,0,fn->register_count*sizeof *loaded_phys);fprintf(o,"L_f%zu_b%zu:\n",f,b);
+            for(size_t b=0;b<fn->block_count;++b){e.b=b;memset(kind,0,fn->register_count);memset(constant,0,fn->register_count);memset(dirty,0,fn->register_count);memset(dirty_phys,0,fn->register_count*sizeof *dirty_phys);memset(loaded_phys,0,fn->register_count*sizeof *loaded_phys);if(!m->instrument_native)for(size_t r=0;r<fn->register_count;++r){unsigned p=bpp_reg_dirty_entry(&plans[f],b,r);if(p){dirty[r]=1;dirty_phys[r]=p;loaded_phys[r]=p;}}fprintf(o,"L_f%zu_b%zu:\n",f,b);
             for(size_t k=0;k<fn->blocks[b].count;++k){e.k=k;const BLIRInst *i=&fn->blocks[b].insts[k];if(i->dst!=BL_IR_NONE&&e.plan->begin[i->dst]==SIZE_MAX)continue;if(m->debug_path)bpp_asm_location(o,i);if(m->emit_asm_comments)bpp_asm_instruction_comment(o,fn,f,b,k,e.plan,BPP_MACOS_ARM64,0);
                 if(m->instrument_native&&(i->op==BL_IR_LOAD_GLOBAL||i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL)){flush(&e,e.dirty,1);fputs("    mov x0, x19\n",o);imm(o,1,i->op);imm(o,2,i->a);fputs("    bl _bpp_a_access\n",o);}
                 if(i->op==BL_IR_JUMP){edge_flush(&e,i->a);char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->a);farjump(o,target,0);memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);continue;}
@@ -268,7 +271,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
         }
         fprintf(o,"L_fail_%zu:\n",f);imm(o,1,UINT64_MAX);fprintf(o,"L_cleanup_%zu:\n    mov x0, x19\n    ldr x2, [x19, #96]\n    bl _bpp_a_leave\n",f);
         if(m->instrument_native)fputs("    bl _bpp_a_trace_exit\n",o);
-        arm_save_epilogue(o,&plans[f]);
+        arm_save_epilogue(o,&plans[f]);if(m->emit_asm_comments)fprintf(o,"    // B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",fn->name,e.emitted_spills,e.emitted_reloads,e.emitted_rematerializations);
     }
     fputs(".section __TEXT,__cstring,cstring_literals\n",o);literal(o,"L_path",m->path);
     for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];if(i->text){char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu",f,b,k);literal(o,s,i->text);}}

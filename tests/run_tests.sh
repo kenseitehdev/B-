@@ -54,6 +54,7 @@ native_case live_across_call 'define proc f(n){println(n);return n*2;} return (1
 9'
 native_case live_across_builtin 'return (2+3)+len("abc"+"de");' '10'
 native_case register_pressure 'return (1+2)*(3+4)+(5+6)*(7+8);' '186'
+native_case rematerialization 'return -(9+9)+1;' '-17'
 native_case mixed_call_results 'define proc f(n){if(n){return 7;}return "ab";} new int i=0; new int n=0; while(i<10){n=n+len(string_new(f(i%2)));i=i+1;} return n;' '15'
 native_case wide_call_pressure 'define proc sum(a,b,c,d,e){return a+b+c+d+e;} return sum((1+2)*(3+4),(5+6)*(7+8),(9+10)*(11+12),(13+14)*(15+16),(17+18)*(19+20));' '2825'
 native_case deferred_return 'return ((10-3)*6)/2;' '21'
@@ -115,9 +116,40 @@ fi
 if ! awk '/B\+\+ reload .*reason=first-payload-use/ { if (getline && $0 ~ /add x12/ && getline && $0 ~ /ldr x[0-9]+, \[x12, #8\]/) found=1 } END { exit !found }' "$task_dir/lazy-reload.s"; then
     echo 'FAIL lazy reload: no first-use reload group was emitted'; exit 1
 fi
+printf '%s\n' 'define proc g(n){return n+1;} define proc f(n){new int a=g(n); return a+1;} return f(4);' > "$task_dir/helper-result-lazy.bpp"
+"$project_compiler" --print-result -o "$task_dir/helper-result-lazy" "$task_dir/helper-result-lazy.bpp"
+if [ "$("$task_dir/helper-result-lazy")" != 6 ]; then
+    echo 'FAIL lazy reload: helper-defined result changed before first use'; exit 1
+fi
+"$project_compiler" --target macos-arm64 --asm-comments --emit-asm -o "$task_dir/helper-result-lazy.s" "$task_dir/helper-result-lazy.bpp"
+if ! awk '/B\+\+ opcode=add function=f / { in_add=1 } in_add && /reason=first-payload-use/ { found=1 } in_add && /adds x26/ { exit !found } END { if (!in_add) exit 1 }' "$task_dir/helper-result-lazy.s"; then
+    echo 'FAIL lazy reload: helper result was not reloaded at its first native use'; exit 1
+fi
 "$project_compiler" --emit-map -o "$task_dir/placement.json" "$project_dir/tests/arm64_coverage.bpp"
 grep -F '"spill_candidates"' "$task_dir/placement.json" >/dev/null
 grep -F '"spill_reason"' "$task_dir/placement.json" >/dev/null
+grep -E '"workspace_peak_bytes":[1-9][0-9]*' "$task_dir/placement.json" >/dev/null
+grep -E '"sparse_use_entries":[1-9][0-9]*' "$task_dir/placement.json" >/dev/null
+grep -F '"live_range_pieces"' "$task_dir/placement.json" >/dev/null
+"$project_compiler" --no-opt --target linux-x86_64 --asm-comments --emit-asm -o "$task_dir/rematerialization.s" "$project_dir/tests/rematerialization.bpp"
+grep -F 'B++ rematerialize' "$task_dir/rematerialization.s" >/dev/null
+grep -E 'allocation-traffic function=<module> .*rematerializations=[1-9][0-9]*' "$task_dir/rematerialization.s" >/dev/null
+"$project_compiler" --no-opt --target linux-x86_64 --emit-map -o "$task_dir/rematerialization.json" "$project_dir/tests/rematerialization.bpp"
+grep -E '"rematerialization_cost":[1-9][0-9]*' "$task_dir/rematerialization.json" >/dev/null
+printf '%s\n' 'define proc id(n){return n;} define proc f(a,b,c,d,e,f,g,h){return ((a+b)*(c+d))+id((e+f)*(g+h))+((a+c)*(b+d));} return f(1,2,3,4,5,6,7,8);' > "$task_dir/allocation-traffic.bpp"
+for target in macos-arm64 linux-x86_64 linux-arm64 windows-x86_64; do
+    "$project_compiler" --no-opt --target "$target" --asm-comments --emit-asm -o "$task_dir/allocation-$target.s" "$task_dir/allocation-traffic.bpp"
+    grep -F 'B++ allocation-traffic function=f' "$task_dir/allocation-$target.s" >/dev/null
+    grep -E 'allocation-traffic function=f .*reloads=[1-9][0-9]*' "$task_dir/allocation-$target.s" >/dev/null
+done
+printf '%s\n' '<module> 2 3' > "$task_dir/allocation.profile"
+"$project_compiler" --alloc-profile "$task_dir/allocation.profile" --emit-map -o "$task_dir/profiled.json" "$project_dir/tests/demo.bpp"
+grep -F '"profiled_blocks":1' "$task_dir/profiled.json" >/dev/null
+grep -F '"index":2,"loop_depth":1,"static_weight":130' "$task_dir/profiled.json" >/dev/null
+printf '%s\n' 'not a valid profile' > "$task_dir/bad-allocation.profile"
+if "$project_compiler" --alloc-profile "$task_dir/bad-allocation.profile" --check "$project_dir/tests/demo.bpp" >/dev/null 2>&1; then
+    echo 'FAIL allocation profile: accepted malformed profile'; exit 1
+fi
 printf '%s\n' 'define proc f(){new String a="old";println(a);new int b=7;println(b);return 0;} return f();' > "$task_dir/frame.bpp"
 "$project_compiler" --emit-map -o "$task_dir/frame.json" "$task_dir/frame.bpp"
 grep -F '"local_slots":1' "$task_dir/frame.json" >/dev/null

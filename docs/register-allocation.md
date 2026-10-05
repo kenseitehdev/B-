@@ -27,11 +27,96 @@ On x86-64, `rsp` is the stack pointer, `rbp` anchors the generated function fram
 
 The pool lists callee-saved registers first so a constrained test or future target policy can request the safe prefix. The allocator splits intervals immediately after unconditional helper operations (strings, indexing, conversions, calls, free, and delete). Each segment competes for candidates independently. That lets a value use a register in one segment and the canonical spill cell in another. Within a segment, caller-saved candidates are rejected if a possible helper/call clobber or a CFG boundary falls inside it. Conditional slow paths keep the same mapping across the fast/slow merge; the emitter flushes their pre-instruction dirty snapshot before the helper. Caller-saved registers are used where the segment is short and safe.
 
+## Deterministic allocation costs
+
+Allocation is deterministic and does not consume runtime profile data. The planner computes
+dominators for the reachable CFG, identifies a backedge only when its destination dominates
+its source, and forms one natural-loop membership set per header. A block’s static execution
+weight is 8 outside loops and is multiplied by `1 + 4 × loop-depth` inside nested natural
+loops. For a two-way branch, a dominance backedge is statically 88% hot; otherwise a
+successor entering a deeper natural loop is 75% hot. Equal-depth branches remain 50/50.
+One bounded propagation pass adds one quarter of a block's weight to its preferred successor.
+This reconciles layout/loop structure with allocation without solving an unbounded cyclic
+frequency equation. Exceptional helper/error paths never become a reason to discard their
+required canonical homes.
+
+Native payload uses have fixed operation costs: division/modulo 18, multiplication 12,
+addition/subtraction 10, comparisons 8, unary operations 6, branch tests 5, and local/global
+stores 4. The segment priority is the sum of operation cost times its block’s static weight.
+Each native payload use also accounts for two units of avoided tag checking and four units of
+payload traffic. Helper-visible instructions use a static path-class cost: user calls 32,
+builtins 24, generic helpers 8, and possible runtime-error, return-cleanup, and sanitizer
+boundaries add 4, 4, and 3 respectively. A safely rematerializable operand costs three units
+at every native use, and is intentionally kept out of the payload cache: its immediate is
+recreated at the use site. Helpers and rematerializable values retain their existing correctness
+rules: these costs explain plans and prioritize native payload traffic; they do not permit an
+omitted writeback or an effectful recomputation.
+Candidates subtract eight times their documented callee-save cost; caller-saved candidates
+remain available only to a segment with no possible clobber or CFG crossing. This gives short
+safe spans the zero-save-cost caller registers while making long loop-heavy spans compete by
+their expected native fast-path value.
+
+`--emit-map` exports each block’s `loop_depth` and `static_weight`, plus an
+`allocation_metrics` object. The metrics report natural-loop headers, weighted fast-path cost,
+helper/call boundaries, selected register/spill segments, a dry-run legacy baseline, and
+conservative estimated cache hits, reload sites, payload writebacks, and writeback bytes. The
+baseline reruns the former numeric-backedge priority policy against the same segments and
+target eligibility rules; it never changes generated code. These are diagnostic allocation
+estimates, not benchmark measurements. For generated-code accounting, `--emit-asm
+--asm-comments` ends every procedure with the exact static number of emitted payload spill
+stores, reloads, and safe rematerializations for that target. Those totals count assembly in
+the output, not dynamic executions along a runtime path. Optional profile input and measured
+allocator CPU time are also reported. The map additionally reports `workspace_peak_bytes`
+(the deterministic allocator-owned preflight estimate, not process RSS),
+`sparse_use_entries`, and live-range piece/hole counts.
+
+### Optional allocation profiles
+
+`--alloc-profile FILE` is deliberately optional. Without it, the plan is determined solely by
+the source, target, and static model above. The profile is plaintext: each non-comment line is
+`function-name block-index positive-multiplier`; `*` matches every function. It multiplies a
+block's static weight before the bounded hot-successor propagation pass. Later matching entries
+override earlier entries. Invalid input is a compile-time diagnostic. The map records the number
+of `profiled_blocks`, so a profile cannot silently become a required build input.
+
+## Scalability guardrails
+
+The allocator performs an overflow-checked preflight of its remaining dense work tables before
+allocating them. Per-instruction operands are held in one compact sparse use table rather than
+an instruction-by-vreg visibility bitmap. The current supported planning workspace is
+**512 MiB** per function.
+The estimate includes virtual-register arrays, block and instruction bitsets, local
+liveness, CFG dominance/worklist structures, allocation segments, and allocator
+scratch space. An over-limit request fails cleanly; the native emitters and
+`--emit-map` report the procedure name plus the allocator reason instead of emitting
+partial output.
+
+Virtual-register liveness uses a reverse predecessor worklist. A block re-enters the
+queue only when its live-in set changes, and pending entries are de-duplicated. The
+location map exposes `liveness_worklist_pops`, `liveness_updates`, allocator CPU time, and
+the preflight workspace peak so generated CFG fixtures can assert convergence and memory
+behavior. The checked workspace ceiling is the supported compiler-function-size contract: a
+function is supported when its deterministic preflight is at most 512 MiB; larger requests are
+rejected before allocation with `register allocator workspace exceeds 512 MiB limit`. This
+revision exercises 16,384 straight-line virtual values, 4,096 CFG blocks, and
+4,096-register loop/branch/call fixtures.
+
+Canonical ownership-cell reuse is `O(n log n)` after the existing interval sort:
+an active min-heap is ordered by interval end and moves expired cells to a second
+min-heap ordered by cell number. The allocator therefore preserves deterministic
+lowest-numbered-cell reuse without the old scan over every allocated cell for each
+new interval. Canonical-cell reuse intentionally stays conservative over a value's
+enclosing span, which keeps cleanup/visibility behavior stable. Payload allocation is
+not: range construction records exact active instruction pieces from definitions,
+sparse uses, and live-after sets, so a virtual value can have a hole through a
+mutually exclusive branch arm and its remaining pieces compete independently for
+cache registers.
+
 The allocator records instruction-level live-after sets, each instruction's borrowed operands and destination, and explicit helper, user-call, builtin, runtime-error, return-cleanup, and sanitizer boundary flags. At a helper point, the emitters write only dirty payloads needed after the point, consumed by the helper, or potentially owning an object that cleanup must release. A value whose final language use occurs at the helper is included in the operand set. Integer/null immediates and safely rematerializable integers do not create dirty payloads. Generated B++ procedures preserve callee-saved payloads by the platform ABI. On a conditional slow path, the emitter uses the pre-instruction dirty snapshot so stores are emitted only along that path.
 
 Block entries no longer preload every live-in payload. Each emitter tracks which virtual value currently occupies each physical cache register and emits a cell-to-register reload at the first actual native payload use. Repeated uses of that value in the same mapping do not reload it again. A helper-defined destination is reloaded when its next allocation segment uses a register; if the helper's result is immediately consumed, the helper return is its definition point. Some helper joins still reload after the call where a path merge requires a common register state; there is no profile-guided reload hoisting.
 
-Control-flow writeback is successor-specific. A jump writes the values live on its edge; a conditional branch emits two edge stubs, each writing only its successor's live-in values plus possible object roots needed by frame cleanup. These stubs split critical assembly edges without mutating the verified IR CFG. The target block begins with an empty loaded-register map, and first-use reloads read from the canonical cells established by the edge stub. The `dirty` state is still represented per virtual value during emission, not as a location-indexed CFG dataflow solution, so eliminating every redundant write at joins remains open.
+Control-flow writeback is successor-specific. A jump writes the values live on its edge; a conditional branch emits two edge stubs, each writing only its successor's live-in values plus possible object roots needed by frame cleanup. These stubs split critical assembly edges without mutating the verified IR CFG. The allocator now computes a must-cache state for reachable block entries: a dirty value can cross an edge without a store only when every reachable predecessor carries that value in the same physical register and the successor begins with that allocation. Matching states are restored at the target block; conflicting or helper-cleared states are written to canonical cells on only the edges that need it. Dead values still produce no stores. Native sanitizer-instrumented output disables this preservation and uses canonical writeback around callbacks. The flow state is represented as virtual-value-to-physical-owner pairs, so allocation segment changes remain explicit.
 
 The allocator verifier checks error and return-cleanup points: every value live afterward, visible to the helper (including arguments and destinations), or potentially owning an object across that point must have a canonical cell location. Tags and ownership state always remain in the cell; only integer payloads can be marked dirty by the emitter. The runtime cleanup-error and recursive-cleanup tests exercise actual failure edges.
 
@@ -43,21 +128,21 @@ Each used virtual value has a reusable canonical cell. Register assignment is a 
 
 Native codegen's private frame contract is revision 2. The 128-byte header is followed by a contiguous root prefix, ordinary canonical value/spill cells, physical local-value cells, local initialization bytes, alignment padding, and an outgoing `BLValue` argument area. The root prefix contains each cell that can hold a dynamic/owned value; cleanup releases that prefix once and then releases each physical local slot once. Primitive-only cells still carry canonical tags/payloads for helper visibility but are not scanned for ownership cleanup. There is no tracing collector in this runtime.
 
-Outgoing argument cells are reserved to the maximum call arity in the function and reused by every call. The `--emit-map` output reports the region offsets, root and ordinary cell counts, local slot count, outgoing cell count, 16-byte frame alignment, and target shadow-space requirement. On Windows x64 the 32-byte shadow area is a separate caller ABI reserve; it is not included in B++'s argument-value cells. ARM64 rounds its save area and frame data to 16 bytes. x86-64 chooses its frame padding from save-set parity so `rsp` is aligned at every call.
+Outgoing argument cells are reserved to the maximum call arity in the function and reused by every call. The shared `bpp_native_frame_layout` calculation drives both emitters and `--emit-map`; its tests assert every region offset/size, outgoing bytes, alignment padding, and overflow rejection. The map reports `frame_data_bytes`, saved-register bytes, the emitter's stack allocation, and total `frame_bytes` including saves and the ARM64 frame record. On Windows x64 the 32-byte shadow area is a separate caller ABI reserve; it is not included in B++'s argument-value cells. ARM64 rounds its save area and frame data to 16 bytes. x86-64 chooses its frame padding from save-set parity so `rsp` is aligned at every call.
 
-Local-value cells and initialization flags share the same physical local map. A single-block function can reuse a slot after its previous declaration's last access only when the next local has exactly one initialization and no earlier access; parameters are treated as live from entry. Initialization into a shared slot uses the runtime store path, which releases the previous owner. Branching or multi-block functions retain one physical local slot per logical local until the allocator has CFG-aware definite-initialization and lifetime proofs. Identity register/local maps are omitted from emitted metadata; non-identity maps are emitted explicitly. The map report records each local's physical slot and byte offsets.
+Local-value cells and initialization flags share the same physical local map. CFG-wide reuse uses forward definite-initialization with predecessor intersection and backward liveness across reachable blocks. A non-parameter local can share only when every reachable access is preceded by a guaranteed `INIT_LOCAL`; parameters begin initialized. Liveness is conservatively projected to linear spans, allowing reuse across block boundaries and diamond joins while retaining distinct slots for path-conditional initialization. Initialization into a shared slot uses the runtime store path, which releases the previous owner. The linear projection can miss reuse between mutually exclusive ranges. Identity register/local maps are omitted from emitted metadata; non-identity maps are emitted explicitly. The map report records each local's physical slot and byte offsets.
 
-Unused integer/null literals with no uses have no canonical cell and their native definition instruction is omitted. They are pure, infallible, and cannot reach a helper, return, cleanup, or debug location. Used literals, dynamic/computed values, and error-capable operations still get homes so their tags and payloads remain available to helpers.
+Unused pure, infallible values have no canonical cell and their native definition instruction is omitted. The allocator prunes dead chains of integer/null literals, `NOT`, equality/inequality, and integer expressions it has already proven safe to rematerialize. It retains effectful producers and checked operations whose runtime error behavior must remain observable. Eliminated instructions have no source location entry because debug variable/location tracking is not implemented.
 
 ## Tag/payload coherence and allocation classes
 
 Tags and ownership bits remain memory-resident and authoritative. A cached physical register mirrors only the 64-bit payload. When an operation replaces an object value, the emitter performs the old-object destination cleanup before writing the new tag and payload. Dirty primitive payloads are written to the canonical cell before any helper or edge that can inspect or clean the value; helper-produced object payloads are written to the cell by the runtime helper. Reloads never infer a tag from a payload register.
 
-`BPPRegPlan.alloc_class` distinguishes dead values, canonical tagged pairs, integer immediates, null immediates, and proven-safe rematerializable integer expressions. A dynamic tagged value is treated as one ownership unit: its tag and ownership state stay canonical in the value cell while its payload may be cached. The allocator never allocates a literal integer or null to a payload register.
+`BPPRegPlan.alloc_class` distinguishes dead values, canonical tagged pairs, integer immediates, null immediates, and proven-safe rematerializable integer expressions. A dynamic tagged value is treated as one ownership unit: its tag and ownership state stay canonical in the value cell while its payload may be cached. The allocator never allocates an integer/null literal or a rematerializable expression to a payload register.
 
-Used immediate-class literals still receive canonical cells and their payload is written there. That is deliberate: helper fallbacks, error cleanup, branches, and return cleanup can inspect the canonical value frame. Unused pure literals are the narrow exception and are omitted. `BPPRegLocation` reports register, spill, constant, rematerializable, or dead at an instruction position; the map exporter includes allocation segments and position numbers. This location model does not yet remove homes for used values or select immediate operands.
+Used immediate-class literals still receive canonical cells and their payload is written there. Helper fallbacks, error cleanup, branches, and return cleanup can inspect the canonical value frame. Dead pure results and their unused pure dependencies are omitted. `BPPRegLocation` reports register, spill, constant, rematerializable, or dead at an instruction position; the map exporter includes allocation segments, position numbers, and an `optimized_out` flag. This location model does not yet remove homes for effectful values whose results are unused or select immediate operands.
 
-The allocator marks same-block integer expressions as rematerializable only when their inputs are known integer constants and checked evaluation succeeds: negation, logical not, integer arithmetic, division/modulo, and comparisons. Overflowing arithmetic, division by zero, `INT64_MIN / -1`, dynamic inputs, and operations that can call helpers or allocate objects remain dynamic. The computed integer is retained as allocator metadata and exposed as a rematerializable location when its segment is not assigned a register. The emitter still uses its canonical cell and emits the original operation; actual recomputation at uses remains open.
+The allocator marks same-block integer expressions as rematerializable only when their inputs are known integer constants and checked evaluation succeeds: negation, logical not, integer arithmetic, division/modulo, and comparisons. Overflowing arithmetic, division by zero, `INT64_MIN / -1`, dynamic inputs, and operations that can call helpers or allocate objects remain dynamic. The computed integer is retained as allocator metadata and exposed as a rematerializable location. The emitter still emits the original checked operation and canonical value write, but recreates the known immediate rather than loading its payload cell at each native use.
 
 ## Per-function saves and stack invariants
 
@@ -70,8 +155,8 @@ This design preserves scratch ownership: allocated registers never overlap the d
 ## Current limits
 
 - Float/vector registers are inventoried but not allocated.
-- Used integer and null literals are explicitly classified as immediates but retain canonical stack cells; only unused, pure literals with no uses are omitted. Immediate operands and broader stack-home elimination are not implemented.
-- The allocator marks safe same-block integer expressions with checked constant inputs and stores their result as metadata. The emitter does not yet rematerialize them at uses; checked failures, dynamic values, and effectful operations are excluded, and used values retain canonical cells.
+- Used integer and null literals are explicitly classified as immediates but retain canonical stack cells. Dead pure expressions can be omitted; effectful or potentially failing operations retain their required result homes. Immediate operands and broader elimination for unused-but-effectful results are not implemented.
+- The allocator marks safe same-block integer expressions with checked constant inputs and stores their result as metadata. Native payload uses recreate the immediate instead of consuming a cache register; checked failures, dynamic values, and effectful operations are excluded, and used values retain canonical cells.
 - The allocator splits only at unconditional helper boundaries. It does not yet split arbitrary ranges by hot/cold CFG regions or profile data, and it retains one canonical ownership cell for every IR value.
 - Live ranges remain conservative across CFG joins and loop backedges. They are not a full interference graph or a general spill-placement solution.
 - Reload placement at helper joins is not fully lazy, and dirty-state merging is per virtual value rather than per physical location and CFG edge.

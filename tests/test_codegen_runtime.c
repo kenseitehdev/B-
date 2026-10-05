@@ -8,6 +8,36 @@
 
 /* Exercise the assembly/runtime boundary without executing target instructions. */
 int main(void) {
+    BPPNativeFrameLayout exact;
+    assert(bpp_native_frame_layout(0,0,0,&exact));
+    assert(exact.value_offset==128&&exact.value_bytes==0&&exact.locals_offset==128);
+    assert(exact.flags_offset==128&&exact.outgoing_offset==128&&exact.frame_bytes==128);
+    assert(bpp_native_frame_layout(2,3,4,&exact));
+    assert(exact.value_bytes==32&&exact.locals_offset==160&&exact.locals_bytes==48);
+    assert(exact.flags_offset==208&&exact.flags_bytes==3&&exact.outgoing_offset==224);
+    assert(exact.outgoing_bytes==64&&exact.frame_bytes==288);
+    /* Sequential values, nested-call argument capacity, many locals, and a
+       large frame all share the same exact layout contract. */
+    assert(bpp_native_frame_layout(5,2,0,&exact));
+    assert(exact.locals_offset==208&&exact.flags_offset==240&&exact.outgoing_offset==256&&exact.frame_bytes==256);
+    assert(bpp_native_frame_layout(3,1,5,&exact));
+    assert(exact.locals_offset==176&&exact.flags_offset==192&&exact.outgoing_offset==208&&exact.frame_bytes==288);
+    assert(bpp_native_frame_layout(4,100,0,&exact));
+    assert(exact.locals_offset==192&&exact.flags_offset==1792&&exact.outgoing_offset==1904&&exact.frame_bytes==1904);
+    assert(bpp_native_frame_layout(2000,0,0,&exact));
+    assert(exact.value_bytes==32000&&exact.frame_bytes==32128);
+    BPPNativeStackUsage stack;
+    assert(bpp_native_stack_usage(288,2,0,&stack));
+    assert(stack.saved_bytes==16&&stack.allocation_bytes==360&&stack.total_bytes==376);
+    assert(bpp_native_stack_usage(288,3,0,&stack));
+    assert(stack.saved_bytes==24&&stack.allocation_bytes==368&&stack.total_bytes==392);
+    assert(bpp_native_stack_usage(288,6,1,&stack));
+    assert(stack.saved_bytes==48&&stack.allocation_bytes==288&&stack.total_bytes==352);
+    assert(!bpp_native_stack_usage(SIZE_MAX,6,1,&stack));
+    assert(!bpp_native_frame_layout(SIZE_MAX,0,0,&exact));
+    assert(!bpp_native_frame_layout(0,SIZE_MAX,0,&exact));
+    assert(!bpp_native_frame_layout(0,0,SIZE_MAX,&exact));
+
     int converted=0;
     BLValue numeric_text=bl_value_string_copy("-9223372036854775808");
     assert(bl_value_to_int(numeric_text,&converted)==LLONG_MIN&&converted);

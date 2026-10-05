@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "../include/compiler.h"
+#include "../include/regalloc.h"
 #include "../include/target.h"
 #include <errno.h>
 #include <stdint.h>
@@ -39,7 +40,7 @@
 #define BPP_OPTIMIZATION "-O2"
 #endif
 static void usage(const char *name) {
-    fprintf(stderr, "usage: %s [--check | --emit-ir | --emit-c | --emit-asm | --emit-map] [--print-result] [--backend c|native|arm64|x86_64] [--target TARGET] [--no-opt] [--debug-info] [--asm-comments] [-o output] file.bpp\n       %s --list-targets | --target-info TARGET\n", name,name);
+    fprintf(stderr, "usage: %s [--check | --emit-ir | --emit-c | --emit-asm | --emit-map] [--print-result] [--backend c|native|arm64|x86_64] [--target TARGET] [--alloc-profile FILE] [--no-opt] [--debug-info] [--asm-comments] [-o output] file.bpp\n       %s --list-targets | --target-info TARGET\n", name,name);
 }
 static const char *format_name(BPPObjectFormat f){return f==BPP_FORMAT_MACHO?"macho":f==BPP_FORMAT_ELF?"elf":"coff";}
 static const char *isa_name(BPPISA i){return i==BPP_ISA_ARM64?"arm64":"x86_64";}
@@ -99,6 +100,7 @@ static int native_compile(const char *temp, const char *output, int native, BPPT
     char runtime_path[] = BPP_RUNTIME_OBJECT;
     char value_path[] = BPP_VALUE_OBJECT;
     char sanitizer_flag[] = "-fsanitize=" BPP_SANITIZERS;
+    int msan = strcmp(BPP_SANITIZERS, "memory") == 0;
     char *command[32]; size_t n = 0;
     command[n++] = (char *)cc; if (!native) command[n++] = "-std=c11";
     command[n++] = BPP_OPTIMIZATION;
@@ -116,13 +118,14 @@ static int native_compile(const char *temp, const char *output, int native, BPPT
     if (!object) {
         command[n++] = runtime_path; command[n++] = value_path;
         if (native) { command[n++] = BPP_NATIVE_RUNTIME_OBJECT; }
+        if (msan) command[n++] = "-pie";
     }
     command[n++] = "-o"; command[n++] = (char *)output; command[n] = NULL;
     return run_command(command);
 }
 int main(int argc, char **argv) {
     int query=target_query(argc,argv);if(query)return query>0?0:2;
-    const char *path = NULL, *output = NULL; int mode = 0, print_result = 0, native = 1, optimize=1, debug_info=BPP_SANITIZERS[0]!=0,asm_comments=0; BPPTarget target=bpp_host_target();int explicit_target=0;
+    const char *path = NULL, *output = NULL, *alloc_profile=NULL; int mode = 0, print_result = 0, native = 1, optimize=1, debug_info=BPP_SANITIZERS[0]!=0,asm_comments=0; BPPTarget target=bpp_host_target();int explicit_target=0;
     for (int j = 1; j < argc; ++j) {
         if (!strcmp(argv[j], "--help")) { usage(argv[0]); return 0; }
         if(!strcmp(argv[j],"--target")){
@@ -130,6 +133,7 @@ int main(int argc, char **argv) {
         }
         if(!strcmp(argv[j],"--debug-info")){debug_info=1;continue;}
         if(!strcmp(argv[j],"--asm-comments")){asm_comments=1;continue;}
+        if(!strcmp(argv[j],"--alloc-profile")){if(++j==argc){usage(argv[0]);return 2;}alloc_profile=argv[j];continue;}
         if(!strcmp(argv[j],"--no-opt")){optimize=0;continue;}
         if (!strcmp(argv[j], "--backend")) {
             if (++j == argc) { usage(argv[0]); return 2; }
@@ -156,6 +160,7 @@ int main(int argc, char **argv) {
     if (destination && same_file(path,destination)) {
         fputs("output must differ from source\n", stderr); return 2;
     }
+    if(alloc_profile){char profile_error[512];if(!bpp_reg_profile_load(alloc_profile,profile_error,sizeof profile_error)){fprintf(stderr,"B++: invalid allocation profile: %s\n",profile_error);return 2;}}
     BLCompiler compiler = {0}; BLIRModule ir; bl_ir_init(&ir);
     int ok = bl_compile_file(&compiler, path, &ir);
     ir.emit_asm_comments=asm_comments;
@@ -198,5 +203,5 @@ int main(int argc, char **argv) {
         }
         if (!ok) fprintf(stderr, "B++: output generation failed%s%s\n", ir.error[0] ? ": " : "", ir.error);
     }
-    bl_ir_dispose(&ir); bl_compiler_dispose(&compiler); return ok ? 0 : 1;
+    bl_ir_dispose(&ir); bl_compiler_dispose(&compiler);bpp_reg_profile_clear(); return ok ? 0 : 1;
 }
