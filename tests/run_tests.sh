@@ -136,6 +136,9 @@ grep -F 'B++ rematerialize' "$task_dir/rematerialization.s" >/dev/null
 grep -E 'allocation-traffic function=<module> .*rematerializations=[1-9][0-9]*' "$task_dir/rematerialization.s" >/dev/null
 "$project_compiler" --no-opt --target linux-x86_64 --emit-map -o "$task_dir/rematerialization.json" "$project_dir/tests/rematerialization.bpp"
 grep -E '"rematerialization_cost":[1-9][0-9]*' "$task_dir/rematerialization.json" >/dev/null
+printf '%s\n' 'new int x=1; if(x){return !x;} return 5;' > "$task_dir/value-facts.bpp"
+"$project_compiler" --no-opt --target linux-x86_64 --asm-comments --emit-asm -o "$task_dir/value-facts.s" "$task_dir/value-facts.bpp"
+grep -F 'B++ truthiness-elided' "$task_dir/value-facts.s" >/dev/null
 printf '%s\n' 'define proc id(n){return n;} define proc f(a,b,c,d,e,f,g,h){return ((a+b)*(c+d))+id((e+f)*(g+h))+((a+c)*(b+d));} return f(1,2,3,4,5,6,7,8);' > "$task_dir/allocation-traffic.bpp"
 for target in macos-arm64 linux-x86_64 linux-arm64 windows-x86_64; do
     "$project_compiler" --no-opt --target "$target" --asm-comments --emit-asm -o "$task_dir/allocation-$target.s" "$task_dir/allocation-traffic.bpp"

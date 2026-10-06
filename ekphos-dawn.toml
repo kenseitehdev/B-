@@ -1,0 +1,95 @@
+
+# Ekphos Dawn - Customized Theme
+# Tailored to match a dark environment with blue folders, green files, and white text
+
+[base]
+background = "#000000"
+background_secondary = "#000000"
+foreground = "#FFFFFF"       # Fixed: Removed the extra F
+muted = "#FFFFFF"
+
+[accent]
+primary = "#8B1E1E"
+secondary = "#FFFFFF"
+
+[semantic]
+muted = "#5c4044"            
+success = "#a3b899"          
+warning = "#e09f67"          
+error = "#cf5353"            
+
+[ui]
+border = "#FFFFFF"
+border_focused = "#8B1E1E"   # Changed to match your crimson primary accent
+selection = "#4a0d17"        # Dark maroon active block selector from your setup
+cursor = "#FFFFFF"
+
+# Status bar component
+[ui.statusbar]
+background = "#000000"
+foreground = "#FFFFFF"
+brand = "#8B1E1E"
+mode = "#FFFFFF"
+separator = "#8B1E1E"
+
+# Dialog/popup component
+[ui.dialog]
+background = "#000000"
+border = "#8B1E1E"
+title = "#FFFFFF"
+text = "#FFFFFF"
+
+# Sidebar component (File Tree)
+[ui.sidebar]
+background = "#000000"
+item = "#50fa7b"             # Light Green for regular files
+item_selected = "#FFFFFF"    
+folder = "#8be9fd"           # Light Blue for folders
+folder_expanded = "#8be9fd"  # Light Blue for expanded folders
+
+# Content view component (The Markdown viewer pane)
+[ui.content]
+background = "#000000"
+text = "#FFFFFF"             # White body text
+heading1 = "#FFFFFF"         # White headers
+heading2 = "#FFFFFF"
+heading3 = "#FFFFFF"
+heading4 = "#FFFFFF"
+link = "#8be9fd"             # Light Blue links
+link_invalid = "#cf5353"
+code = "#50fa7b"             # Light Green code blocks
+code_background = "#000000"
+blockquote = "#5c4044"
+list_marker = "#8B1E1E"      
+
+# Outline component (Right-hand headers tree)
+[ui.outline]
+background = "#000000"
+heading1 = "#FFFFFF"         # White headers
+heading2 = "#FFFFFF"
+heading3 = "#FFFFFF"
+heading4 = "#FFFFFF"
+
+# Search component
+[ui.search]
+background = "#000000"
+border = "#8B1E1E"
+input = "#FFFFFF"
+match_highlight = "#8B1E1E"
+match_current = "#50fa7b"
+match_count = "#5c4044"
+
+# Editor highlighting component (While editing files)
+[ui.editor]
+heading1 = "#FFFFFF"         # White headers
+heading2 = "#FFFFFF"
+heading3 = "#FFFFFF"
+heading4 = "#FFFFFF"
+heading5 = "#FFFFFF"
+heading6 = "#FFFFFF"
+code = "#50fa7b"             # Light Green code
+link = "#8be9fd"             # Light Blue links
+blockquote = "#5c4044"
+list_marker = "#8B1E1E"
+bold = "#FFFFFF"
+italic = "#FFFFFF"

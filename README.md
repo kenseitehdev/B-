@@ -128,7 +128,11 @@ within an existing build mode.
   16,384 straight-line vregs, 4,096 CFG blocks, and 4,096-register
   loop/branch/call fixtures; the enforced limit is the 512 MiB preflight.
 - Cached integer payload writes are deferred until a helper or block boundary
-  needs them. Proven integer operands skip repeated tag checks inside a block.
+  needs them. A flow-sensitive value-fact lattice carries kind, integer-constant,
+  and truthiness proofs across CFG joins; only proofs common to every incoming
+  edge remove native integer tag checks or truthiness branches. Unknown facts keep
+  the exact runtime check/error path. User calls deliberately invalidate global
+  facts because recursion and dynamic returns are not summarized yet.
 - Safe integer constants fold; constant branches and unreachable blocks disappear.
   Effectful operations and operations that must report overflow/zero division remain.
 - ARM64 internal branches/calls use page-relative address materialization for

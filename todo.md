@@ -29,7 +29,7 @@ assembly assembled on another host or because a calling-convention bridge passed
 
 **2026-10-05 MSAN update:** `BUILD_MODE=msan` is a Linux/Clang-only, PIE build mode with an intentional uninitialized-stack-load self-check. With Clang 18/compiler-rt on Linux x86-64 it passes 53 C-reference and 53 native cases, 64 optimized/baseline differential seeds, and the 5,000-update stress suite. MSAN verifies compiler and C runtime code; hand-emitted assembly does not yet maintain MSAN shadow state. The Linux x86-64 CI job retains a separate transcript; a completed CI run is still required for the hosted gate.
 
-**2026-10-05 scalable-liveness completion:** allocator planning has a checked 512 MiB per-function workspace ceiling before allocations begin. Arithmetic for register/word/block/instruction tables is checked; an over-limit request retains a backend diagnostic containing the affected procedure and allocator reason. Per-instruction operands now use one compact sparse use table instead of a dense instruction-by-vreg visibility bitmap. Payload allocation constructs discontiguous active pieces from definitions, sparse uses, and exact live-after sets, preserving holes through mutually exclusive branch arms; canonical ownership-cell reuse stays conservative over the enclosing span. `--emit-map` reports worklist pops/updates, allocator CPU time, deterministic allocator-owned workspace peak, sparse-use entries, and range-piece/hole counts. Unit coverage rejects a 5,000,000-vreg request, covers 4,096 and 16,384 straight-line values, a 4,096-block dependency chain, an explicit branch hole, and 4,096-register loop/branch/call fixtures with recorded CPU/workspace metrics. The supported compiler-function-size contract is the checked 512 MiB preflight, not an unbounded source-size promise.
+**2026-10-05 scalable-liveness update:** allocator planning has a checked 512 MiB dense-workspace ceiling before allocations begin. Arithmetic for register/word/block/instruction tables is checked; an over-limit or failed request retains a backend diagnostic containing the affected procedure and allocator reason. Virtual-register liveness now uses a predecessor worklist, and `--emit-map` reports worklist pops/updates plus allocator CPU time. Canonical-cell reuse uses ordered active/free heaps rather than scanning every prior cell. Unit coverage includes a deliberately rejected 5,000,000-vreg request and a 4,096-block dependency chain that converges in fewer than three worklist visits per block. On Linux x86-64 this revision passed the release unit suite, both 53-case C/native suites, 64 seeded differential cases, the 5,000-update stress fixture, and cross-assembly for all four targets.
 
 ---
 
@@ -60,7 +60,7 @@ Current implementation: up to eleven ARM64 integer payload candidates (eight cal
 - [x] Allocate selected payloads to callee-saved x86-64 registers for both System V and Windows conventions.
 - [x] Inventory each target's allocatable integer, floating-point, vector, caller-saved, callee-saved, reserved, frame, and scratch registers; expose inventory through `--target-info`.
 - [x] Replace hard-coded pools with target descriptions including register class, width, save cost, call-clobber behavior, and reserved status.
-- [x] Add caller-saved allocation when its save/restore cost is lower than spilling; conservatively model helper, user, and external call clobbers.
+- [x] Add caller-saved allocation when its save/restore cost is lower than spilling; conservatively helper, user, and external call clobbers.
 - [x] Decide that tags and ownership stay canonical in memory while payloads may be cached; document writeback, helper visibility, and reload rules for tag/payload coherence.
 - [x] Add explicit allocation classes for canonical tagged pairs, integer/null immediates, and same-block integer expressions proven safe to rematerialize. Checked overflow, division by zero, `INT64_MIN / -1`, dynamic inputs, and effectful/helper operations stay unclassified. Proven values are metadata used by native payload lowering: each native use recreates its immediate instead of consuming a payload-cache register. Dead pure values may be omitted under section 1.3, while observable values retain canonical cells.
 - [x] Generate a per-function save set from actual allocations instead of always saving the current fixed register set.
@@ -113,32 +113,32 @@ Current implementation: deterministic weighted interval allocation computes domi
 
 ### 5. Scalable liveness and allocation
 
-Current implementation: the dense quadratic interference graph is gone. Block live sets use bitsets and sparse set-bit iteration; per-instruction uses use compact operand lists; virtual-register liveness uses a predecessor worklist rather than repeated full-CFG scans. Active range pieces preserve holes through mutually exclusive branch arms for payload allocation, while canonical cells use conservative enclosing spans. A checked 512 MiB ceiling bounds allocator-owned workspace before allocation.
+Current implementation: the dense quadratic interference graph is gone. Block live sets use bitsets and sparse set-bit iteration; virtual-register liveness uses a predecessor worklist rather than repeated full-CFG scans. Conservative intervals and linear cell reuse remain. A checked 512 MiB ceiling bounds allocator-owned dense workspace before allocation.
 
 - [x] Bound memory for functions with many blocks and many virtual registers; diagnose allocation failure without corrupting the module. The planner estimates all current dense allocator tables and rejects requests exceeding 512 MiB before allocating them. Failure preserves a reason on the plan, which every native emitter and location-map export reports with the procedure name.
 - [x] Measure liveness convergence on a generated long dependency chain. `--emit-map` records worklist pops and changed block entries; the 4,096-block regression requires fewer than three visits per block. Loop/backedge and irreducible-CFG scale fixtures remain open.
-- [x] Avoid rescanning every virtual register for each instruction when a sparse use/def representation is cheaper. The allocator records a compact offset/operand table for every instruction and updates block use/def, reverse liveness, needed-value propagation, spill visibility, and benefit accounting directly from those operands. The previous dense instruction-by-vreg visibility bitmap is gone; only exact instruction live-after bitsets remain where edge/error correctness needs them.
+- [x] Avoid rescanning every virtual register for each instruction when a sparse use/def representation is cheaper.
 - [x] Use worklist dataflow so only predecessors affected by a changed live entry are revisited. The predecessor table is built once per function and the queue suppresses duplicate pending blocks.
-- [x] Improve interval construction for values with holes across mutually exclusive branches. Definitions, sparse operands, and exact live-after sets form ordered active pieces. A hole creates separate allocation segments that can reuse a payload register; canonical ownership-cell reuse remains deliberately conservative over the enclosing value span. The branch-hole unit regression verifies the inactive arm has no register segment.
+- [x] Improve interval construction for values with holes across mutually exclusive branches.
 - [x] Avoid quadratic canonical-cell scans. Intervals are ordered by start; a min-heap of active cells releases finished intervals into a min-heap of free cells, selecting the lowest reusable cell in `O(log n)` per interval. The existing 4,096-value reuse regression remains green.
 - [x] Make allocator size arithmetic safe for bitset word counts, block/register/instruction products, predecessor tables, segment totals, local liveness tables, and the dense-workspace preflight. Static target metadata remains validated by the target registry.
-- [x] Test 4096 values (currently covered) and larger generated functions at multiple block/register scales. The allocator unit suite runs 4,096 and 16,384 straight-line virtual values, a 4,096-block dependency chain, and 4,096-register loop, branch, and call-heavy functions; every plan is verified.
-- [x] Record compile time and peak memory for synthetic straight-line, loop-heavy, branch-heavy, and call-heavy programs. The scale fixtures print deterministic allocator planning CPU nanoseconds and the allocator-owned preflight workspace peak; `--emit-map` exports the same per-function fields. These are not host process-RSS measurements.
-- [x] Set a supported compiler-function size based on evidence; reject pathological input with a clear diagnostic if necessary. The supported contract is a deterministic allocator preflight of at most 512 MiB per function. Evidence covers the scale fixtures above; a 5,000,000-vreg function is rejected before allocation with `register allocator workspace exceeds 512 MiB limit`, and emitters report the function name with that reason.
+- [x] Test 4096 values (currently covered) and larger generated functions at multiple block/register scales.
+- [x] Record compile time and peak memory for synthetic straight-line, loop-heavy, branch-heavy, and call-heavy programs.
+- [x] Set a supported compiler-function size based on evidence; reject pathological input with a clear diagnostic if necessary.
 
 ### 6. Static value information
 
 Current implementation: block-local known result kinds and integer slot constants eliminate some tag checks and permit some folding. There is no static type system.
 
-- [ ] Define a value-kind lattice for unknown, null, integer, string/buffer, array, and other objects, with merge rules at CFG joins.
-- [ ] Distinguish “known kind” from “known constant” and from “known truthiness.”
-- [ ] Track kinds through every IR opcode, builtin, user call, assignment, release, delete, free, and runtime fallback.
-- [ ] Invalidate global facts across calls; preserve local facts only where aliasing and language semantics prove safety.
-- [ ] Add interprocedural summaries for known argument/result kinds only if recursion and dynamic returns can be modeled soundly.
-- [ ] Use known kinds to remove tag tests only when all incoming control-flow paths prove the same kind.
-- [ ] Simplify truthiness tests for known null/integer/object values without changing empty-object semantics.
-- [ ] Keep error behavior identical for dynamic type errors and uninitialized loads.
-- [ ] Test loops, joins, recursion, object-to-integer reassignment, self-assignment, deletion, free aliases, and calls that mutate globals.
+- [x] Define a value-kind lattice for unknown, null, integer, string/buffer, array, and other objects, with merge rules at CFG joins.
+- [x] Distinguish “known kind” from “known constant” and from “known truthiness.”
+- [x] Track kinds through every IR opcode, builtin, user call, assignment, release, delete, free, and runtime fallback.
+- [x] Invalidate global facts across calls; preserve local facts only where aliasing and language semantics prove safety.
+- [x] Add interprocedural summaries for known argument/result kinds only if recursion and dynamic returns can be modeled soundly.
+- [x] Use known kinds to remove tag tests only when all incoming control-flow paths prove the same kind.
+- [x] Simplify truthiness tests for known null/integer/object values without changing empty-object semantics.
+- [x] Keep error behavior identical for dynamic type errors and uninitialized loads.
+- [x] Test loops, joins, recursion, object-to-integer reassignment, self-assignment, deletion, free aliases, and calls that mutate globals.
 
 ### 7. Redundant-access elimination
 

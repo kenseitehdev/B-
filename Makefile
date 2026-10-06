@@ -54,7 +54,7 @@ EXE :=
 PROJECT_DIR := $(CURDIR)
 endif
 BIN := bin/$(BUILD_MODE)/bpp$(EXE)
-SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/optimize.c src/emit_x64.c src/locations.c
+SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/optimize.c src/emit_x64.c src/locations.c src/value_facts.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
 .PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-differential check-stress check-asan-hook check-msan benchmark test targets clean
@@ -99,11 +99,12 @@ test: check check-native
 ifeq ($(BUILD_MODE),msan)
 test: check-msan
 endif
-check: $(BIN) $(OBJDIR)/test_ir$(EXE) $(OBJDIR)/test_codegen_runtime$(EXE) $(OBJDIR)/test_regalloc$(EXE) $(OBJDIR)/test_optimize$(EXE)
+check: $(BIN) $(OBJDIR)/test_ir$(EXE) $(OBJDIR)/test_codegen_runtime$(EXE) $(OBJDIR)/test_regalloc$(EXE) $(OBJDIR)/test_optimize$(EXE) $(OBJDIR)/test_value_facts$(EXE)
 	./$(OBJDIR)/test_ir$(EXE)
 	./$(OBJDIR)/test_codegen_runtime$(EXE)
 	./$(OBJDIR)/test_regalloc$(EXE)
 	./$(OBJDIR)/test_optimize$(EXE)
+	./$(OBJDIR)/test_value_facts$(EXE)
 	sh tests/run_tests.sh ./$(BIN)
 $(OBJDIR)/test_regalloc$(EXE): tests/test_regalloc.c src/regalloc.c src/registers.c include/regalloc.h include/target.h include/ir.h Makefile
 	mkdir -p "$(@D)"
@@ -116,6 +117,9 @@ $(OBJDIR)/test_ir$(EXE): tests/test_ir.c src/ir.c include/ir.h include/parser.h 
 $(OBJDIR)/test_optimize$(EXE): tests/test_optimize.c src/ir.c src/optimize.c include/ir.h include/target.h Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_optimize.c src/ir.c src/optimize.c -o "$@"
+$(OBJDIR)/test_value_facts$(EXE): tests/test_value_facts.c src/value_facts.c include/value_facts.h include/ir.h Makefile
+	mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_value_facts.c src/value_facts.c -o "$@"
 $(OBJDIR)/generate_case$(EXE): tests/generate_case.c Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) tests/generate_case.c -o "$@"
