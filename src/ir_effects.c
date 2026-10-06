@@ -28,7 +28,7 @@ unsigned bpp_ir_effects(const BLIRInst *i) {
     case BL_IR_FREE_GLOBAL: return BPP_EFFECT_GLOBAL_WRITE | BPP_EFFECT_OBJECT_WRITE | BPP_EFFECT_OWNERSHIP | BPP_EFFECT_CAN_ERROR;
     case BL_IR_DELETE_LOCAL: return BPP_EFFECT_LOCAL_WRITE | BPP_EFFECT_OWNERSHIP | BPP_EFFECT_CAN_ERROR;
     case BL_IR_DELETE_GLOBAL: return BPP_EFFECT_GLOBAL_WRITE | BPP_EFFECT_OWNERSHIP | BPP_EFFECT_CAN_ERROR;
-    case BL_IR_JUMP: case BL_IR_BRANCH: case BL_IR_RETURN: return BPP_EFFECT_NONE;
+    case BL_IR_JUMP: case BL_IR_BRANCH: case BL_IR_RETURN: return BPP_EFFECT_CONTROL;
     }
     return BPP_EFFECT_CAN_ERROR;
 }
@@ -52,6 +52,7 @@ const char *bpp_ir_effect_name(unsigned bit) {
     case BPP_EFFECT_CAN_ERROR: return "can-error";
     case BPP_EFFECT_CALL: return "call";
     case BPP_EFFECT_SANITIZER: return "sanitizer";
+    case BPP_EFFECT_CONTROL: return "control";
     default: return "none";
     }
 }

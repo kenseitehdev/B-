@@ -86,6 +86,36 @@ to that document.
 | `BRANCH` | Truthiness register `a`; true successor `b`, false successor `c`. | Borrows the condition; it remains owned until explicit release or function cleanup. | No semantic runtime failure; malformed successors/registers are verifier errors. | Native tag-aware truthiness test and conditional branch. |
 | `RETURN` | Register `a`; terminates the function. | Transfers `a` to the caller and releases other live temporaries/locals during frame cleanup. | Runtime error state already set in the procedure determines failure; return itself does not add a new error. | Native epilogue/return; C reference backend transfers then cleans up. |
 
+## Optimization effect model
+
+`bpp_ir_effects()` is the exhaustive optimizer classification for the opcode
+table above.  A pass must keep an instruction whenever any listed effect is
+observable.  The table is deliberately conservative: `can-error` is an
+observable effect, so DCE must not remove an unused expression merely because
+its result is unused.
+
+| Effect class | IR operations | DCE rule |
+|---|---|---|
+| None | `NULL`, `INT`, `NOT`, `EQ`, `NE` | May be removed if no retained instruction needs `dst`. |
+| Read | Local/global loads; buffer/array reads | Retain: loads can diagnose and may clone an owned value. |
+| Write/mutation | Local/global init/store, index write, free/delete | Retain except for a separately proven redundant primitive store; initialization transitions are never generally dead. |
+| Allocation/output/call | String conversion/construction and calls | Retain. Calls conservatively include output, global/object mutation, allocation, ownership, and failure. |
+| Ownership | Release/free/delete/load/store/call | Retain unless the released value is proven primitive, so its release is a no-op. |
+| Can error | Dynamic arithmetic, loads/stores, indexing, calls, frees/deletes, allocation | Retain even when `dst` is dead, preserving the original diagnostic and source site. |
+| Control | `JUMP`, `BRANCH`, `RETURN` | Always retain; CFG cleanup may remove only blocks proven unreachable and remaps all surviving branch targets. |
+
+Successful `NEG`, integer `SUB`/`MUL`/`DIV`/`MOD`, integer comparisons, and
+`INDEX_GET` have primitive results, but are not pure: their type, overflow,
+zero-division, or bounds errors keep them live.  `ADD` is not primitive because
+it may return a string/buffer.  Debug/sanitizer observability barriers remain
+effects and prevent access-elision passes from hiding source accesses.
+
+Revision 1 has only private direct procedures.  Procedure reachability begins
+at the module entry and follows direct calls; unreachable private procedures
+are removed and surviving direct-call IDs are remapped.  Once a public ABI,
+export, address-taking, callback, or static-library model exists, those
+procedures must be treated as DCE roots before this pruning runs.
+
 ## Verifier requirements
 
 Every validation failure must identify the validation stage, function, block,

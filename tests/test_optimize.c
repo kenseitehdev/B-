@@ -55,5 +55,23 @@ int main(void){
     insts[2]=ir(BL_IR_STORE_LOCAL,BL_IR_NONE,0,0);
     insts[3]=ir(BL_IR_RETURN,BL_IR_NONE,0,BL_IR_NONE);
     assert(bpp_ir_optimize(&m));assert(count(&m,BL_IR_INIT_LOCAL)==1&&count(&m,BL_IR_STORE_LOCAL)==0);
-    bl_ir_dispose(&m);puts("Checked folding, redundant accesses, and unreachable-block tests passed");return 0;
+    bl_ir_dispose(&m);
+
+    /* DCE walks backwards from observable roots.  A pure ! result and its
+     * primitive release disappear together, but the potentially failing load
+     * stays.  Likewise an unused division must still execute for its
+     * zero-division diagnostic. */
+    setup_manual(&m,5,1,7);m.functions[0].param_count=1;insts=m.functions[0].blocks[0].insts;
+    insts[0]=ir(BL_IR_LOAD_LOCAL,0,0,BL_IR_NONE);
+    insts[1]=ir(BL_IR_NOT,1,0,BL_IR_NONE);
+    insts[2]=ir(BL_IR_RELEASE,BL_IR_NONE,1,BL_IR_NONE);
+    insts[3]=ir(BL_IR_INT,2,BL_IR_NONE,BL_IR_NONE);insts[3].integer=1;
+    insts[4]=ir(BL_IR_INT,3,BL_IR_NONE,BL_IR_NONE);insts[4].integer=0;
+    insts[5]=ir(BL_IR_DIV,4,2,3);
+    insts[6]=ir(BL_IR_RETURN,BL_IR_NONE,2,BL_IR_NONE);
+    assert(bpp_ir_optimize(&m));
+    assert(count(&m,BL_IR_LOAD_LOCAL)==1 && count(&m,BL_IR_NOT)==0);
+    assert(count(&m,BL_IR_RELEASE)==0 && count(&m,BL_IR_DIV)==1);
+    bl_ir_dispose(&m);
+    puts("Checked folding, redundant accesses, and effect-aware DCE tests passed");return 0;
 }

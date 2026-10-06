@@ -29,6 +29,10 @@ int main(void) {
                                   BPP_EFFECT_OBJECT_WRITE | BPP_EFFECT_OUTPUT)) ==
            (BPP_EFFECT_CALL | BPP_EFFECT_GLOBAL_WRITE | BPP_EFFECT_OBJECT_WRITE |
             BPP_EFFECT_OUTPUT));
+
+    i = inst(BL_IR_RETURN);
+    assert(bpp_ir_effects(&i) == BPP_EFFECT_CONTROL);
+    assert(strcmp(bpp_ir_effect_name(BPP_EFFECT_CONTROL), "control") == 0);
     puts("IR memory-effect classification tests passed");
     return 0;
 }

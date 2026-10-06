@@ -168,19 +168,19 @@ Current implementation: overflow-safe integer folding, safe division/modulo hand
 - [x] Test INT64_MIN/MAX, multiply overflow, zero division/modulo, minimum/-1, nested branches, loops, and calls that mutate globals.
 - [x] Run every differential fixture with optimization enabled and disabled.
 
-### 9. Dead-code elimination
+### 8. Dead-code elimination
 
 Current implementation: constant unreachable branches/blocks and unreferenced private procedures are removed; some unused primitive literal writes/releases are removed. There is no general effect-aware DCE.
 
-- [ ] Define an effect table for all IR operations: output, allocation, retain/release, mutation, global access, potential runtime error, and control flow.
-- [ ] Remove dead pure computations only when dropping them cannot suppress overflow, division, bounds, uninitialized-variable, or type errors.
-- [ ] Remove dead stores only when initialization semantics and error behavior remain intact.
-- [ ] Remove unused cleanup/release operations only with ownership proof; do not leak objects or release aliases early.
-- [ ] Remove dead blocks and repair branch targets, source maps, and function IDs safely.
-- [ ] Keep exported/address-taken procedures once a public ABI or library model introduces them.
-- [ ] Add tests for effectful dead-looking calls, errors in unused expressions, recursive-but-unreachable procedures, and object cleanup.
+- [x] Define an effect table for all IR operations: output, allocation, retain/release, mutation, global access, potential runtime error, and control flow.
+- [x] Remove dead pure computations only when dropping them cannot suppress overflow, division, bounds, uninitialized-variable, or type errors.
+- [x] Remove dead stores only when initialization semantics and error behavior remain intact.
+- [x] Remove unused cleanup/release operations only with ownership proof; do not leak objects or release aliases early.
+- [x] Remove dead blocks and repair branch targets, source maps, and function IDs safely.
+- [x] Keep exported/address-taken procedures once a public ABI or library model introduces them.
+- [x] Add tests for effectful dead-looking calls, errors in unused expressions, recursive-but-unreachable procedures, and object cleanup.
 
-### 10. Instruction selection
+### 9. Instruction selection
 
 Current implementation: direct ARM64 and x86-64 integer operations, immediate arithmetic, local/global fast paths, branches, and calls. Dynamic operations use C helpers.
 
@@ -193,7 +193,7 @@ Current implementation: direct ARM64 and x86-64 integer operations, immediate ar
 - [ ] Add assembly golden tests and executable tests for each selected form, including negative/overflow boundaries.
 - [ ] Measure code size and cycles on each native CPU before retaining a more complex sequence.
 
-### 11. Control-flow optimization
+### 10. Control-flow optimization
 
 Current implementation: constant branches simplify and jumps to the next block are omitted. Blocks are otherwise emitted in existing order.
 
@@ -206,7 +206,7 @@ Current implementation: constant branches simplify and jumps to the next block a
 - [ ] Add CFG validation after every block-reordering/merging pass.
 - [ ] Test nested loops, diamonds, early returns, error paths, and long cold blocks on every emitter.
 
-### 12. Large-program branch and address handling
+### 11. Large-program branch and address handling
 
 Current implementation: ARM64 internal transfers materialize page-relative addresses; x86-64 uses relative branches/calls and RIP-relative data references. Architecture and object-format range limits remain.
 
@@ -219,7 +219,7 @@ Current implementation: ARM64 internal transfers materialize page-relative addre
 - [ ] Keep short local conditional branches short and long cross-block transfers range-safe.
 - [ ] Test Mach-O, ELF ARM64, ELF x86-64 and COFF relocations independently.
 
-### 13. Formal ABI call lowering — depends on stage 2
+### 12. Formal ABI call lowering — depends on stage 2
 
 Current implementation: private revision-1 procedure frames and per-target host calling conventions. Do not turn this private frame into a public promise before the ABI is designed.
 
@@ -232,7 +232,7 @@ Current implementation: private revision-1 procedure frames and per-target host 
 - [ ] Add separately compiled B++ library producer/consumer fixtures for macOS ARM64, Linux x86-64/ARM64 and Windows x86-64.
 - [ ] Add ABI compatibility tests across compiler versions before static library work.
 
-### 14. Further runtime independence
+### 13. Further runtime independence
 
 Current implementation: arithmetic, comparisons, core branches and user-procedure control flow are native. Startup, value ownership, strings, buffers, arrays, builtins, dynamic operations, and error reporting still use C runtime objects/helpers.
 
@@ -246,7 +246,7 @@ Current implementation: arithmetic, comparisons, core branches and user-procedur
 - [ ] Run ASAN/LSAN/UBSAN/TSAN against both old and replacement runtime paths where available.
 - [ ] Remove C runtime dependency only when all required program behaviors pass on all targets.
 
-### 15. Debug metadata
+### 14. Debug metadata
 
 Current implementation: assembler source/line directives, host unwind data, and `--emit-map` local offsets/IR positions. It does not yet describe optimized variable locations in standard debug records.
 
@@ -260,7 +260,7 @@ Current implementation: assembler source/line directives, host unwind data, and 
 - [ ] Add metadata inspection tests with `llvm-dwarfdump`, `readelf`, `llvm-readobj`, and platform-native tools.
 - [ ] Test source stepping through loops, calls, recursive frames, imports and runtime errors on each supported debugger.
 
-### 16. Native sanitizer instrumentation
+### 15. Native sanitizer instrumentation
 
 Current implementation: host compiler sanitizer modes instrument C components/runtime. Native global fast paths call ASAN/TSAN hooks; TSAN procedure entry/exit hooks expose native frames. Linux/Clang `BUILD_MODE=msan` adds MemorySanitizer plus PIE and an intentional uninitialized-load runtime self-check; the local Linux x86-64 suite passes and the matching CI job is queued as a separate evidence gate. Native stack accesses and hand-emitted assembly are not fully shadow-memory instrumented. UBSAN-relevant integer behavior uses explicit language checks.
 
@@ -277,7 +277,7 @@ Current implementation: host compiler sanitizer modes instrument C components/ru
 - [ ] Add intentional-fault tests for each check and assert source location, category and exit behavior.
 - [ ] Keep production/release code free of sanitizer hooks unless explicitly enabled.
 
-### 17. Broader verification and release gates
+### 16. Broader verification and release gates
 
 Current implementation: unit/runtime tests, 53-case C/native suites, 64-seed optimized/baseline differential tests, register pressure, mapped-cell ownership, 4096-value reuse, large frames, 5000-update large procedure, ASAN and MSAN self-checks, cross-assembly where a Clang assembler is available, and native CI jobs that retain per-run verification transcripts. Linux/Clang MSAN passes locally and has a separate CI job; matching-host ARM64/Windows results remain pending.
 
@@ -295,7 +295,7 @@ Current implementation: unit/runtime tests, 53-case C/native suites, 64-seed opt
 - [ ] Test reproducible assembly/object output or document nondeterministic fields.
 - [ ] Gate a target release on its native runtime suite, ABI conformance, unwind, debug, and supported sanitizer checks.
 
-### 18. Performance and resource benchmarks
+### 17. Performance and resource benchmarks
 
 Current implementation: a CSV harness compares C, native optimized and native `--no-opt` execution time plus executable size for loop/call/object workloads. Existing measurements are a smoke check, not an isolated baseline.
 
@@ -308,7 +308,7 @@ Current implementation: a CSV harness compares C, native optimized and native `-
 - [ ] Keep results in versioned CSV/JSON with compiler revision, flags, target triple, CPU/OS and sanitizer mode.
 - [ ] Set performance expectations only after repeatable runs; avoid pass/fail thresholds sensitive to shared CI noise.
 
-### 19. Target support and platform-specific integration
+### 18. Target support and platform-specific integration
 
 The four emitters exist; only macOS ARM64 and Linux x86-64 have native release runs recorded. Keep each target's object, runtime, linker, debugger, and sanitizer checks separate.
 
@@ -321,7 +321,7 @@ The four emitters exist; only macOS ARM64 and Linux x86-64 have native release r
 - [ ] Decide minimum OS/SDK/toolchain versions and document supported compiler drivers.
 - [ ] Keep macOS Intel, Windows ARM64 and other architectures explicitly unsupported until separately designed and tested.
 
-## 1.20 Platform-specific CG checklist
+## 1.19 Platform-specific CG checklist
 
 ### macOS ARM64 — target profile v1
 
@@ -370,7 +370,7 @@ The four emitters exist; only macOS ARM64 and Linux x86-64 have native release r
 - [ ] Run isolated benchmarks and record binary/frame sizes.
 - [ ] Finish shared CG tasks required by the exit criteria before stage 2.
 
-## 1.21 CG exit criteria before moving to ABI
+## 1.20 CG exit criteria before moving to ABI
 
 - [ ] Native release test matrix passes on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64.
 - [ ] Every target has passed semantic differential tests, large procedure/frame tests, recursion, pressure, error cleanup, target calling-convention tests, unwind tests and debug-line tests.

@@ -5,21 +5,49 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-static void operands(const BLIRInst *i,unsigned char *used) {
+/* Return whether this instruction made another virtual register live.  DCE
+ * deliberately asks this only of retained instructions, so an unused pure
+ * computation cannot keep its own input chain alive. */
+static int operands(const BLIRInst *i,unsigned char *used) {
+    int changed=0;
+#define USE(value) do { BLIRId r_=(value); if(r_!=BL_IR_NONE&&!used[r_]) { used[r_]=1; changed=1; } } while(0)
     switch(i->op) {
-    case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_BRANCH:case BL_IR_RETURN:used[i->a]=1;
+    case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_RELEASE:USE(i->a);
     break;
     case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
     case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:
-    case BL_IR_INDEX_GET:case BL_IR_INDEX_SET:used[i->a]=used[i->b]=1;
-    if(i->op==BL_IR_INDEX_SET)used[i->c]=1;
+    case BL_IR_INDEX_GET:case BL_IR_INDEX_SET:USE(i->a);USE(i->b);
+    if(i->op==BL_IR_INDEX_SET)USE(i->c);
     break;
-    case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:case BL_IR_STORE_LOCAL:case BL_IR_STORE_GLOBAL:used[i->b]=1;
+    case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:case BL_IR_STORE_LOCAL:case BL_IR_STORE_GLOBAL:USE(i->b);
     break;
-    case BL_IR_CALL:for(size_t j=0;j<i->arg_count;++j)used[i->args[j]]=1;
+    case BL_IR_CALL:for(size_t j=0;j<i->arg_count;++j)USE(i->args[j]);
     break;
     default:break;
     }
+    return changed;
+#undef USE
+}
+
+/* A successful instruction in this set never produces an owned object.  It
+ * can still fail (for example DIV); that operation is retained as an effect
+ * root, but a later release of its primitive result is a no-op. */
+static int dce_produces_primitive(BLIROp op) {
+    switch(op) {
+    case BL_IR_NULL: case BL_IR_INT: case BL_IR_NEG: case BL_IR_SUB:
+    case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD: case BL_IR_NOT:
+    case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE:
+    case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int dce_is_root(const BLIRInst *i, const unsigned char *primitive, size_t n) {
+    if (i->op == BL_IR_RELEASE)
+        return i->a == BL_IR_NONE || i->a >= n || !primitive[i->a];
+    return bpp_ir_effects(i) != BPP_EFFECT_NONE;
 }
 
 typedef struct {
@@ -253,15 +281,36 @@ int bpp_ir_optimize(BLIRModule *m) {
         }}while(changed);
         size_t count=0;
         for(size_t b=0;b<fn->block_count;++b)if(reachable[b])map[b]=count++;
-        for(size_t b=0;b<fn->block_count;++b)if(reachable[b])for(size_t k=0;k<fn->blocks[b].count;++k){BLIRInst *i=&fn->blocks[b].insts[k];operands(i,used);
-    if(i->op==BL_IR_INT||i->op==BL_IR_NULL)primitive[i->dst]=primitive[i->dst]==2?2:1;else if(i->dst!=BL_IR_NONE)primitive[i->dst]=2;}
+        /* First record which definitions are proven primitive on normal
+         * continuation.  This is ownership information, not a claim that an
+         * instruction is free of errors. */
+        for(size_t b=0;b<fn->block_count;++b) if(reachable[b])
+            for(size_t k=0;k<fn->blocks[b].count;++k) {
+                BLIRInst *i=&fn->blocks[b].insts[k];
+                if(i->dst!=BL_IR_NONE&&i->dst<n) primitive[i->dst]=(unsigned char)dce_produces_primitive(i->op);
+            }
+        /* Mark from observable roots backwards through their operands.  A
+         * pure result is retained only if a retained instruction needs it.
+         * This fixed point removes whole chains such as !x == 0 when the
+         * result is unused, while retaining loads, arithmetic checks, calls,
+         * stores, releases of possibly-owned values, and terminators. */
+        do {changed=0;
+            for(size_t b=0;b<fn->block_count;++b) if(reachable[b])
+                for(size_t k=0;k<fn->blocks[b].count;++k) {
+                    BLIRInst *i=&fn->blocks[b].insts[k];
+                    if(dce_is_root(i,primitive,n)||(i->dst!=BL_IR_NONE&&i->dst<n&&used[i->dst]))
+                        changed|=operands(i,used);
+                }
+        } while(changed);
         size_t dest=0;
         for(size_t b=0;b<fn->block_count;++b){BLIRBlock block=fn->blocks[b];
             if(!reachable[b]){for(size_t k=0;k<block.count;++k){free(block.insts[k].text);free(block.insts[k].args);}free(block.insts);continue;}
             size_t keep=0;
             for(size_t k=0;k<block.count;++k){BLIRInst i=block.insts[k];
-                if((i.op==BL_IR_INT||i.op==BL_IR_NULL)&&!used[i.dst]&&primitive[i.dst]==1)continue;
-                if(i.op==BL_IR_RELEASE&&!used[i.a]&&primitive[i.a]==1)continue;
+                if(!dce_is_root(&i,primitive,n)&&
+                   (i.dst==BL_IR_NONE||i.dst>=n||!used[i.dst])) {
+                    free(i.text);free(i.args);continue;
+                }
                 if(i.op==BL_IR_JUMP)i.a=map[i.a];
     if(i.op==BL_IR_BRANCH){i.b=map[i.b];i.c=map[i.c];}
                 block.insts[keep++]=i;

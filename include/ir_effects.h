@@ -18,7 +18,9 @@ enum {
     BPP_EFFECT_OWNERSHIP       = 1u << 8,
     BPP_EFFECT_CAN_ERROR       = 1u << 9,
     BPP_EFFECT_CALL            = 1u << 10,
-    BPP_EFFECT_SANITIZER       = 1u << 11
+    BPP_EFFECT_SANITIZER       = 1u << 11,
+    /* Terminators are observable even when they have no value/memory effect. */
+    BPP_EFFECT_CONTROL         = 1u << 12
 };
 
 unsigned bpp_ir_effects(const BLIRInst *);

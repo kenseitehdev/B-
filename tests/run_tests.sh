@@ -95,6 +95,11 @@ right
 native_case constant_nested_branch 'new int x=0;new int k=1;if(k){x=6;}else{x=8;}return x+1;' '7'
 native_case constant_loop_invariant 'define proc f(c){new int x=7;while(c){return x+2;}return x+3;}return f(0)+f(1);' '19'
 native_case dead_procedure 'define proc unused(){return "unused";}define proc f(n){return n+1;}return f(9);' '10'
+native_case dead_effectful_call 'define proc noise(){println("still");return 1;}new int unused=noise();return 2;' 'still
+2'
+runtime_error dead_error_expression 'new int unused=1/0;return 2;' 'division by zero'
+native_case recursive_unreachable 'define proc dead(n){return dead(n-1);}return 3;' '3'
+native_case dead_owned_cleanup 'define proc f(){new String s="owned";return 3;}return f();' '3'
 runtime_error typed_compare 'define proc f(x){return x<1;} return f("x");' 'integer operands'
 runtime_error typed_negate 'define proc f(x){return -x;} return f("x");' 'integer'
 runtime_error recursive_cleanup 'define proc f(n){new Array a=Array.new(1);Array.set(a,0,"owned");if(n){return f(n-1);}return 1/0;} return f(30);' 'division by zero'
@@ -108,6 +113,11 @@ native_case large_frame "$large" '323'
 progress "output-mode checks"
 bpp --emit-ir -o "$task_dir/out.ir" "$task_dir/case.bpp"
 grep -F 'call f1' "$task_dir/out.ir" >/dev/null
+printf '%s\n' 'define proc dead(n){return dead(n-1);}return 3;' > "$task_dir/dead-recursive.bpp"
+"$project_compiler" --emit-ir -o "$task_dir/dead-recursive.ir" "$task_dir/dead-recursive.bpp"
+if grep -E '^function .*"dead"' "$task_dir/dead-recursive.ir" >/dev/null; then
+    echo 'FAIL DCE: retained unreachable recursive procedure'; exit 1
+fi
 bpp --emit-c -o "$task_dir/out.c" "$task_dir/case.bpp"
 grep -F 'bpp_f1' "$task_dir/out.c" >/dev/null
 bpp --emit-asm -o "$task_dir/out.s" "$task_dir/case.bpp"
