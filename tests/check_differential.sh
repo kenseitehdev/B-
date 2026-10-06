@@ -8,10 +8,10 @@ trap 'rm -rf "$task_dir"' EXIT HUP INT TERM
 seed=1
 while [ "$seed" -le "${BPP_DIFFERENTIAL_CASES:-64}" ]; do
     "$generator" "$seed" > "$task_dir/case.bpp"
-    "$compiler" --backend c --print-result -o "$task_dir/reference" "$task_dir/case.bpp"
-    "$task_dir/reference" > "$task_dir/expected"
     for optimize in optimized baseline; do
         if [ "$optimize" = baseline ]; then set -- --no-opt; else set --; fi
+        "$compiler" --backend c --print-result "$@" -o "$task_dir/reference" "$task_dir/case.bpp"
+        "$task_dir/reference" > "$task_dir/expected"
         "$compiler" --backend native --print-result "$@" -o "$task_dir/native" "$task_dir/case.bpp"
         "$task_dir/native" > "$task_dir/actual"
         if ! cmp "$task_dir/expected" "$task_dir/actual"; then

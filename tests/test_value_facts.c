@@ -71,9 +71,44 @@ static void check_mutation_rules(void) {
     bpp_value_facts_destroy(&facts);
 }
 
+static void check_constant_branch_merge(void) {
+    BLIRInst b0[] = { op(BL_IR_INT,0,NONE,NONE), op(BL_IR_INIT_GLOBAL,NONE,0,0), op(BL_IR_INT,1,NONE,NONE), op(BL_IR_INIT_GLOBAL,NONE,1,1), op(BL_IR_JUMP,NONE,1,NONE) };
+    BLIRInst b1[] = { op(BL_IR_LOAD_GLOBAL,2,1,NONE), op(BL_IR_BRANCH,NONE,2,2) };
+    BLIRInst b2[] = { op(BL_IR_INT,3,NONE,NONE), op(BL_IR_STORE_GLOBAL,NONE,0,3), op(BL_IR_JUMP,NONE,4,NONE) };
+    BLIRInst b3[] = { op(BL_IR_INT,4,NONE,NONE), op(BL_IR_STORE_GLOBAL,NONE,0,4), op(BL_IR_JUMP,NONE,4,NONE) };
+    BLIRInst b4[] = { op(BL_IR_LOAD_GLOBAL,5,0,NONE), op(BL_IR_RETURN,NONE,5,NONE) };
+    b0[0].integer=0;b0[2].integer=1;b2[0].integer=6;b3[0].integer=8;b1[1].c=3;
+    BLIRBlock blocks[]={{b0,5,5},{b1,2,2},{b2,3,3},{b3,3,3},{b4,2,2}};
+    BLIRFunction fn={"constants",NULL,0,0,0,blocks,5,5,6};
+    BLIRModule m;memset(&m,0,sizeof m);m.functions=&fn;m.function_count=1;m.global_count=2;
+    BPPValueFacts facts;assert(bpp_value_facts_create(&m,0,&facts));
+    BPPValueFact r[6],l[1],g[2];bpp_value_facts_begin_block(&facts,4,r,l,g);
+    assert(g[0].kind==BPP_VALUE_INT&&g[0].integer_known&&g[0].integer==6);
+    bpp_value_facts_destroy(&facts);
+}
+
+static void check_loop_invariant_merge(void) {
+    BLIRInst b0[] = { op(BL_IR_INT,0,NONE,NONE), op(BL_IR_INIT_GLOBAL,NONE,0,0), op(BL_IR_JUMP,NONE,1,NONE) };
+    BLIRInst b1[] = { op(BL_IR_LOAD_LOCAL,1,0,NONE), op(BL_IR_BRANCH,NONE,1,2) };
+    BLIRInst b2[] = { op(BL_IR_LOAD_GLOBAL,2,0,NONE), op(BL_IR_JUMP,NONE,1,NONE) };
+    BLIRInst b3[] = { op(BL_IR_LOAD_GLOBAL,3,0,NONE), op(BL_IR_RETURN,NONE,3,NONE) };
+    b0[0].integer=7;b1[1].c=3;
+    BLIRBlock blocks[]={{b0,3,3},{b1,2,2},{b2,2,2},{b3,2,2}};
+    BLIRFunction fn={"loop",NULL,1,1,1,blocks,4,4,4};
+    BLIRModule m;memset(&m,0,sizeof m);m.functions=&fn;m.function_count=1;m.global_count=1;
+    BPPValueFacts facts;assert(bpp_value_facts_create(&m,0,&facts));
+    BPPValueFact r[4],l[1],g[1];bpp_value_facts_begin_block(&facts,2,r,l,g);
+    assert(g[0].kind==BPP_VALUE_INT&&g[0].integer_known&&g[0].integer==7);
+    bpp_value_facts_begin_block(&facts,3,r,l,g);
+    assert(g[0].kind==BPP_VALUE_INT&&g[0].integer_known&&g[0].integer==7);
+    bpp_value_facts_destroy(&facts);
+}
+
 int main(void) {
     check_join_delete_and_free();
     check_mutation_rules();
+    check_constant_branch_merge();
+    check_loop_invariant_merge();
     puts("Flow-sensitive static value-fact tests passed");
     return 0;
 }

@@ -20,6 +20,16 @@ static void addr(FILE *out,unsigned r,const char *label) {
 static void literal(FILE *out,const char *label,const char *s) {
     fprintf(out,"%s:\n    .byte ",label); for(const unsigned char *p=(const unsigned char *)s;*p;++p) fprintf(out,"%u,",(unsigned)*p); fputs("0\n",out);
 }
+static void access_traffic(FILE *o,const BLIRFunction *fn){
+    size_t loads=0,stores=0,branches=0,calls=0;
+    for(size_t b=0;b<fn->block_count;++b)for(size_t k=0;k<fn->blocks[b].count;++k){BLIROp op=fn->blocks[b].insts[k].op;
+        loads+=op==BL_IR_LOAD_LOCAL||op==BL_IR_LOAD_GLOBAL;
+        stores+=op==BL_IR_INIT_LOCAL||op==BL_IR_INIT_GLOBAL||op==BL_IR_STORE_LOCAL||op==BL_IR_STORE_GLOBAL;
+        branches+=op==BL_IR_JUMP||op==BL_IR_BRANCH;
+        calls+=op==BL_IR_CALL;
+    }
+    fprintf(o,"    // B++ access-traffic function=%s slot-loads=%zu slot-stores=%zu branches=%zu helper-calls=%zu\n",fn->name,loads,stores,branches,calls);
+}
 static int layout(const BLIRFunction *fn,const BPPRegPlan *plan, Layout *l) {
     l->maxargs=0;
     for(size_t b=0;b<fn->block_count;++b) for(size_t k=0;k<fn->blocks[b].count;++k)
@@ -277,7 +287,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
         }
         fprintf(o,"L_fail_%zu:\n",f);imm(o,1,UINT64_MAX);fprintf(o,"L_cleanup_%zu:\n    mov x0, x19\n    ldr x2, [x19, #96]\n    bl _bpp_a_leave\n",f);
         if(m->instrument_native)fputs("    bl _bpp_a_trace_exit\n",o);
-        arm_save_epilogue(o,&plans[f]);if(m->emit_asm_comments)fprintf(o,"    // B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",fn->name,e.emitted_spills,e.emitted_reloads,e.emitted_rematerializations);bpp_value_facts_destroy(&e.facts);free(e.fact_regs);free(e.fact_locals);free(e.fact_globals);
+        arm_save_epilogue(o,&plans[f]);if(m->emit_asm_comments){fprintf(o,"    // B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",fn->name,e.emitted_spills,e.emitted_reloads,e.emitted_rematerializations);access_traffic(o,fn);}bpp_value_facts_destroy(&e.facts);free(e.fact_regs);free(e.fact_locals);free(e.fact_globals);
     }
     fputs(".section __TEXT,__cstring,cstring_literals\n",o);literal(o,"L_path",m->path);
     for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];if(i->text){char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu",f,b,k);literal(o,s,i->text);}}

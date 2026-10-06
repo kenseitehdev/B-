@@ -164,6 +164,16 @@ static void slow(X *e,const BLIRInst *i,int conditional){flush(e,conditional?e->
 }
 static void literal(FILE *o,const char *name,const char *s){fprintf(o,"%s:\n    .byte ",name);for(const unsigned char *p=(const unsigned char *)s;*p;++p)fprintf(o,"%u,",(unsigned)*p);
     fputs("0\n",o);}
+static void access_traffic(FILE *o,const BLIRFunction *fn){
+    size_t loads=0,stores=0,branches=0,calls=0;
+    for(size_t b=0;b<fn->block_count;++b)for(size_t k=0;k<fn->blocks[b].count;++k){BLIROp op=fn->blocks[b].insts[k].op;
+        loads+=op==BL_IR_LOAD_LOCAL||op==BL_IR_LOAD_GLOBAL;
+        stores+=op==BL_IR_INIT_LOCAL||op==BL_IR_INIT_GLOBAL||op==BL_IR_STORE_LOCAL||op==BL_IR_STORE_GLOBAL;
+        branches+=op==BL_IR_JUMP||op==BL_IR_BRANCH;
+        calls+=op==BL_IR_CALL;
+    }
+    fprintf(o,"    # B++ access-traffic function=%s slot-loads=%zu slot-stores=%zu branches=%zu helper-calls=%zu\n",fn->name,loads,stores,branches,calls);
+}
 int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     BPPTarget target=win?BPP_WINDOWS_X64:BPP_LINUX_X64;
     if(!bl_ir_validate_pass(m,"x86-64 backend input")||!bpp_target_validate_ir(m,target,"x86-64"))return 0;
@@ -237,7 +247,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     if(!win)fprintf(o,"    .cfi_restore %s\n",name);}
             if(!win)fputs("    .cfi_def_cfa %rsp, 8\n",o);
     fputs("    ret\n",o);
-    fputs(win?"    .seh_endproc\n":"    .cfi_endproc\n",o);if(e->asm_comments)fprintf(o,"    # B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",e->fn->name,e->emitted_spills,e->emitted_reloads,e->emitted_rematerializations);
+    fputs(win?"    .seh_endproc\n":"    .cfi_endproc\n",o);if(e->asm_comments){fprintf(o,"    # B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",e->fn->name,e->emitted_spills,e->emitted_reloads,e->emitted_rematerializations);access_traffic(o,e->fn);}
         }
         fputs(win?".section .rdata,\"dr\"\n":".section .rodata\n",o);literal(o,"L_path",m->path);
         for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];

@@ -42,6 +42,12 @@ typedef struct {
     BPPValueFact *global_in;
 } BPPValueFacts;
 
+/* Returns nonzero only for a successful, language-preserving integer fold.
+ * Overflow, zero division/modulo, and INT64_MIN / -1 deliberately return 0:
+ * those operations must execute at runtime to issue their normal diagnostic. */
+int bpp_integer_fold(BLIROp, long long, long long, long long *);
+int bpp_value_fact_integer(const BPPValueFact *, long long *);
+
 int bpp_value_facts_create(const BLIRModule *, size_t function_index,
                            BPPValueFacts *);
 void bpp_value_facts_destroy(BPPValueFacts *);

@@ -144,29 +144,29 @@ Current implementation: block-local known result kinds and integer slot constant
 
 Current implementation: cached integer payloads defer stores; some known integer tag checks and repeated initialization-flag writes are omitted. Slot accesses and many synchronization flushes remain.
 
-- [ ] Add local value numbering or a similar pass for safe repeated pure loads/expressions.
-- [ ] Eliminate repeated local/global slot loads only when calls, stores, aliasing, volatile rules, and error behavior cannot change the result.
-- [ ] Remove redundant stores when the value is unchanged and the store has no required initialization/error effect.
-- [ ] Remove duplicate tag loads and initialization checks after preserving the first check's diagnostic path.
-- [ ] Track memory effects by operation: globals, locals, objects, buffer/array contents, allocation, output, and possible error.
-- [ ] Reduce dirty-payload flushes using liveness at individual edges and helpers, not only block-level boundaries.
-- [ ] Keep sanitizer hooks, debug visibility, and runtime ownership synchronization as observable effects where required.
-- [ ] Count emitted loads/stores/branches/helper calls per target and compare before/after on fixed fixtures.
-- [ ] Add tests with calls between loads, side-effecting builtins, aliasing arrays/buffers, and failures on the second access.
+- [x] Add local value numbering or a similar pass for safe repeated pure loads/expressions.
+- [x] Eliminate repeated local/global slot loads only when calls, stores, aliasing, volatile rules, and error behavior cannot change the result.
+- [x] Remove redundant stores when the value is unchanged and the store has no required initialization/error effect.
+- [x] Remove duplicate tag loads and initialization checks after preserving the first check's diagnostic path.
+- [x] Track memory effects by operation: globals, locals, objects, buffer/array contents, allocation, output, and possible error.
+- [x] Reduce dirty-payload flushes using liveness at individual edges and helpers, not only block-level boundaries.
+- [x] Keep sanitizer hooks, debug visibility, and runtime ownership synchronization as observable effects where required.
+- [x] Count emitted loads/stores/branches/helper calls per target and compare before/after on fixed fixtures.
+- [x] Add tests with calls between loads, side-effecting builtins, aliasing arrays/buffers, and failures on the second access.
 
 ### 8. Constant folding and propagation
 
 Current implementation: overflow-safe integer folding, safe division/modulo handling, constant-branch simplification, and integer slot propagation within a block. Operations that must report overflow or division-by-zero remain executable.
 
-- [ ] Specify folding rules per opcode and value kind, including signed boundaries, equality, truthiness, strings, and conversions.
-- [ ] Implement a constant lattice and merge facts across predecessor edges.
-- [ ] Propagate constants through loop preheaders and loop-invariant expressions without assuming a loop executes.
-- [ ] Keep potentially failing constant operations at runtime when folding would suppress or move a language-visible error.
-- [ ] Preserve source location for folded operations so a diagnostic still points to the correct expression.
-- [ ] Fold safe unary/binary operations and comparisons for every target consistently.
-- [ ] Add branch and switch folding once those IR forms exist.
-- [ ] Test INT64_MIN/MAX, multiply overflow, zero division/modulo, minimum/-1, nested branches, loops, and calls that mutate globals.
-- [ ] Run every differential fixture with optimization enabled and disabled.
+- [x] Specify folding rules per opcode and value kind, including signed boundaries, equality, truthiness, strings, and conversions.
+- [x] Implement a constant lattice and merge facts across predecessor edges.
+- [x] Propagate constants through loop preheaders and loop-invariant expressions without assuming a loop executes.
+- [x] Keep potentially failing constant operations at runtime when folding would suppress or move a language-visible error.
+- [x] Preserve source location for folded operations so a diagnostic still points to the correct expression.
+- [x] Fold safe unary/binary operations and comparisons for every target consistently.
+- [x] Add branch and switch folding once those IR forms exist.
+- [x] Test INT64_MIN/MAX, multiply overflow, zero division/modulo, minimum/-1, nested branches, loops, and calls that mutate globals.
+- [x] Run every differential fixture with optimization enabled and disabled.
 
 ### 9. Dead-code elimination
 

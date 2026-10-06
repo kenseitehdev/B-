@@ -87,6 +87,13 @@ native_case object_return_pressure 'define proc id(s){return s;} define proc f(a
 native_case joined_objects 'define proc f(n){new int x=0;if(n){x="yes";}else{x="no";}return x;} return f(1)+f(0);' 'yesno'
 native_case empty_procedure 'define proc empty(){} return empty()==empty();' '1'
 native_case slot_propagation 'new int x=6;new int y=7;define proc modify(){x=9;return 1;}assert(x*y==42);modify();return x+y;' '16'
+native_case repeated_pure_access 'define proc f(n){new int x=!n;new int y=!n;return x+y;}return f(0)+f(3);' '2'
+native_case call_mutates_buffer 'define proc write(p){p[0]=66;return 0;}new ptr p=malloc 1;p[0]=65;new int before=p[0];write(p);return before+p[0];' '131'
+native_case repeated_output_effect 'println("left");println("right");return 3;' 'left
+right
+3'
+native_case constant_nested_branch 'new int x=0;new int k=1;if(k){x=6;}else{x=8;}return x+1;' '7'
+native_case constant_loop_invariant 'define proc f(c){new int x=7;while(c){return x+2;}return x+3;}return f(0)+f(1);' '19'
 native_case dead_procedure 'define proc unused(){return "unused";}define proc f(n){return n+1;}return f(9);' '10'
 runtime_error typed_compare 'define proc f(x){return x<1;} return f("x");' 'integer operands'
 runtime_error typed_negate 'define proc f(x){return -x;} return f("x");' 'integer'
@@ -128,6 +135,12 @@ fi
 "$project_compiler" --emit-map -o "$task_dir/placement.json" "$project_dir/tests/arm64_coverage.bpp"
 grep -F '"spill_candidates"' "$task_dir/placement.json" >/dev/null
 grep -F '"spill_reason"' "$task_dir/placement.json" >/dev/null
+grep -F '"redundant_access_metrics"' "$task_dir/placement.json" >/dev/null
+grep -E '"effect_barriers":[1-9][0-9]*' "$task_dir/placement.json" >/dev/null
+printf '%s\n' 'new int x=0;new int k=1;if(k){x=6;}else{x=8;}return x+1;' > "$task_dir/constant-branch.bpp"
+"$project_compiler" --emit-ir -o "$task_dir/constant-branch.ir" "$task_dir/constant-branch.bpp"
+grep -E 'int 7 +; 1:' "$task_dir/constant-branch.ir" >/dev/null
+if grep -F ' add ' "$task_dir/constant-branch.ir" >/dev/null; then echo 'FAIL constant folding: retained safe branch result addition'; exit 1; fi
 grep -E '"workspace_peak_bytes":[1-9][0-9]*' "$task_dir/placement.json" >/dev/null
 grep -E '"sparse_use_entries":[1-9][0-9]*' "$task_dir/placement.json" >/dev/null
 grep -F '"live_range_pieces"' "$task_dir/placement.json" >/dev/null
@@ -144,6 +157,18 @@ for target in macos-arm64 linux-x86_64 linux-arm64 windows-x86_64; do
     "$project_compiler" --no-opt --target "$target" --asm-comments --emit-asm -o "$task_dir/allocation-$target.s" "$task_dir/allocation-traffic.bpp"
     grep -F 'B++ allocation-traffic function=f' "$task_dir/allocation-$target.s" >/dev/null
     grep -E 'allocation-traffic function=f .*reloads=[1-9][0-9]*' "$task_dir/allocation-$target.s" >/dev/null
+    grep -F 'B++ access-traffic function=f' "$task_dir/allocation-$target.s" >/dev/null
+done
+printf '%s\n' 'new int x=1;x=1;return x;' > "$task_dir/redundant-store.bpp"
+"$project_compiler" --emit-map -o "$task_dir/redundant-store.json" "$task_dir/redundant-store.bpp"
+grep -E '"eliminated_slot_stores":[1-9][0-9]*' "$task_dir/redundant-store.json" >/dev/null
+"$project_compiler" --debug-info --emit-map -o "$task_dir/redundant-store-debug.json" "$task_dir/redundant-store.bpp"
+grep -F '"eliminated_slot_stores":0' "$task_dir/redundant-store-debug.json" >/dev/null
+for target in macos-arm64 linux-x86_64 linux-arm64 windows-x86_64; do
+    "$project_compiler" --target "$target" --asm-comments --emit-asm -o "$task_dir/redundant-store-$target.s" "$task_dir/redundant-store.bpp"
+    "$project_compiler" --no-opt --target "$target" --asm-comments --emit-asm -o "$task_dir/redundant-store-noopt-$target.s" "$task_dir/redundant-store.bpp"
+    grep -F 'access-traffic function=<module> slot-loads=0 slot-stores=1' "$task_dir/redundant-store-$target.s" >/dev/null
+    grep -F 'access-traffic function=<module> slot-loads=1 slot-stores=2' "$task_dir/redundant-store-noopt-$target.s" >/dev/null
 done
 printf '%s\n' '<module> 2 3' > "$task_dir/allocation.profile"
 "$project_compiler" --alloc-profile "$task_dir/allocation.profile" --emit-map -o "$task_dir/profiled.json" "$project_dir/tests/demo.bpp"

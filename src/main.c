@@ -164,8 +164,12 @@ int main(int argc, char **argv) {
     BLCompiler compiler = {0}; BLIRModule ir; bl_ir_init(&ir);
     int ok = bl_compile_file(&compiler, path, &ir);
     ir.emit_asm_comments=asm_comments;
-    if(ok&&optimize)ok=bpp_ir_optimize(&ir);
+    /* The optimizer runs before the debug snapshot path is allocated.  Give
+     * it the intent explicitly so source accesses remain visible in debug
+     * output and sanitizer-instrumented native builds. */
     ir.instrument_native=BPP_SANITIZERS[0]!=0;
+    ir.preserve_access_observability=debug_info;
+    if(ok&&optimize)ok=bpp_ir_optimize(&ir);
     if(ok&&debug_info&&ir.expanded_source&&(mode==4||mode==5||(!mode&&native))){
         const char *base=output?output:(!mode?BPP_DEFAULT_OUTPUT:NULL);
         if(base){size_t size=strlen(base)+32;ir.debug_path=calloc(size,1);
@@ -176,7 +180,7 @@ int main(int argc, char **argv) {
                 if(!source)ok=0;else{if(fputs(ir.expanded_source,source)==EOF)ok=0;if(fclose(source))ok=0;}}
         }
     }
-    if (!ok) fprintf(stderr, "%s\n", compiler.last_error ? compiler.last_error : "compile error");
+    if (!ok) fprintf(stderr, "%s\n", compiler.last_error ? compiler.last_error : (ir.error[0] ? ir.error : "compile error"));
     if (ok && mode != 1) {
         FILE *out = NULL;
         if (mode >= 2) {

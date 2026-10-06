@@ -17,6 +17,7 @@ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
     if(!bl_ir_validate_pass(m,"location-map backend input"))return 0;
     fputs("{\"target\":",o);quote(o,bpp_target_name(t));
     fputs(",\"source\":",o);quote(o,m->path);
+    fprintf(o,",\"redundant_access_metrics\":{\"slot_loads\":%zu,\"slot_stores\":%zu,\"branches\":%zu,\"helper_calls\":%zu,\"eliminated_slot_loads\":%zu,\"eliminated_slot_stores\":%zu,\"value_numbered_expressions\":%zu,\"effect_barriers\":%zu}",m->redundant_access_metrics.slot_loads,m->redundant_access_metrics.slot_stores,m->redundant_access_metrics.branches,m->redundant_access_metrics.helper_calls,m->redundant_access_metrics.eliminated_slot_loads,m->redundant_access_metrics.eliminated_slot_stores,m->redundant_access_metrics.value_numbered_expressions,m->redundant_access_metrics.effect_barriers);
     fputs(",\"functions\":[",o);
     for(size_t f=0;f<m->function_count;++f){BPPRegPlan p;
     const BPPBackendCapabilities *cap=bpp_target_capabilities(t);

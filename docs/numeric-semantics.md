@@ -29,6 +29,31 @@ rules. If folding would cause a language error, it must leave the operation in
 the IR so execution raises the same error at the same source site. Folding
 must not use C signed overflow as its semantics.
 
+## Constant folding and propagation
+
+The optimizer uses the same forward value-fact lattice as native lowering:
+unknown, null, integer (optionally an exact signed 64-bit constant), string,
+buffer, array, and other object. At a control-flow join a fact survives only
+when every reachable predecessor agrees; equal integer constants remain exact.
+An unreachable arm of a proven branch does not participate in the merge.
+
+- Safe folds are integer literals; unary `-` except `INT64_MIN`; `!` when
+  truthiness is proven; and integer `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`,
+  `<=`, `>`, and `>=` when all operands are exact and the result is defined.
+- Proven local/global integer values can propagate through reachable CFG edges
+  and loop headers. A loop backedge must agree with the preheader fact; the
+  optimizer never assumes a loop executes or runs only once.
+- Strings, buffers, arrays, object equality, indexing, conversions, calls,
+  allocation, output, ownership operations, and dynamic fallback operations
+  are not folded by this revision. Direct user calls invalidate global facts.
+- A fold replaces only the opcode and operands. It retains the original IR
+  instruction's source line and column, so later diagnostics and maps still
+  identify the source expression.
+
+There is no `switch` IR opcode in revision 1. Branch folding applies to the
+existing truthiness branch opcode; any future switch lowering must add its own
+exhaustive constant-folding and diagnostic-preservation tests.
+
 ## Conversions
 
 - The language's `String` declaration conversion (`TO_STRING_BUFFER`) clones a

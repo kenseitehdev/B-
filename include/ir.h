@@ -48,14 +48,26 @@ typedef struct {
 } BLIRFunction;
 
 typedef struct {
+    size_t slot_loads, slot_stores, branches, helper_calls;
+    size_t eliminated_slot_loads, eliminated_slot_stores, value_numbered_expressions;
+    size_t effect_barriers;
+} BPPIROptMetrics;
+
+typedef struct {
     char *path;
     int instrument_native;
+    /* Debug snapshots and native sanitizer hooks make source accesses
+     * observable, so optimization must leave them in place. */
+    int preserve_access_observability;
     int emit_asm_comments;
     char *expanded_source, *debug_path;
     char **globals;
     size_t global_count, global_capacity;
     BLIRFunction *functions;   /* function 0 is the module entry */
     size_t function_count, function_capacity;
+    /* Stable, target-independent counts from the redundant-access pass.
+     * They describe IR groups after earlier folding, not dynamic execution. */
+    BPPIROptMetrics redundant_access_metrics;
     char error[512];
 } BLIRModule;
 
