@@ -2,6 +2,7 @@
 #include "../include/codegen_abi.h"
 #include "../include/regalloc.h"
 #include "../include/value_facts.h"
+#include "../include/isel.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -84,10 +85,21 @@ static void result(X *e,size_t r,int tag){
     else if(tag==1)fprintf(e->out,"    movq %%r10, %zu(%%r12)\n",cell(e,r)+8);
     jump(e,"jmp","done");
 }
+static void add_displacement(X *e,size_t displacement){
+    BPPISelAddressRequest request={e->win?BPP_WINDOWS_X64:BPP_LINUX_X64,displacement,1};BPPISelAddressSelection selection;
+    if(!bpp_isel_select_address(&request,&selection)||selection.form==BPP_ISEL_ADDRESS_MATERIALIZE){
+        if(displacement){fprintf(e->out,"    movabsq $%zu, %%r11\n    addq %%r11, %%rax\n",displacement);}return;
+    }
+    if(selection.form==BPP_ISEL_ADDRESS_X64_DISP32)fprintf(e->out,"    addq $%zu, %%rax\n",displacement);
+}
+static void frame_address(X *e,size_t displacement){
+    BPPISelAddressRequest request={e->win?BPP_WINDOWS_X64:BPP_LINUX_X64,displacement,1};BPPISelAddressSelection selection;
+    if(bpp_isel_select_address(&request,&selection)&&selection.form==BPP_ISEL_ADDRESS_X64_DISP32){fprintf(e->out,"    leaq %zu(%%r12), %%rax\n",displacement);return;}
+    fputs("    movq %r12, %rax\n",e->out);add_displacement(e,displacement);
+}
 static void slot(X *e,size_t n,int g,int flag){
-    if(g){fprintf(e->out,"    movq %u(%%r12), %%rax\n",flag?40:8);
-    if(n)fprintf(e->out,"    addq $%zu, %%rax\n",flag?n:n*16);}
-    else {size_t physical=local_slot(e,n);fprintf(e->out,"    leaq %zu(%%r12), %%rax\n",flag?e->flags+physical:e->locals+physical*16);}
+    if(g){fprintf(e->out,"    movq %u(%%r12), %%rax\n",flag?40:8);add_displacement(e,flag?n:n*16);}
+    else {size_t physical=local_slot(e,n);frame_address(e,flag?e->flags+physical:e->locals+physical*16);}
 }
 static int fast(X *e,const BLIRInst *i){FILE *o=e->out;
     switch(i->op){
@@ -125,9 +137,16 @@ static int fast(X *e,const BLIRInst *i){FILE *o=e->out;
     fputs("    negq %r10\n",o);jump(e,"jo","slow");result(e,i->dst,1);return 1;
     case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
     case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:
+        {BPPISelRequest request={e->win?BPP_WINDOWS_X64:BPP_LINUX_X64,i->op,e->constant[i->b],e->value[i->b]};BPPInstructionSelection selection;
+        if(!bpp_isel_select(&request,&selection)||selection.scratch_gprs>4)return 0;
+        if(e->asm_comments)fprintf(o,"    # B++ isel form=%s cost=%u scratch-gprs=%u flags=%s\n",bpp_isel_form_name(selection.form),selection.cost,selection.scratch_gprs,selection.defines_flags?"defined-consumed-locally":"none");
         guard(e,i->a);guard(e,i->b);payload(e,i->a,"%r10");
-        if((i->op==BL_IR_ADD||i->op==BL_IR_SUB||i->op==BL_IR_MUL)&&e->constant[i->b]&&e->value[i->b]>=INT_MIN&&e->value[i->b]<=INT_MAX){
-            fprintf(o,"    %s $%lld, %%r10%s\n",i->op==BL_IR_ADD?"addq":i->op==BL_IR_SUB?"subq":"imulq",e->value[i->b],i->op==BL_IR_MUL?", %r10":"");jump(e,"jo","slow");result(e,i->dst,1);return 1;
+        if(selection.form==BPP_ISEL_X64_IMM32){
+            if(i->op==BL_IR_ADD||i->op==BL_IR_SUB||i->op==BL_IR_MUL){
+                fprintf(o,"    %s $%lld, %%r10%s\n",i->op==BL_IR_ADD?"addq":i->op==BL_IR_SUB?"subq":"imulq",selection.immediate,i->op==BL_IR_MUL?", %r10":"");jump(e,"jo","slow");result(e,i->dst,1);return 1;
+            }
+            {const char *cc=i->op==BL_IR_EQ?"e":i->op==BL_IR_NE?"ne":i->op==BL_IR_LT?"l":i->op==BL_IR_LE?"le":i->op==BL_IR_GT?"g":"ge";
+            fprintf(o,"    cmpq $%lld, %%r10\n    movl $0, %%r10d\n    set%s %%r10b\n",selection.immediate,cc);result(e,i->dst,1);return 1;}
         }
         payload(e,i->b,"%r11");
         if(i->op==BL_IR_ADD||i->op==BL_IR_SUB||i->op==BL_IR_MUL){fprintf(o,"    %s %%r11, %%r10\n",i->op==BL_IR_ADD?"addq":i->op==BL_IR_SUB?"subq":"imulq");jump(e,"jo","slow");}
@@ -138,7 +157,7 @@ static int fast(X *e,const BLIRInst *i){FILE *o=e->out;
             fputs("    movq %r10, %rax\n    cqto\n    idivq %r11\n",o);fprintf(o,"    movq %s, %%r10\n",i->op==BL_IR_MOD?"%rdx":"%rax");
         }else{const char *cc=i->op==BL_IR_EQ?"e":i->op==BL_IR_NE?"ne":i->op==BL_IR_LT?"l":i->op==BL_IR_LE?"le":i->op==BL_IR_GT?"g":"ge";
             fprintf(o,"    cmpq %%r11, %%r10\n    movl $0, %%r10d\n    set%s %%r10b\n",cc);}
-        result(e,i->dst,1);return 1;
+        result(e,i->dst,1);return 1;}
     default:return 0;
     }
 }

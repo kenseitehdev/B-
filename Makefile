@@ -54,10 +54,10 @@ EXE :=
 PROJECT_DIR := $(CURDIR)
 endif
 BIN := bin/$(BUILD_MODE)/bpp$(EXE)
-SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/optimize.c src/emit_x64.c src/locations.c src/value_facts.c
+SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/optimize.c src/emit_x64.c src/locations.c src/value_facts.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
-.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-differential check-stress check-asan-hook check-msan benchmark test targets clean
+.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-differential check-stress check-asan-hook check-msan benchmark benchmark-smoke test targets clean
 RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o
 all: $(BIN)
 debug:
@@ -91,6 +91,10 @@ check-stress: $(BIN) $(OBJDIR)/generate_case$(EXE)
 	sh tests/check_stress.sh ./$(BIN) ./$(OBJDIR)/generate_case$(EXE)
 benchmark: $(BIN) $(OBJDIR)/benchmark_clock$(EXE)
 	@sh tests/benchmark.sh ./$(BIN) ./$(OBJDIR)/benchmark_clock$(EXE)
+benchmark-smoke: $(BIN) $(OBJDIR)/benchmark_clock$(EXE)
+	@BPP_BENCHMARK_SAMPLES=1 BPP_BENCHMARK_RUNS=1 sh tests/benchmark.sh ./$(BIN) ./$(OBJDIR)/benchmark_clock$(EXE) > $(OBJDIR)/benchmark-smoke.csv
+	@head -n 1 $(OBJDIR)/benchmark-smoke.csv | grep -Fx 'schema,case,selection,target,host_os,host_arch,cpu,compiler_identity,executable_bytes,text_bytes,assembly_source_bytes,sample_count,runs_per_sample,median_wall_ms,mad_wall_ms,median_cycles,mad_cycles,cycle_source'
+	@awk -F, 'NR == 7 && $$2 == "calls" && $$3 == "generic" && $$9 > 0 && $$11 > 0 { ok=1 } END { exit !ok }' $(OBJDIR)/benchmark-smoke.csv
 check-asan-hook: $(OBJDIR)/test_native_sanitizer$(EXE)
 	sh tests/check_asan_hook.sh ./$(OBJDIR)/test_native_sanitizer$(EXE)
 check-msan: $(OBJDIR)/test_msan$(EXE)
@@ -99,13 +103,14 @@ test: check check-native
 ifeq ($(BUILD_MODE),msan)
 test: check-msan
 endif
-check: $(BIN) $(OBJDIR)/test_ir$(EXE) $(OBJDIR)/test_codegen_runtime$(EXE) $(OBJDIR)/test_regalloc$(EXE) $(OBJDIR)/test_optimize$(EXE) $(OBJDIR)/test_value_facts$(EXE) $(OBJDIR)/test_ir_effects$(EXE)
+check: $(BIN) $(OBJDIR)/test_ir$(EXE) $(OBJDIR)/test_codegen_runtime$(EXE) $(OBJDIR)/test_regalloc$(EXE) $(OBJDIR)/test_optimize$(EXE) $(OBJDIR)/test_value_facts$(EXE) $(OBJDIR)/test_ir_effects$(EXE) $(OBJDIR)/test_isel$(EXE)
 	./$(OBJDIR)/test_ir$(EXE)
 	./$(OBJDIR)/test_codegen_runtime$(EXE)
 	./$(OBJDIR)/test_regalloc$(EXE)
 	./$(OBJDIR)/test_optimize$(EXE)
 	./$(OBJDIR)/test_value_facts$(EXE)
 	./$(OBJDIR)/test_ir_effects$(EXE)
+	./$(OBJDIR)/test_isel$(EXE)
 	sh tests/run_tests.sh ./$(BIN)
 $(OBJDIR)/test_regalloc$(EXE): tests/test_regalloc.c src/regalloc.c src/registers.c include/regalloc.h include/target.h include/ir.h Makefile
 	mkdir -p "$(@D)"
@@ -124,6 +129,9 @@ $(OBJDIR)/test_value_facts$(EXE): tests/test_value_facts.c src/value_facts.c inc
 $(OBJDIR)/test_ir_effects$(EXE): tests/test_ir_effects.c src/ir_effects.c include/ir_effects.h include/ir.h Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_ir_effects.c src/ir_effects.c -o "$@"
+$(OBJDIR)/test_isel$(EXE): tests/test_isel.c src/ir.c src/ir_effects.c src/isel.c src/target.c src/emit_arm64.c src/emit_x64.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c include/isel.h include/target.h include/ir.h Makefile
+	mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_isel.c src/ir.c src/ir_effects.c src/isel.c src/target.c src/emit_arm64.c src/emit_x64.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c -o "$@"
 $(OBJDIR)/generate_case$(EXE): tests/generate_case.c Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) tests/generate_case.c -o "$@"

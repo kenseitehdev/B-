@@ -52,7 +52,7 @@ MSYS2 UCRT64 shell with make and mingw-w64-ucrt-x86_64-clang installed. The comp
 path there is `bin/release/bpp.exe`. Windows sanitizer modes need a toolchain that
 supplies the requested sanitizer runtimes; they are not yet a verified Windows gate.
 
-`test` runs unit tests, the 54-case C suite, and the 54-case native suite.
+`test` runs unit tests, the 64-case C suite, and the 64-case native suite.
 `check` runs unit tests plus C execution; `check-native` runs native execution.
 `check-arm64` remains an ARM64 compatibility target. `BUILD_MODE` is the mode
 variable; lowercase `mode` is not an alias.
@@ -71,6 +71,8 @@ Target registry and unsupported-feature policy are documented in
 behavior is centralized in [`docs/numeric-semantics.md`](docs/numeric-semantics.md).
 Per-target register inventories, payload-cache rules, and dynamic save frames are
 documented in [`docs/register-allocation.md`](docs/register-allocation.md).
+Instruction forms, legality, scratch demand, and flags lifetime are documented
+in [`docs/instruction-selection.md`](docs/instruction-selection.md).
 
 ```sh
 ./bin/release/bpp --target linux-arm64 --emit-asm -o demo-linux.s tests/demo.bpp
@@ -81,13 +83,27 @@ documented in [`docs/register-allocation.md`](docs/register-allocation.md).
 make BUILD_MODE=release check-targets    # requires a Clang cross-assembler
 make BUILD_MODE=release check-msabi     # Windows calling convention on Linux x64
 make BUILD_MODE=release check-differential check-stress
-make -s BUILD_MODE=release benchmark > timings.csv
+make -s BUILD_MODE=release benchmark > instruction-selection-bench.csv
 ```
 
 `--alloc-profile` is optional and never affects builds that omit it. Its plaintext
 format is `function-name block-index positive-multiplier` per non-comment line;
 use `*` for every function. The map identifies the blocks affected by a profile,
 so profile data cannot become an implicit build dependency.
+
+`benchmark` compares normal instruction selection with legal generic/materialized
+forms for immediate arithmetic, immediate comparisons, and calls. It emits a
+versioned CSV with executable, `.text` (when the host size tool exposes it), and
+assembly-source bytes; 11 samples by default; median and
+median absolute deviation of startup-inclusive wall time, and host metadata.
+Linux records per-process user-mode hardware cycles through `perf_event_open`
+when permitted; Windows records process cycles through `QueryProcessCycleTime`.
+macOS intentionally writes `cycle_source=unavailable`: ordinary user processes
+cannot portably read Apple Silicon PMU cycles, and timer ticks are not mislabeled
+as cycles. Run this on each matching native host and retain a complex selected
+form only when its size/timing result is recorded. Set `BPP_BENCHMARK_SAMPLES`
+and `BPP_BENCHMARK_RUNS` for longer runs; `make benchmark-smoke` validates the
+harness with one sample per variant.
 
 `--check` parses, lowers, optimizes, and validates without running the program.
 `--no-opt` disables the IR optimization pass, while register/frame allocation

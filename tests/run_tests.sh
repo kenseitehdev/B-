@@ -100,6 +100,7 @@ native_case dead_effectful_call 'define proc noise(){println("still");return 1;}
 runtime_error dead_error_expression 'new int unused=1/0;return 2;' 'division by zero'
 native_case recursive_unreachable 'define proc dead(n){return dead(n-1);}return 3;' '3'
 native_case dead_owned_cleanup 'define proc f(){new String s="owned";return 3;}return f();' '3'
+native_case instruction_immediates 'define proc addi(x){return x+4096;}define proc cmpi(x){return x==-7;}return addi(1)+cmpi(-7);' '4098'
 runtime_error typed_compare 'define proc f(x){return x<1;} return f("x");' 'integer operands'
 runtime_error typed_negate 'define proc f(x){return -x;} return f("x");' 'integer'
 runtime_error recursive_cleanup 'define proc f(n){new Array a=Array.new(1);Array.set(a,0,"owned");if(n){return f(n-1);}return 1/0;} return f(30);' 'division by zero'
@@ -151,6 +152,15 @@ printf '%s\n' 'new int x=0;new int k=1;if(k){x=6;}else{x=8;}return x+1;' > "$tas
 "$project_compiler" --emit-ir -o "$task_dir/constant-branch.ir" "$task_dir/constant-branch.bpp"
 grep -E 'int 7 +; 1:' "$task_dir/constant-branch.ir" >/dev/null
 if grep -F ' add ' "$task_dir/constant-branch.ir" >/dev/null; then echo 'FAIL constant folding: retained safe branch result addition'; exit 1; fi
+printf '%s\n' 'define proc addi(x){return x+4096;}define proc cmpi(x){return x==-7;}return addi(1)+cmpi(-7);' > "$task_dir/isel.bpp"
+"$project_compiler" --no-opt --target macos-arm64 --asm-comments --emit-asm -o "$task_dir/isel-arm64.s" "$task_dir/isel.bpp"
+grep -F 'B++ isel form=arm64-add-sub-immediate' "$task_dir/isel-arm64.s" >/dev/null
+grep -F 'adds x26, x9, #1, lsl #12' "$task_dir/isel-arm64.s" >/dev/null
+grep -F 'cmn x9, #7' "$task_dir/isel-arm64.s" >/dev/null
+"$project_compiler" --no-opt --target linux-x86_64 --asm-comments --emit-asm -o "$task_dir/isel-x64.s" "$task_dir/isel.bpp"
+grep -F 'B++ isel form=x64-immediate32' "$task_dir/isel-x64.s" >/dev/null
+grep -F 'addq $4096, %r10' "$task_dir/isel-x64.s" >/dev/null
+grep -F 'cmpq $-7, %r10' "$task_dir/isel-x64.s" >/dev/null
 grep -E '"workspace_peak_bytes":[1-9][0-9]*' "$task_dir/placement.json" >/dev/null
 grep -E '"sparse_use_entries":[1-9][0-9]*' "$task_dir/placement.json" >/dev/null
 grep -F '"live_range_pieces"' "$task_dir/placement.json" >/dev/null

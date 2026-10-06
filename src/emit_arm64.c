@@ -3,12 +3,13 @@
 #include "../include/codegen_abi.h"
 #include "../include/regalloc.h"
 #include "../include/value_facts.h"
+#include "../include/isel.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 typedef struct { size_t locals, flags, args, bytes, maxargs, local_slots; } Layout;
-typedef struct { FILE *out; size_t f,b,k; const BLIRFunction *fn; Layout layout; const BPPRegPlan *plan; BPPValueFacts facts; BPPValueFact *fact_regs,*fact_locals,*fact_globals; unsigned char *dirty, *before, *kind, *constant;unsigned *loaded_phys;long long *value;size_t near,emitted_spills,emitted_reloads,emitted_rematerializations;int asm_comments,instrument_native;unsigned *dirty_phys; } Emitter;
+typedef struct { FILE *out; size_t f,b,k; BPPTarget target; const BLIRFunction *fn; Layout layout; const BPPRegPlan *plan; BPPValueFacts facts; BPPValueFact *fact_regs,*fact_locals,*fact_globals; unsigned char *dirty, *before, *kind, *constant;unsigned *loaded_phys;long long *value;size_t near,emitted_spills,emitted_reloads,emitted_rematerializations;int asm_comments,instrument_native;unsigned *dirty_phys; } Emitter;
 static void sync_known(Emitter *e){for(size_t r=0;r<e->fn->register_count;++r){BPPValueFact f=e->fact_regs[r];e->kind[r]=f.kind==BPP_VALUE_INT?BPP_KIND_INT:f.kind==BPP_VALUE_NULL?BPP_KIND_NULL:f.kind>=BPP_VALUE_STRING?BPP_KIND_OBJECT:BPP_KIND_UNKNOWN;e->constant[r]=f.integer_known;e->value[r]=f.integer;}}
 static void imm(FILE *out, unsigned reg, uint64_t n) {
     fprintf(out,"    movz x%u, #%u\n",reg,(unsigned)(n&65535));
@@ -77,11 +78,14 @@ static void branch(Emitter *e,const char *instruction,const char *name) {
 }
 static void define(Emitter *e,const char *name) {label(e,name);fputs(":\n",e->out);}
 /* x19=stack value-frame base; globals and init bytes reside in the header. */
-static void offset(FILE *out,unsigned dst,unsigned base,size_t n) {
-    if(n<=4095) fprintf(out,"    add x%u, x%u, #%zu\n",dst,base,n);
-    else {imm(out,16,n);fprintf(out,"    add x%u, x%u, x16\n",dst,base);}
+static void offset(Emitter *e,unsigned dst,unsigned base,size_t n) {
+    BPPISelAddressRequest request={e->target,n,1};BPPISelAddressSelection selection;
+    if(!bpp_isel_select_address(&request,&selection)) { imm(e->out,16,n);fprintf(e->out,"    add x%u, x%u, x16\n",dst,base);return; }
+    if(selection.form==BPP_ISEL_ADDRESS_DIRECT){if(dst!=base)fprintf(e->out,"    mov x%u, x%u\n",dst,base);return;}
+    if(selection.form==BPP_ISEL_ADDRESS_ARM64_ADD_IMM){uint64_t value=n>>selection.immediate_shift;fprintf(e->out,"    add x%u, x%u, #%llu%s\n",dst,base,(unsigned long long)value,selection.immediate_shift?", lsl #12":"");return;}
+    imm(e->out,16,n);fprintf(e->out,"    add x%u, x%u, x16\n",dst,base);
 }
-static void regaddr(Emitter *e,unsigned dst,size_t r) { offset(e->out,dst,19,BPP_CG_HEADER_BYTES+e->plan->cell[r]*16); }
+static void regaddr(Emitter *e,unsigned dst,size_t r) { offset(e,dst,19,BPP_CG_HEADER_BYTES+e->plan->cell[r]*16); }
 static size_t position(Emitter *e){return bpp_reg_position(e->plan,e->b,e->k);}
 static unsigned physical_at(Emitter *e,size_t r,size_t pos){BPPRegLocation loc=bpp_reg_location_at(e->plan,r,pos);return loc.kind==BPP_LOC_REGISTER?loc.physical:0;}
 static void spill_note(Emitter *e,size_t r,BPPSpillReason reason,unsigned physical){if(e->asm_comments){const BPPRegisterInfo *ri=bpp_target_register(BPP_MACOS_ARM64,physical);fprintf(e->out,"    // B++ spill vreg=v%zu physical=%s cell=%zu reason=%s\n",r,ri?ri->name:"?",e->plan->cell[r],bpp_reg_spill_reason_name(reason));}}
@@ -150,8 +154,8 @@ static void result(Emitter *e,size_t dst,unsigned tag) {
     branch(e,"b","done");
 }
 static size_t local_slot(Emitter *e,size_t local){return e->plan->local_map?e->plan->local_map[local]:local;}
-static void slotaddr(Emitter *e,unsigned dst,int global,size_t slot) {if(global)fputs("    ldr x12, [x19, #8]\n",e->out);else slot=local_slot(e,slot);offset(e->out,dst,global?12:19,(global?0:e->layout.locals)+slot*16);}
-static void flagaddr(Emitter *e,unsigned dst,int global,size_t slot) {if(global)fputs("    ldr x12, [x19, #40]\n",e->out);else slot=local_slot(e,slot);offset(e->out,dst,global?12:19,(global?0:e->layout.flags)+slot);}
+static void slotaddr(Emitter *e,unsigned dst,int global,size_t slot) {if(global)fputs("    ldr x12, [x19, #8]\n",e->out);else slot=local_slot(e,slot);offset(e,dst,global?12:19,(global?0:e->layout.locals)+slot*16);}
+static void flagaddr(Emitter *e,unsigned dst,int global,size_t slot) {if(global)fputs("    ldr x12, [x19, #40]\n",e->out);else slot=local_slot(e,slot);offset(e,dst,global?12:19,(global?0:e->layout.flags)+slot);}
 static int fast(Emitter *e,const BLIRInst *i) {
     FILE *o=e->out;
     switch(i->op) {
@@ -184,10 +188,20 @@ static int fast(Emitter *e,const BLIRInst *i) {
         intguard(e,i->a);payload(e,9,i->a);fputs("    negs x26, x9\n",o);branch(e,"b.vs","slow");result(e,i->dst,1);return 1;
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE:
+        {BPPISelRequest request={e->target,i->op,e->constant[i->b],e->value[i->b]};BPPInstructionSelection selection;
+        if(!bpp_isel_select(&request,&selection)||selection.scratch_gprs>4)return 0;
+        if(e->asm_comments)fprintf(o,"    // B++ isel form=%s cost=%u scratch-gprs=%u flags=%s\n",bpp_isel_form_name(selection.form),selection.cost,selection.scratch_gprs,selection.defines_flags?"defined-consumed-locally":"none");
         intguard(e,i->a);intguard(e,i->b);payload(e,9,i->a);
-        if((i->op==BL_IR_ADD||i->op==BL_IR_SUB)&&e->constant[i->b]&&e->value[i->b]>=-4095&&e->value[i->b]<=4095){
-            long long v=e->value[i->b];int subtract=(i->op==BL_IR_SUB)^(v<0);
-            fprintf(o,"    %s x26, x9, #%lld\n",subtract?"subs":"adds",v<0?-v:v);branch(e,"b.vs","slow");result(e,i->dst,1);return 1;
+        if(selection.form==BPP_ISEL_ARM64_ADD_SUB_IMM){
+            uint64_t mag=selection.immediate<0?(uint64_t)(-(selection.immediate+1))+1:(uint64_t)selection.immediate;
+            int subtract=(i->op==BL_IR_SUB)^(selection.immediate<0);
+            fprintf(o,"    %s x26, x9, #%llu%s\n",subtract?"subs":"adds",(unsigned long long)(mag>>selection.immediate_shift),selection.immediate_shift?", lsl #12":"");branch(e,"b.vs","slow");result(e,i->dst,1);return 1;
+        }
+        if(selection.form==BPP_ISEL_ARM64_CMP_IMM){
+            uint64_t mag=selection.immediate<0?(uint64_t)(-(selection.immediate+1))+1:(uint64_t)selection.immediate;
+            fprintf(o,"    %s x9, #%llu%s\n",selection.immediate<0?"cmn":"cmp",(unsigned long long)(mag>>selection.immediate_shift),selection.immediate_shift?", lsl #12":"");
+            const char *condition=i->op==BL_IR_EQ?"eq":i->op==BL_IR_NE?"ne":i->op==BL_IR_LT?"lt":i->op==BL_IR_LE?"le":i->op==BL_IR_GT?"gt":"ge";
+            fprintf(o,"    cset x26, %s\n",condition);result(e,i->dst,1);return 1;
         }
         payload(e,10,i->b);
         switch(i->op) {
@@ -203,7 +217,7 @@ static int fast(Emitter *e,const BLIRInst *i) {
             fprintf(o,"    cmp x9, x10\n    cset x26, %s\n",condition);break;
         }
         }
-        result(e,i->dst,1);return 1;
+        result(e,i->dst,1);return 1;}
     default:return 0;
     }
 }
@@ -259,7 +273,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
     fputs("// B++ native codegen; compiler-private ABI placeholder revision 2\n.section __TEXT,__text,regular,pure_instructions\n.p2align 2\n.globl _main\n_main:\n    .cfi_startproc\n    stp x29, x30, [sp, #-16]!\n    .cfi_def_cfa_offset 16\n    .cfi_offset w29, -16\n    .cfi_offset w30, -8\n    mov x29, sp\n",o);
     addr(o,0,"L_proc_0");addr(o,1,"L_path");imm(o,2,m->global_count);imm(o,3,(uint64_t)(print_result!=0));
     fputs("    bl _bpp_a_run\n    ldp x29, x30, [sp], #16\n    .cfi_def_cfa_offset 0\n    .cfi_restore w29\n    .cfi_restore w30\n    ret\n    .cfi_endproc\n",o);
-    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];Emitter e={0};e.out=o;e.f=f;e.fn=fn;e.layout=layouts[f];e.plan=&plans[f];e.dirty=dirty;e.before=before;e.kind=kind;e.constant=constant;e.loaded_phys=loaded_phys;e.value=value;e.asm_comments=m->emit_asm_comments;e.instrument_native=m->instrument_native;e.dirty_phys=dirty_phys;
+    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];Emitter e={0};e.out=o;e.f=f;e.target=target;e.fn=fn;e.layout=layouts[f];e.plan=&plans[f];e.dirty=dirty;e.before=before;e.kind=kind;e.constant=constant;e.loaded_phys=loaded_phys;e.value=value;e.asm_comments=m->emit_asm_comments;e.instrument_native=m->instrument_native;e.dirty_phys=dirty_phys;
         if(!bpp_value_facts_create(m,f,&e.facts)){for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return 0;}
         e.fact_regs=calloc(fn->register_count?fn->register_count:1,sizeof *e.fact_regs);e.fact_locals=calloc(fn->local_count?fn->local_count:1,sizeof *e.fact_locals);e.fact_globals=calloc(m->global_count?m->global_count:1,sizeof *e.fact_globals);
         if(!e.fact_regs||!e.fact_locals||!e.fact_globals){bpp_value_facts_destroy(&e.facts);free(e.fact_regs);free(e.fact_locals);free(e.fact_globals);for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return 0;}
@@ -270,7 +284,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
         imm(o,9,e.layout.bytes);fprintf(o,"L_probe_%zu:\n    cmp x9, #4096\n    b.lo L_probe_tail_%zu\n    sub sp, sp, #4096\n    str xzr, [sp]\n    sub x9, x9, #4096\n    b L_probe_%zu\nL_probe_tail_%zu:\n    sub sp, sp, x9\n    mov x19, sp\n",f,f,f,f);
         char name[64];snprintf(name,sizeof name,"L_layout_%zu",f);addr(o,4,name);fputs("    mov x5, x19\n    bl _bpp_n_enter\n    str x24, [x19, #96]\n",o);if(m->instrument_native)fputs("    ldr x0, [x29, #8]\n    bl _bpp_a_trace_enter\n",o);fprintf(o,"    b L_f%zu_b0\n",f);
             for(size_t b=0;b<fn->block_count;++b){e.b=b;bpp_value_facts_begin_block(&e.facts,b,e.fact_regs,e.fact_locals,e.fact_globals);sync_known(&e);memset(dirty,0,fn->register_count);memset(dirty_phys,0,fn->register_count*sizeof *dirty_phys);memset(loaded_phys,0,fn->register_count*sizeof *loaded_phys);if(!m->instrument_native)for(size_t r=0;r<fn->register_count;++r){unsigned p=bpp_reg_dirty_entry(&plans[f],b,r);if(p){dirty[r]=1;dirty_phys[r]=p;loaded_phys[r]=p;}}fprintf(o,"L_f%zu_b%zu:\n",f,b);
-            for(size_t k=0;k<fn->blocks[b].count;++k){e.k=k;const BLIRInst *i=&fn->blocks[b].insts[k];if(i->dst!=BL_IR_NONE&&e.plan->begin[i->dst]==SIZE_MAX)continue;if(m->debug_path)bpp_asm_location(o,i);if(m->emit_asm_comments)bpp_asm_instruction_comment(o,fn,f,b,k,e.plan,BPP_MACOS_ARM64,0);
+            for(size_t k=0;k<fn->blocks[b].count;++k){e.k=k;const BLIRInst *i=&fn->blocks[b].insts[k];if(i->dst!=BL_IR_NONE&&e.plan->begin[i->dst]==SIZE_MAX)continue;if(m->debug_path)bpp_asm_location(o,i);if(m->emit_asm_comments)bpp_asm_instruction_comment(o,fn,f,b,k,e.plan,target,0);
                 if(m->instrument_native&&(i->op==BL_IR_LOAD_GLOBAL||i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL)){flush(&e,e.dirty,1);fputs("    mov x0, x19\n",o);imm(o,1,i->op);imm(o,2,i->a);fputs("    bl _bpp_a_access\n",o);}
                 if(i->op==BL_IR_JUMP){edge_flush(&e,i->a);char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->a);farjump(o,target,0);memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);continue;}
                 if(i->op==BL_IR_RETURN){flush(&e,e.dirty,1);imm(o,1,i->a);char target[64];snprintf(target,sizeof target,"L_cleanup_%zu",f);farjump(o,target,0);continue;}

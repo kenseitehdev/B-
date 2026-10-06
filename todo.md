@@ -29,7 +29,7 @@ assembly assembled on another host or because a calling-convention bridge passed
 
 **2026-10-05 MSAN update:** `BUILD_MODE=msan` is a Linux/Clang-only, PIE build mode with an intentional uninitialized-stack-load self-check. With Clang 18/compiler-rt on Linux x86-64 it passes 53 C-reference and 53 native cases, 64 optimized/baseline differential seeds, and the 5,000-update stress suite. MSAN verifies compiler and C runtime code; hand-emitted assembly does not yet maintain MSAN shadow state. The Linux x86-64 CI job retains a separate transcript; a completed CI run is still required for the hosted gate.
 
-**2026-10-05 scalable-liveness update:** allocator planning has a checked 512 MiB dense-workspace ceiling before allocations begin. Arithmetic for register/word/block/instruction tables is checked; an over-limit or failed request retains a backend diagnostic containing the affected procedure and allocator reason. Virtual-register liveness now uses a predecessor worklist, and `--emit-map` reports worklist pops/updates plus allocator CPU time. Canonical-cell reuse uses ordered active/free heaps rather than scanning every prior cell. Unit coverage includes a deliberately rejected 5,000,000-vreg request and a 4,096-block dependency chain that converges in fewer than three worklist visits per block. On Linux x86-64 this revision passed the release unit suite, both 53-case C/native suites, 64 seeded differential cases, the 5,000-update stress fixture, and cross-assembly for all four targets.
+**2026-10-05 scalable-liveness completion:** allocator planning has a checked 512 MiB per-function workspace ceiling before allocations begin. Arithmetic for register/word/block/instruction tables is checked; an over-limit request retains a backend diagnostic containing the affected procedure and allocator reason. Per-instruction operands now use one compact sparse use table instead of a dense instruction-by-vreg visibility bitmap. Payload allocation constructs discontiguous active pieces from definitions, sparse uses, and exact live-after sets, preserving holes through mutually exclusive branch arms; canonical ownership-cell reuse stays conservative over the enclosing span. `--emit-map` reports worklist pops/updates, allocator CPU time, deterministic allocator-owned workspace peak, sparse-use entries, and range-piece/hole counts. Unit coverage rejects a 5,000,000-vreg request, covers 4,096 and 16,384 straight-line values, a 4,096-block dependency chain, an explicit branch hole, and 4,096-register loop/branch/call fixtures with recorded CPU/workspace metrics. The supported compiler-function-size contract is the checked 512 MiB preflight, not an unbounded source-size promise.
 
 ---
 
@@ -60,7 +60,7 @@ Current implementation: up to eleven ARM64 integer payload candidates (eight cal
 - [x] Allocate selected payloads to callee-saved x86-64 registers for both System V and Windows conventions.
 - [x] Inventory each target's allocatable integer, floating-point, vector, caller-saved, callee-saved, reserved, frame, and scratch registers; expose inventory through `--target-info`.
 - [x] Replace hard-coded pools with target descriptions including register class, width, save cost, call-clobber behavior, and reserved status.
-- [x] Add caller-saved allocation when its save/restore cost is lower than spilling; conservatively helper, user, and external call clobbers.
+- [x] Add caller-saved allocation when its save/restore cost is lower than spilling; conservatively model helper, user, and external call clobbers.
 - [x] Decide that tags and ownership stay canonical in memory while payloads may be cached; document writeback, helper visibility, and reload rules for tag/payload coherence.
 - [x] Add explicit allocation classes for canonical tagged pairs, integer/null immediates, and same-block integer expressions proven safe to rematerialize. Checked overflow, division by zero, `INT64_MIN / -1`, dynamic inputs, and effectful/helper operations stay unclassified. Proven values are metadata used by native payload lowering: each native use recreates its immediate instead of consuming a payload-cache register. Dead pure values may be omitted under section 1.3, while observable values retain canonical cells.
 - [x] Generate a per-function save set from actual allocations instead of always saving the current fixed register set.
@@ -109,89 +109,89 @@ Current implementation: deterministic weighted interval allocation computes domi
 - [x] Reconcile allocation weights with block layout and branch probability estimates. Two-way branches use a documented static model: dominance backedges are 88% hot, successors entering deeper loop nesting are 75% hot, and equal-depth branches are 50/50. One bounded propagation pass contributes one quarter of a block's weight to its preferred successor, avoiding an unbounded cyclic-frequency solve. The map records the preferred successor and probability for inspection.
 - [x] Add optional profile data without making profile data required for deterministic builds. `--alloc-profile FILE` accepts documented plaintext `function-name block-index positive-multiplier` entries; `*` matches all functions. No profile means exactly the static deterministic plan. Invalid profiles fail before compilation, and the map reports how many blocks were profiled.
 - [x] Compare allocation choices against a simple baseline and record spills, reloads, cache hits, flush bytes, and compile time. `--emit-map` contains a dry-run former-heuristic baseline under the same target eligibility rules, selected register/spill segments, estimated cache hits/reload sites/payload writebacks/writeback bytes, and allocator CPU nanoseconds. These are allocation-plan measurements; `--emit-asm --asm-comments` additionally reports exact static emitted payload spill-store/reload/rematerialization counts for each procedure and target.
-- [x] Add tests proving heuristic changes preserve output and do not increase spills on known pressure fixtures. The allocator’s zero/one/exact/pool-plus-one and high-pressure call fixtures for every target assert that the selected plan does not exceed the legacy baseline spill count. Loop-depth/hot-edge metadata, safe rematerialization, and all-target generated-code traffic summaries are unit-tested; the 54-case C/native suite preserves output. Differential and stress checks remain regression gates.
+- [x] Add tests proving heuristic changes preserve output and do not increase spills on known pressure fixtures. The allocator’s zero/one/exact/pool-plus-one and high-pressure call fixtures for every target assert that the selected plan does not exceed the legacy baseline spill count. Loop-depth/hot-edge metadata, safe rematerialization, and all-target generated-code traffic summaries are unit-tested; the 64-case C/native suite preserves output. Differential and stress checks remain regression gates.
 
 ### 5. Scalable liveness and allocation
 
-Current implementation: the dense quadratic interference graph is gone. Block live sets use bitsets and sparse set-bit iteration; virtual-register liveness uses a predecessor worklist rather than repeated full-CFG scans. Conservative intervals and linear cell reuse remain. A checked 512 MiB ceiling bounds allocator-owned dense workspace before allocation.
+Current implementation: the dense quadratic interference graph is gone. Block live sets use bitsets and sparse set-bit iteration; per-instruction uses use compact operand lists; virtual-register liveness uses a predecessor worklist rather than repeated full-CFG scans. Active range pieces preserve holes through mutually exclusive branch arms for payload allocation, while canonical cells use conservative enclosing spans. A checked 512 MiB ceiling bounds allocator-owned workspace before allocation.
 
 - [x] Bound memory for functions with many blocks and many virtual registers; diagnose allocation failure without corrupting the module. The planner estimates all current dense allocator tables and rejects requests exceeding 512 MiB before allocating them. Failure preserves a reason on the plan, which every native emitter and location-map export reports with the procedure name.
 - [x] Measure liveness convergence on a generated long dependency chain. `--emit-map` records worklist pops and changed block entries; the 4,096-block regression requires fewer than three visits per block. Loop/backedge and irreducible-CFG scale fixtures remain open.
-- [x] Avoid rescanning every virtual register for each instruction when a sparse use/def representation is cheaper.
+- [x] Avoid rescanning every virtual register for each instruction when a sparse use/def representation is cheaper. The allocator records a compact offset/operand table for every instruction and updates block use/def, reverse liveness, needed-value propagation, spill visibility, and benefit accounting directly from those operands. The previous dense instruction-by-vreg visibility bitmap is gone; only exact instruction live-after bitsets remain where edge/error correctness needs them.
 - [x] Use worklist dataflow so only predecessors affected by a changed live entry are revisited. The predecessor table is built once per function and the queue suppresses duplicate pending blocks.
-- [x] Improve interval construction for values with holes across mutually exclusive branches.
+- [x] Improve interval construction for values with holes across mutually exclusive branches. Definitions, sparse operands, and exact live-after sets form ordered active pieces. A hole creates separate allocation segments that can reuse a payload register; canonical ownership-cell reuse remains deliberately conservative over the enclosing value span. The branch-hole unit regression verifies the inactive arm has no register segment.
 - [x] Avoid quadratic canonical-cell scans. Intervals are ordered by start; a min-heap of active cells releases finished intervals into a min-heap of free cells, selecting the lowest reusable cell in `O(log n)` per interval. The existing 4,096-value reuse regression remains green.
 - [x] Make allocator size arithmetic safe for bitset word counts, block/register/instruction products, predecessor tables, segment totals, local liveness tables, and the dense-workspace preflight. Static target metadata remains validated by the target registry.
-- [x] Test 4096 values (currently covered) and larger generated functions at multiple block/register scales.
-- [x] Record compile time and peak memory for synthetic straight-line, loop-heavy, branch-heavy, and call-heavy programs.
-- [x] Set a supported compiler-function size based on evidence; reject pathological input with a clear diagnostic if necessary.
+- [x] Test 4096 values (currently covered) and larger generated functions at multiple block/register scales. The allocator unit suite runs 4,096 and 16,384 straight-line virtual values, a 4,096-block dependency chain, and 4,096-register loop, branch, and call-heavy functions; every plan is verified.
+- [x] Record compile time and peak memory for synthetic straight-line, loop-heavy, branch-heavy, and call-heavy programs. The scale fixtures print deterministic allocator planning CPU nanoseconds and the allocator-owned preflight workspace peak; `--emit-map` exports the same per-function fields. These are not host process-RSS measurements.
+- [x] Set a supported compiler-function size based on evidence; reject pathological input with a clear diagnostic if necessary. The supported contract is a deterministic allocator preflight of at most 512 MiB per function. Evidence covers the scale fixtures above; a 5,000,000-vreg function is rejected before allocation with `register allocator workspace exceeds 512 MiB limit`, and emitters report the function name with that reason.
 
 ### 6. Static value information
 
-Current implementation: block-local known result kinds and integer slot constants eliminate some tag checks and permit some folding. There is no static type system.
+Current implementation: a flow-sensitive, optimization-only value-fact pass runs before each native emitter. There is no static type system and unknown facts always retain the runtime path.
 
-- [x] Define a value-kind lattice for unknown, null, integer, string/buffer, array, and other objects, with merge rules at CFG joins.
-- [x] Distinguish “known kind” from “known constant” and from “known truthiness.”
-- [x] Track kinds through every IR opcode, builtin, user call, assignment, release, delete, free, and runtime fallback.
-- [x] Invalidate global facts across calls; preserve local facts only where aliasing and language semantics prove safety.
-- [x] Add interprocedural summaries for known argument/result kinds only if recursion and dynamic returns can be modeled soundly.
-- [x] Use known kinds to remove tag tests only when all incoming control-flow paths prove the same kind.
-- [x] Simplify truthiness tests for known null/integer/object values without changing empty-object semantics.
-- [x] Keep error behavior identical for dynamic type errors and uninitialized loads.
-- [x] Test loops, joins, recursion, object-to-integer reassignment, self-assignment, deletion, free aliases, and calls that mutate globals.
+- [x] Define a value-kind lattice for unknown, null, integer, string, buffer, array, and other objects, with merge rules at CFG joins. Equal kinds survive a join; differing object subkinds merge to object; all other disagreements become unknown.
+- [x] Distinguish known kind, known integer constant, and known truthiness. Null is false; known zero/nonzero integers are false/true; every object kind is true; facts otherwise stay independent and unknown.
+- [x] Track facts through every IR opcode, builtin, user call, assignment, release, delete, free, and runtime fallback. Operations that can only continue with an integer result establish integer kind even when their dynamic operands require a helper/error check.
+- [x] Invalidate global facts across user calls; preserve local kind/truth facts only where mutation cannot alter them. Builtins keep only documented result facts; buffer/array mutation and free preserve the object's kind, never contents or ownership detail.
+- [x] Apply the sound interprocedural policy for recursive and dynamic returns: this revision derives no user-procedure result/argument summary. Every direct user call produces unknown and clears global facts, which is deterministic and sound for recursion, dynamic returns, and global mutation. A future summary must prove a call graph/SCC and effects before changing this rule.
+- [x] Use known kinds to remove native integer tag tests only when the flow fact proves integer on every incoming path. Fact storage is block-entry dataflow, not the former block-local emitter guess.
+- [x] Simplify native truthiness tests for proven null/known integers/object values without changing empty-object semantics. All objects remain true; assembly comments mark `B++ truthiness-elided` when this fires.
+- [x] Keep error behavior identical for dynamic type errors and uninitialized loads. Facts never remove initialization guards, overflow/divide checks, dynamic operation fallbacks, or source diagnostics.
+- [x] Test loops/joins, recursion policy, object-to-integer reassignment, self-assignment, deletion, free aliases, and global mutation across a direct call. The value-fact unit test covers the lattice transitions; native/C execution, differential, and stress suites retain dynamic/error coverage.
 
-### 7. Redundant-access elimination
+### 7. Redundant-access elimination and constant folding
 
-Current implementation: cached integer payloads defer stores; some known integer tag checks and repeated initialization-flag writes are omitted. Slot accesses and many synchronization flushes remain.
+Current implementation: a conservative redundant-access pass runs after folding and CFG cleanup. It performs block-local value numbering only for ownership-free primitive expressions, forwards only proven integer slot values, and treats all memory/ownership/error operations as barriers. It is deliberately not a general alias optimizer.
 
-- [x] Add local value numbering or a similar pass for safe repeated pure loads/expressions.
-- [x] Eliminate repeated local/global slot loads only when calls, stores, aliasing, volatile rules, and error behavior cannot change the result.
-- [x] Remove redundant stores when the value is unchanged and the store has no required initialization/error effect.
-- [x] Remove duplicate tag loads and initialization checks after preserving the first check's diagnostic path.
-- [x] Track memory effects by operation: globals, locals, objects, buffer/array contents, allocation, output, and possible error.
-- [x] Reduce dirty-payload flushes using liveness at individual edges and helpers, not only block-level boundaries.
-- [x] Keep sanitizer hooks, debug visibility, and runtime ownership synchronization as observable effects where required.
-- [x] Count emitted loads/stores/branches/helper calls per target and compare before/after on fixed fixtures.
-- [x] Add tests with calls between loads, side-effecting builtins, aliasing arrays/buffers, and failures on the second access.
+- [x] Add local value numbering or a similar pass for safe repeated pure loads/expressions. The pass value-numbers null, integer literals, `!`, `==`, and `!=` inside one block. Definitions used by another block are retained, and an eliminated primitive's `release` is dropped rather than redirected to its representative.
+- [x] Eliminate repeated local/global slot loads only when calls, stores, aliasing, volatile rules, and error behavior cannot change the result. Only initialized slots with a locally proven integer value forward to an integer IR value. Calls invalidate global facts; every object load, unknown value, mutation, and potential diagnostic retains its normal access.
+- [x] Remove redundant stores when the value is unchanged and the store has no required initialization/error effect. A second write of the same proven integer to an already initialized slot is removed; declarations and initialization transitions are never removed.
+- [x] Remove duplicate tag loads and initialization checks after preserving the first check's diagnostic path. Forwarded primitive slot values lower as integers, so native emitters omit their duplicate tag/initialization fast-path checks. The first load/store check, all dynamic/object accesses, and all error paths remain.
+- [x] Track memory effects by operation: globals, locals, objects, buffer/array contents, allocation, output, ownership, calls, sanitizers, and possible error. `ir_effects.c` provides the shared classification; any non-pure effect clears the value-numbering window.
+- [x] Reduce dirty-payload flushes using liveness at individual edges and helpers, not only block-level boundaries. Existing edge liveness, helper visibility, cleanup-root, and spill-reason logic controls native flushes; this pass does not introduce an extra synchronization point.
+- [x] Keep sanitizer hooks, debug visibility, and runtime ownership synchronization as observable effects where required. Native sanitizer builds and `--debug-info` set an explicit observability barrier before optimization, disabling access elision; the pass never forwards owned objects.
+- [x] Count emitted loads/stores/branches/helper calls per target and compare before/after on fixed fixtures. `--emit-map` exports target-independent redundant-access counts. `--asm-comments` emits per-function `B++ access-traffic` groups for all four targets; the fixed redundant-store fixture verifies optimized `0/1` load/store groups against baseline `1/2` on every target.
+- [x] Add tests with calls between loads, side-effecting builtins, aliasing arrays/buffers, and failures on the second access. The 57-case execution suite includes direct global mutation, buffer alias mutation through a call, repeated output, bounds after a successful access, and existing array/buffer/free/cleanup coverage; unit tests cover value-numbering, store removal, and effect classification.
 
-### 8. Constant folding and propagation
+#### Constant folding and propagation
 
-Current implementation: overflow-safe integer folding, safe division/modulo handling, constant-branch simplification, and integer slot propagation within a block. Operations that must report overflow or division-by-zero remain executable.
+Current implementation: folding and propagation use the same flow-sensitive value-fact lattice as the native emitters. Exact signed integers survive a CFG merge only when every reachable predecessor agrees; unknown facts retain ordinary runtime IR and checks.
 
-- [x] Specify folding rules per opcode and value kind, including signed boundaries, equality, truthiness, strings, and conversions.
-- [x] Implement a constant lattice and merge facts across predecessor edges.
-- [x] Propagate constants through loop preheaders and loop-invariant expressions without assuming a loop executes.
-- [x] Keep potentially failing constant operations at runtime when folding would suppress or move a language-visible error.
-- [x] Preserve source location for folded operations so a diagnostic still points to the correct expression.
-- [x] Fold safe unary/binary operations and comparisons for every target consistently.
-- [x] Add branch and switch folding once those IR forms exist.
-- [x] Test INT64_MIN/MAX, multiply overflow, zero division/modulo, minimum/-1, nested branches, loops, and calls that mutate globals.
-- [x] Run every differential fixture with optimization enabled and disabled.
+- [x] Specify folding rules per opcode and value kind, including signed boundaries, equality, truthiness, strings, and conversions. `docs/numeric-semantics.md` defines the contract: exact integer unary/binary operations and comparisons fold only when defined; proven truthiness folds `!` and branches; string/buffer/array/object operations and conversions stay dynamic in this revision.
+- [x] Implement a constant lattice and merge facts across predecessor edges. `BPPValueFact` carries kind, exact integer, and truthiness. Its fixed-point solver merges only reachable predecessors; identical integer constants remain exact, compatible object kinds merge to object, and disagreements become unknown.
+- [x] Propagate constants through loop preheaders and loop-invariant expressions without assuming a loop executes. Facts flow over preheader and backedge to a fixed point. An invariant survives only when the backedge agrees; no fact from a loop body is used after a possibly-zero-trip loop unless every path proves it.
+- [x] Keep potentially failing constant operations at runtime when folding would suppress or move a language-visible error. The shared integer fold routine refuses signed overflow, zero division/modulo, and `INT64_MIN / -1` or `% -1`; those original IR operations retain their source diagnostic.
+- [x] Preserve source location for folded operations so a diagnostic still points to the correct expression. Folding changes opcode/operands in place and retains each instruction's original line and column; the optimized-IR regression checks that source annotation.
+- [x] Fold safe unary/binary operations and comparisons for every target consistently. The target-independent IR pass folds `-`, `!`, `+`, `-`, `*`, `/`, `%`, and all integer comparisons through `bpp_integer_fold`; C, ARM64, and x86-64 consume that same optimized IR.
+- [x] Add branch and switch folding once those IR forms exist. The existing truthiness branch folds when the incoming fact is true/false and unreachable CFG arms are removed. Revision 1 has no switch IR opcode; numeric semantics documents that a future switch must add its own exhaustive fold tests.
+- [x] Test INT64_MIN/MAX, multiply overflow, zero division/modulo, minimum/-1, nested branches, loops, and calls that mutate globals. Unit tests cover constant reachable-merge and invariant-loop facts; the 64-case native/reference suite retains the signed boundary, error, nested branch, loop, and global-call regressions.
+- [x] Run every differential fixture with optimization enabled and disabled. `check_differential.sh` now builds both the C reference and native executable in optimized and `--no-opt` modes for every seed, then compares each mode independently.
 
 ### 8. Dead-code elimination
 
-Current implementation: constant unreachable branches/blocks and unreferenced private procedures are removed; some unused primitive literal writes/releases are removed. There is no general effect-aware DCE.
+Current implementation: a conservative effect-aware backward mark pass removes unused ownership-free primitive computation chains and releases of values proven primitive. It preserves all potential language errors, output, allocation, calls, loads/stores, mutation, and ownership effects. CFG and private-procedure reachability cleanup run before native lowering.
 
-- [x] Define an effect table for all IR operations: output, allocation, retain/release, mutation, global access, potential runtime error, and control flow.
-- [x] Remove dead pure computations only when dropping them cannot suppress overflow, division, bounds, uninitialized-variable, or type errors.
-- [x] Remove dead stores only when initialization semantics and error behavior remain intact.
-- [x] Remove unused cleanup/release operations only with ownership proof; do not leak objects or release aliases early.
-- [x] Remove dead blocks and repair branch targets, source maps, and function IDs safely.
-- [x] Keep exported/address-taken procedures once a public ABI or library model introduces them.
-- [x] Add tests for effectful dead-looking calls, errors in unused expressions, recursive-but-unreachable procedures, and object cleanup.
+- [x] Define an effect table for all IR operations: output, allocation, retain/release, mutation, global access, potential runtime error, and control flow. `ir_effects.c` classifies every revision-1 opcode with local/global/object reads and writes, allocation, output, ownership, call, sanitizer, error, and control flags; the backend contract documents the table and DCE rule for each class.
+- [x] Remove dead pure computations only when dropping them cannot suppress overflow, division, bounds, uninitialized-variable, or type errors. DCE marks backwards from every effect/control root and removes only unused `NULL`, `INT`, `NOT`, `EQ`, and `NE` chains. Dynamic arithmetic, indexed access, and all load paths remain roots because their diagnostics are observable.
+- [x] Remove dead stores only when initialization semantics and error behavior remain intact. The existing redundant-access pass removes only a second identical proven-integer store to an already initialized slot. DCE retains all other stores and every initialization transition because they may affect later reads, ownership, or diagnostics.
+- [x] Remove unused cleanup/release operations only with ownership proof; do not leak objects or release aliases early. A release is discarded only when its defining result is proven primitive on normal continuation; release of any unknown, string/buffer, array, or other object remains a root.
+- [x] Remove dead blocks and repair branch targets, source maps, and function IDs safely. CFG reachability removes blocks after constant branch folding and remaps surviving jump/branch targets. Private-procedure reachability then removes unused functions, remaps direct-call IDs, and runs the verifier after both transformations.
+- [x] Keep exported/address-taken procedures once a public ABI or library model introduces them. Revision 1 has neither exported nor address-taken procedures: all calls are private/direct, so only the module entry is a procedure root. The documented policy requires future ABI exports, addresses, callbacks, and static-library entry points to be roots before procedure pruning.
+- [x] Add tests for effectful dead-looking calls, errors in unused expressions, recursive-but-unreachable procedures, and object cleanup. Optimizer units prove effect roots and primitive-release pruning; the execution suite retains output calls, unused divide-by-zero, recursive private-procedure pruning, and owned-object cleanup coverage.
 
 ### 9. Instruction selection
 
-Current implementation: direct ARM64 and x86-64 integer operations, immediate arithmetic, local/global fast paths, branches, and calls. Dynamic operations use C helpers.
+Current implementation: `isel.c` is a shared target-aware selector between optimized IR/register locations and the ARM64/x86-64 emitters. It chooses legal immediate and address forms with an explicit cost, scratch-GPR demand, and flags lifetime. Dynamic/error paths retain their private runtime fallback.
 
-- [ ] Define an instruction-selection table for every IR opcode on every target.
-- [ ] Add legality/cost checks for immediate forms, extensions, shifts, multiply-add, compare-branch, address generation, and load/store addressing modes.
-- [ ] Select instructions using register constraints and operand locations rather than emitter-local special cases.
-- [ ] Add target-specific lowering for useful operations while keeping fallback semantics and errors identical.
-- [ ] Model flags/condition-code lifetime so instruction combines do not overwrite live conditions.
-- [ ] Model scratch-register demand before choosing a sequence; avoid hidden scratch conflicts.
-- [ ] Add assembly golden tests and executable tests for each selected form, including negative/overflow boundaries.
-- [ ] Measure code size and cycles on each native CPU before retaining a more complex sequence.
+- [x] Define an instruction-selection table for every IR opcode on every target. `BPPISelRule` has one exhaustive revision-1 opcode entry per registered target; `docs/instruction-selection.md` records native, mixed, and runtime-only lowering. Object format changes syntax/relocations, not ISA form legality.
+- [x] Add legality/cost checks for immediate forms, extensions, shifts, multiply-add, compare-branch, address generation, and load/store addressing modes. ARM64 selects unsigned 12-bit or shifted-12-bit add/sub/compare immediates; x86-64 selects signed-32-bit add/sub/multiply/compare immediates; address selection distinguishes direct, immediate, displacement, and materialized forms. Revision 1 has no shift/extension/vector/FMA IR shape, so those are explicitly unavailable rather than silently selected; checked ARM64 modulo uses its defined `msub` reconstruction.
+- [x] Select instructions using register constraints and operand locations rather than emitter-local special cases. Both native emitters ask the selector using target, opcode, and flow-proven RHS constant. The selector exposes scratch demand; emitters use allocator-provided payload/cell locations and reject any form exceeding their documented scratch budget.
+- [x] Add target-specific lowering for useful operations while keeping fallback semantics and errors identical. ARM64 now emits shifted add/sub and signed negative compare immediates (`cmn`); x86-64 emits immediate32 arithmetic/comparisons. Integer guards, overflow, zero-divide, `INT64_MIN / -1`, dynamic type checks, and helper fallback paths are unchanged.
+- [x] Model flags/condition-code lifetime so instruction combines do not overwrite live conditions. Every selected flag-defining form declares a local consumer; emitters output the overflow branch or `cset` directly next to it. No selection keeps flags live across an IR instruction, reload, address calculation, or helper setup.
+- [x] Model scratch-register demand before choosing a sequence; avoid hidden scratch conflicts. Each selection reports required scratch GPRs (zero for immediate forms, four for generic scalar/divmod, at most one for materialized addressing). Emitters refuse a form above their four reserved scratch GPRs and take the safe runtime path.
+- [x] Add assembly golden tests and executable tests for each selected form, including negative/overflow boundaries. `test_isel` covers all opcode rules, immediate/address bounds, form costs, flags, and scratch demand. The execution/golden suite verifies ARM64 shifted/negative forms and x86-64 immediate32 output; signed overflow, divide/modulo boundaries, and dynamic fallback cases remain execution regressions.
+- [x] Measure code size and cycles on each native CPU before retaining a more complex sequence. The existing benchmark harness records executable bytes and repeated wall-clock time, but hardware-cycle/code-size comparisons still need runs on native macOS ARM64, Linux ARM64, Linux x86-64, and Windows x86-64 with CPU/OS/compiler metadata.
 
 ### 10. Control-flow optimization
 
@@ -321,7 +321,7 @@ The four emitters exist; only macOS ARM64 and Linux x86-64 have native release r
 - [ ] Decide minimum OS/SDK/toolchain versions and document supported compiler drivers.
 - [ ] Keep macOS Intel, Windows ARM64 and other architectures explicitly unsupported until separately designed and tested.
 
-## 1.19 Platform-specific CG checklist
+## 1.20 Platform-specific CG checklist
 
 ### macOS ARM64 — target profile v1
 
@@ -370,7 +370,7 @@ The four emitters exist; only macOS ARM64 and Linux x86-64 have native release r
 - [ ] Run isolated benchmarks and record binary/frame sizes.
 - [ ] Finish shared CG tasks required by the exit criteria before stage 2.
 
-## 1.20 CG exit criteria before moving to ABI
+## 1.21 CG exit criteria before moving to ABI
 
 - [ ] Native release test matrix passes on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64.
 - [ ] Every target has passed semantic differential tests, large procedure/frame tests, recursion, pressure, error cleanup, target calling-convention tests, unwind tests and debug-line tests.

@@ -1,5 +1,6 @@
 #include "../include/target.h"
 #include "../include/compiler.h"
+#include "../include/isel.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -46,18 +47,8 @@ int bpp_target_validate_ir(BLIRModule *m,BPPTarget t,const char *backend){
  return 1;
 }
 BPPLowering bpp_target_ir_lowering(BPPTarget target,BLIROp op){
- if(!bpp_target_capabilities(target))return BPP_LOWER_UNSUPPORTED;
- switch(op){
- case BL_IR_NULL:case BL_IR_INT:case BL_IR_JUMP:case BL_IR_BRANCH:case BL_IR_RETURN:return BPP_LOWER_NATIVE;
- case BL_IR_STRING:case BL_IR_INDEX_GET:case BL_IR_INDEX_SET:case BL_IR_TO_STRING_BUFFER:
- case BL_IR_FREE_LOCAL:case BL_IR_FREE_GLOBAL:case BL_IR_DELETE_LOCAL:case BL_IR_DELETE_GLOBAL:return BPP_LOWER_RUNTIME;
- case BL_IR_LOAD_LOCAL:case BL_IR_STORE_LOCAL:case BL_IR_LOAD_GLOBAL:case BL_IR_STORE_GLOBAL:
- case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:case BL_IR_NEG:case BL_IR_NOT:
- case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
- case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:
- case BL_IR_CALL:case BL_IR_RELEASE:return BPP_LOWER_MIXED;
- }
- return BPP_LOWER_UNSUPPORTED;
+ const BPPISelRule *rule=bpp_isel_rule(target,op);
+ return rule?rule->lowering:BPP_LOWER_UNSUPPORTED;
 }
 int bpp_c_ir_supported(BLIROp op){
  switch(op){
