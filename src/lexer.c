@@ -72,10 +72,11 @@ static BLTokenKind bl_keyword_kind(const char *start, size_t length) {
         {"delete", TOK_DELETE},
         {"free", TOK_FREE},
         {"malloc", TOK_MALLOC},
-        {"realloc", TOK_REALLOC},
+        {"remalloc", TOK_REMALLOC},
         {"if", TOK_IF},
         {"else", TOK_ELSE},
         {"while", TOK_WHILE},
+        {"print", TOK_PRINT},
     };
 
     for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); ++i) {

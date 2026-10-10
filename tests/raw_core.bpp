@@ -1,0 +1,15 @@
+// User-defined abstractions are opaque to the compiler.  The macro below is
+// intentionally not a built-in String feature: it is just a source alias.
+define macro "String" "ptr";
+
+define proc main() {
+    new ptr memory = malloc 2;
+    memory[0] = 42;
+    memory = remalloc memory 8;
+    new byte result = memory[0];
+    print 65;
+    print memory, 1;
+    free memory;
+    delete memory;
+    return result;
+}

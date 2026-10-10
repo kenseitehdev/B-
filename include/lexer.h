@@ -17,10 +17,11 @@ typedef enum {
     TOK_DELETE,
     TOK_FREE,
     TOK_MALLOC,
-    TOK_REALLOC,
+    TOK_REMALLOC,
     TOK_IF,
     TOK_ELSE,
     TOK_WHILE,
+    TOK_PRINT,
     TOK_HASH,
 
     TOK_LPAREN,

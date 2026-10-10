@@ -63,15 +63,23 @@ int main(void) {
     assert(!bl_ir_validate_pass(&m, "arity-verifier-test"));
     assert(strstr(bl_ir_last_error(&m), "arity-verifier-test") && strstr(bl_ir_last_error(&m), "function '<module>'") && strstr(bl_ir_last_error(&m), "call signature"));
 
-    /* Many arguments force instruction-vector reallocations during call lowering. */
-    BLNode print = ident("println"); BLNode *many[100]; for (size_t j = 0; j < 100; ++j) many[j] = &one;
-    BLNode many_call = node(AST_CALL); many_call.as.call.callee = &print; many_call.as.call.args = many; many_call.as.call.arg_count = 100;
+    /* Many raw-word arguments force instruction-vector reallocations during
+     * ordinary procedure-call lowering.  Output itself intentionally accepts
+     * only one byte or a ptr,length pair. */
+    BLNode wide_name = ident("wide"), wide_return = node(AST_RETURN); wide_return.as.ret_stmt.value = &one;
+    BLNode wide = node(AST_PROC_DEF); char parameter_names[100][16]; char *parameters[100];
+    for (size_t j = 0; j < 100; ++j) { snprintf(parameter_names[j], sizeof parameter_names[j], "p%zu", j); parameters[j] = parameter_names[j]; }
+    wide.as.proc_def.name = "wide"; wide.as.proc_def.params = parameters; wide.as.proc_def.param_count = 100; wide.as.proc_def.body = &wide_return;
+    BLNode *many[100]; for (size_t j = 0; j < 100; ++j) many[j] = &one;
+    BLNode many_call = node(AST_CALL); many_call.as.call.callee = &wide_name; many_call.as.call.args = many; many_call.as.call.arg_count = 100;
     BLNode many_es = node(AST_EXPR_STMT); many_es.as.expr_stmt.expr = &many_call;
-    BLNode *many_items[] = {&many_es}; program.as.list.items = many_items; program.as.list.count = 1;
+    BLNode *many_items[] = {&many_es, &wide}; program.as.list.items = many_items; program.as.list.count = 2;
     assert(bl_ir_compile(&m, "calls.bpp", &program)); assert(count_op(&m, BL_IR_RELEASE) == 101);
 
-    /* Buffer operations, conversion, and both destruction operations. */
-    BLNode sdecl = node(AST_VAR_DECL); sdecl.as.var_decl.name = "s"; sdecl.as.var_decl.type_name = "String"; sdecl.as.var_decl.init = &one;
+    /* Raw allocation, byte access, and the distinct free/delete operations. */
+    BLNode malloc_name = ident("malloc"); BLNode *malloc_args[] = {&ten};
+    BLNode malloc_call = node(AST_CALL); malloc_call.as.call.callee = &malloc_name; malloc_call.as.call.args = malloc_args; malloc_call.as.call.arg_count = 1;
+    BLNode sdecl = node(AST_VAR_DECL); sdecl.as.var_decl.name = "s"; sdecl.as.var_decl.type_name = "ptr"; sdecl.as.var_decl.init = &malloc_call;
     BLNode s = ident("s"), index = node(AST_INDEX); index.as.index.object = &s; index.as.index.index = &zero;
     BLNode write = node(AST_ASSIGN); write.as.assign.target = &index; write.as.assign.value = &one;
     BLNode write_es = node(AST_EXPR_STMT); write_es.as.expr_stmt.expr = &write;
@@ -80,13 +88,13 @@ int main(void) {
     BLNode del = node(AST_DELETE); del.as.delete_stmt.expr = &s;
     BLNode *buf_items[] = {&sdecl, &write_es, &read_es, &fr, &del}; program.as.list.items = buf_items; program.as.list.count = 5;
     assert(bl_ir_compile(&m, "buffers.bpp", &program));
-    assert(count_op(&m, BL_IR_TO_STRING_BUFFER) == 1 && count_op(&m, BL_IR_INDEX_SET) == 1);
-    assert(count_op(&m, BL_IR_INDEX_GET) == 1 && count_op(&m, BL_IR_FREE_GLOBAL) == 1 && count_op(&m, BL_IR_DELETE_GLOBAL) == 1);
+    assert(count_op(&m, BL_IR_MALLOC) == 1 && count_op(&m, BL_IR_BYTE_STORE) == 1);
+    assert(count_op(&m, BL_IR_BYTE_LOAD) == 1 && count_op(&m, BL_IR_MFREE_GLOBAL) == 1 && count_op(&m, BL_IR_DELETE_GLOBAL) == 1);
 
     /* Failure paths must remain disposable, including a partly built argument list. */
-    BLNode unknown = ident("missing"); BLNode *bad_args[] = {&one, &unknown}; many_call.as.call.args = bad_args; many_call.as.call.arg_count = 2;
-    program.as.list.items = many_items; program.as.list.count = 1;
-    assert(!bl_ir_compile(&m, "bad.bpp", &program)); assert(strstr(bl_ir_last_error(&m), "bad.bpp:7:3: undefined variable"));
+    BLNode unknown = ident("missing"); BLNode bad_es = node(AST_EXPR_STMT); bad_es.as.expr_stmt.expr = &unknown;
+    BLNode *bad_items[] = {&bad_es}; program.as.list.items = bad_items; program.as.list.count = 1;
+    assert(!bl_ir_compile(&m, "bad.bpp", &program)); assert(strstr(bl_ir_last_error(&m), "undefined variable"));
     BLNode *duplicate[] = {&decl, &decl}; program.as.list.items = duplicate; program.as.list.count = 2;
     assert(!bl_ir_compile(&m, "duplicate.bpp", &program)); assert(strstr(bl_ir_last_error(&m), "duplicate declaration"));
     program.as.list.items = fn_items; program.as.list.count = 3; top_call.as.call.arg_count = 0;

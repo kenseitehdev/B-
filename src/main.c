@@ -30,6 +30,9 @@
 #ifndef BPP_NATIVE_RUNTIME_OBJECT
 #define BPP_NATIVE_RUNTIME_OBJECT "build/release/obj/src/codegen_runtime.o"
 #endif
+#ifndef BPP_STATIC_ABI_OBJECT
+#define BPP_STATIC_ABI_OBJECT "build/release/obj/src/bpp_abi.o"
+#endif
 #ifndef BPP_HOST_CC
 #define BPP_HOST_CC "cc"
 #endif
@@ -40,22 +43,25 @@
 #define BPP_OPTIMIZATION "-O2"
 #endif
 static void usage(const char *name) {
-    fprintf(stderr, "usage: %s [--check | --emit-ir | --emit-c | --emit-asm | --emit-map] [--print-result] [--backend c|native|arm64|x86_64] [--target TARGET] [--alloc-profile FILE] [--no-opt] [--debug-info] [--asm-comments] [-o output] file.bpp\n       %s --list-targets | --target-info TARGET\n", name,name);
+    fprintf(stderr, "usage: %s [--check | --emit-ir | --emit-c | --emit-asm | --emit-map | --emit-link-map | --emit-library-manifest] [--print-result] [--backend c|native|arm64|x86_64] [--target TARGET] [-L directory] [--alloc-profile FILE] [--no-opt] [--debug-info] [--asm-comments] [--strict-native-runtime] [--emit-library --library-name NAME] [-o output] [file.bpp]\n       %s --list-targets | --target-info TARGET\n\nWith no source path, B++ compiles ./main.bpp and requires define proc main().\n", name,name);
 }
 static const char *format_name(BPPObjectFormat f){return f==BPP_FORMAT_MACHO?"macho":f==BPP_FORMAT_ELF?"elf":"coff";}
 static const char *isa_name(BPPISA i){return i==BPP_ISA_ARM64?"arm64":"x86_64";}
+static int abi_identifier(const char *name){if(!name||!(*name=='_'||(*name>='A'&&*name<='Z')||(*name>='a'&&*name<='z')))return 0;for(++name;*name;++name)if(!(*name=='_'||(*name>='A'&&*name<='Z')||(*name>='a'&&*name<='z')||(*name>='0'&&*name<='9')))return 0;return 1;}
 static int target_query(int argc,char **argv){
     if(argc==2&&!strcmp(argv[1],"--list-targets")){for(size_t i=0;i<bpp_target_count();++i){const BPPBackendCapabilities *c=bpp_target_at(i);printf("%s\t%s\t%s\t%s\t%u\t%u\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->allocatable_payload_registers);}return 1;}
-    if(argc==3&&!strcmp(argv[1],"--target-info")){BPPTarget t;if(!bpp_target_parse(argv[2],&t))return -1;const BPPBackendCapabilities *c=bpp_target_capabilities(t);size_t count=0;const BPPRegisterInfo *regs=bpp_target_register_inventory(t,&count);printf("target=%s\ntriple=%s\nformat=%s\nisa=%s\npointer_bits=%u\ninteger_bits=%u\nallocatable_payload_registers=%u\nregister_inventory_count=%zu\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->integer_bits,c->allocatable_payload_registers,count);for(size_t r=0;r<count;++r)printf("register.%s=id:%u,class:%u,width:%u,flags:%u,save_cost:%u,call_clobbers:%u\n",regs[r].name,regs[r].id,regs[r].class_mask,regs[r].width_bits,regs[r].flags,regs[r].save_cost,regs[r].call_clobbers);for(int op=0;op<=BL_IR_RETURN;++op)printf("ir.%s=%s\n",bl_ir_op_name((BLIROp)op),bpp_lowering_name(bpp_target_ir_lowering(t,(BLIROp)op)));return 1;}return 0;
+    if(argc==3&&!strcmp(argv[1],"--target-info")){BPPTarget t;if(!bpp_target_parse(argv[2],&t))return -1;const BPPBackendCapabilities *c=bpp_target_capabilities(t);size_t count=0,range_count=0;const BPPRegisterInfo *regs=bpp_target_register_inventory(t,&count);const BPPRangeLimit *ranges=bpp_target_range_limits(t,&range_count);printf("target=%s\ntriple=%s\nformat=%s\nisa=%s\npointer_bits=%u\ninteger_bits=%u\nallocatable_payload_registers=%u\nregister_inventory_count=%zu\nrange_limit_count=%zu\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->integer_bits,c->allocatable_payload_registers,count,range_count);for(size_t r=0;r<count;++r)printf("register.%s=id:%u,class:%u,width:%u,flags:%u,save_cost:%u,call_clobbers:%u\n",regs[r].name,regs[r].id,regs[r].class_mask,regs[r].width_bits,regs[r].flags,regs[r].save_cost,regs[r].call_clobbers);for(size_t r=0;r<range_count;++r)printf("range.%s=relocation:%s,min:%lld,max:%lld\n",ranges[r].name,ranges[r].relocation,ranges[r].minimum,ranges[r].maximum);for(int op=0;op<=BL_IR_RETURN;++op)printf("ir.%s=%s\n",bl_ir_op_name((BLIROp)op),bpp_lowering_name(bpp_target_ir_lowering(t,(BLIROp)op)));return 1;}return 0;
 }
 static int run_command(char *const *command) {
 #ifdef _WIN32
     /* The Windows CRT joins spawn arguments without preserving boundaries. */
-    char *quoted[32]={0}; size_t count=0;
-    for(;count<31&&command[count];++count){
-        const char *src=command[count];size_t length=strlen(src);
+    size_t count=0; while(command[count])++count;
+    char **quoted=calloc(count+1,sizeof *quoted); if(!quoted)return 0;
+    size_t built=0;
+    for(;built<count;++built){
+        const char *src=command[built];size_t length=strlen(src);
         if(length>(SIZE_MAX-3)/2)break;
-        char *dst=quoted[count]=malloc(length*2+3);if(!dst)break;
+        char *dst=quoted[built]=malloc(length*2+3);if(!dst)break;
         *dst++='"';size_t slashes=0;
         for(;*src;++src){
             if(*src=='\\'){++slashes;continue;}
@@ -66,8 +72,8 @@ static int run_command(char *const *command) {
         for(size_t j=0;j<slashes*2;++j)*dst++='\\';
         *dst++='"';*dst=0;
     }
-    intptr_t result=command[count]?-1:_spawnvp(_P_WAIT,command[0],(const char *const *)quoted);
-    for(size_t j=0;j<count;++j)free(quoted[j]);
+    intptr_t result=built!=count?-1:_spawnvp(_P_WAIT,command[0],(const char *const *)quoted);
+    for(size_t j=0;j<built;++j)free(quoted[j]);free(quoted);
     if(result==-1)perror(command[0]);
     return result==0;
 #else
@@ -89,19 +95,51 @@ static int same_file(const char *a,const char *b){
     struct stat sa,sb;
     return !stat(a,&sa)&&!stat(b,&sb)&&sa.st_ino&&sa.st_dev==sb.st_dev&&sa.st_ino==sb.st_ino;
 }
+static int is_main_source(const char *path) {
+    if (!path) return 0;
+    const char *base = strrchr(path, '/');
+#ifdef _WIN32
+    const char *backslash = strrchr(path, '\\');
+    if (!base || (backslash && backslash > base)) base = backslash;
+#endif
+    base = base ? base + 1 : path;
+    return strcmp(base, "main.bpp") == 0;
+}
+static int archive_identity(const char *path, size_t *size_out, unsigned long long *fingerprint_out) {
+    FILE *file = fopen(path, "rb"); if (!file) return 0;
+    if (fseek(file, 0, SEEK_END) != 0) { fclose(file); return 0; }
+    long size = ftell(file); if (size < 0 || fseek(file, 0, SEEK_SET) != 0) { fclose(file); return 0; }
+    unsigned long long hash = UINT64_C(1469598103934665603); unsigned char bytes[4096]; size_t count;
+    while ((count = fread(bytes, 1, sizeof bytes, file)) != 0)
+        for (size_t i = 0; i < count; ++i) { hash ^= bytes[i]; hash *= UINT64_C(1099511628211); }
+    int ok = !ferror(file) && fclose(file) == 0; if (!ok) return 0;
+    if (size_out) *size_out = (size_t)size;
+    if (fingerprint_out) *fingerprint_out = hash;
+    return 1;
+}
+static char *library_archive_path(const char *manifest_output, const char *name) {
+    const char *slash = manifest_output ? strrchr(manifest_output, '/') : NULL;
+    size_t directory = slash ? (size_t)(slash - manifest_output + 1) : 0;
+    size_t bytes = directory + strlen("lib") + strlen(name) + strlen(".bpp.a") + 1;
+    char *path = calloc(bytes, 1); if (!path) { perror("calloc"); return NULL; }
+    if (directory) memcpy(path, manifest_output, directory);
+    snprintf(path + directory, bytes - directory, "lib%s.bpp.a", name); return path;
+}
 #ifdef _WIN32
 #define BPP_DEFAULT_OUTPUT "a.exe"
 #else
 #define BPP_DEFAULT_OUTPUT "a.out"
 #endif
-static int native_compile(const char *temp, const char *output, int native, BPPTarget target, int object, int debug) {
+static int native_compile(const char *temp, const char *output, int native, BPPTarget target, int object, int debug, const BLIRModule *module) {
     const char *cc = getenv("BPP_CC"); if (!cc || !*cc) cc = BPP_HOST_CC;
     char include_path[] = "-I" BPP_PROJECT_DIR "/include";
     char runtime_path[] = BPP_RUNTIME_OBJECT;
     char value_path[] = BPP_VALUE_OBJECT;
     char sanitizer_flag[] = "-fsanitize=" BPP_SANITIZERS;
     int msan = strcmp(BPP_SANITIZERS, "memory") == 0;
-    char *command[32]; size_t n = 0;
+    size_t capacity = 32 + (module ? module->static_library_count + module->static_link_flag_count : 0);
+    char **command = calloc(capacity, sizeof *command); if (!command) { perror("calloc"); return 0; }
+    size_t n = 0;
     command[n++] = (char *)cc; if (!native) command[n++] = "-std=c11";
     command[n++] = BPP_OPTIMIZATION;
     if (BPP_SANITIZERS[0]) {
@@ -112,27 +150,79 @@ static int native_compile(const char *temp, const char *output, int native, BPPT
     command[n++] = include_path;
     const BPPBackendCapabilities *cap=bpp_target_capabilities(target);
     if (native && cap && cap->format==BPP_FORMAT_MACHO && cap->isa==BPP_ISA_ARM64) { command[n++] = "-arch"; command[n++] = "arm64"; }
+    /* The x86-64 large internal code model uses R_X86_64_64 for B++ labels.
+     * Generated ELF executables therefore deliberately use the non-PIE static
+     * model until the linker stage owns PLT/GOT and veneer placement. */
+    if (native && cap && cap->format==BPP_FORMAT_ELF && cap->isa==BPP_ISA_X86_64) command[n++] = "-no-pie";
     if (object) command[n++] = "-c";
     command[n++] = "-x"; command[n++] = native ? "assembler" : "c";
     command[n++] = (char *)temp; command[n++] = "-x"; command[n++] = "none";
     if (!object) {
-        command[n++] = runtime_path; command[n++] = value_path;
-        if (native) { command[n++] = BPP_NATIVE_RUNTIME_OBJECT; }
+        /* The strict bootstrap profile is deliberately linkable without any
+         * B++ C runtime object. Do not weaken this by adding an implicit
+         * compatibility object here. */
+        /* Raw-word executables call only the host allocation/output boundary;
+         * they do not link runtime.o, value.o, codegen_runtime.o, or the
+         * legacy static-ABI bridge.  Archive v1 remains transitional. */
+        int legacy_native_boundary = native && module && (module->emit_library || module->static_library_count || module->static_procedure_count);
+        if (!native || legacy_native_boundary) {
+            command[n++] = runtime_path; command[n++] = value_path;
+            if (native) { command[n++] = BPP_NATIVE_RUNTIME_OBJECT; command[n++] = BPP_STATIC_ABI_OBJECT; }
+        }
+        /* Manifest resolution records dependencies before dependants.  Reverse
+         * that order for traditional one-pass static archive linkers. */
+        if (native && module) for (size_t i = module->static_library_count; i-- > 0;) command[n++] = module->static_libraries[i].archive_path;
+        if (native && module) for (size_t i = 0; i < module->static_link_flag_count; ++i) command[n++] = module->static_link_flags[i];
         if (msan) command[n++] = "-pie";
     }
     command[n++] = "-o"; command[n++] = (char *)output; command[n] = NULL;
-    return run_command(command);
+    int ok = run_command(command); free(command); return ok;
+}
+
+static int emit_library_manifest(const BLIRModule *ir, FILE *out, const char *name, BPPTarget target,
+                                 size_t archive_size, unsigned long long archive_fingerprint) {
+    if (!ir || !out || !name) return 0;
+    fprintf(out, "# B++ static-library manifest; generated by bpp\nbppabi 1\nname %s\nabi 1.0\nruntime 1\narchive %s lib%s.bpp.a %zu %016llx\n", name, bpp_target_name(target), name, archive_size, archive_fingerprint);
+    for (size_t i = 0; i < ir->static_library_count; ++i) fprintf(out, "dependency %s\n", ir->static_libraries[i].name);
+    for (size_t f = 1; f < ir->function_count; ++f) fprintf(out, "export %s %zu\n", ir->functions[f].name, ir->functions[f].param_count);
+    return !ferror(out);
+}
+static int emit_link_map(const BLIRModule *ir, FILE *out, BPPTarget target) {
+    if (!ir || !out) return 0;
+    fprintf(out, "bpp-link-map 1\ntarget %s\nlibraries %zu\n", bpp_target_name(target), ir->static_library_count);
+    for (size_t i = 0; i < ir->static_library_count; ++i) {
+        const BPPStaticLibraryImport *library = &ir->static_libraries[i];
+        fprintf(out, "library %zu name=%s\n  manifest=%s\n  archive=%s\n  bytes=%zu\n  fnv1a64=%016llx\n", i,
+                library->name, library->manifest_path, library->archive_path,
+                library->archive_size, library->archive_fingerprint);
+    }
+    fprintf(out, "procedures %zu\n", ir->static_procedure_count);
+    for (size_t i = 0; i < ir->static_procedure_count; ++i) {
+        const BPPStaticProcedureImport *procedure = &ir->static_procedures[i];
+        fprintf(out, "procedure %zu name=%s symbol=%s arity=%zu library=%zu\n", i,
+                procedure->name, procedure->symbol, procedure->arity, procedure->library_index);
+    }
+    fprintf(out, "system_libraries %zu\n", ir->static_link_flag_count);
+    for (size_t i = 0; i < ir->static_link_flag_count; ++i)
+        fprintf(out, "system_library %zu flag=%s\n", i, ir->static_link_flags[i]);
+    return !ferror(out);
 }
 int main(int argc, char **argv) {
     int query=target_query(argc,argv);if(query)return query>0?0:2;
-    const char *path = NULL, *output = NULL, *alloc_profile=NULL; int mode = 0, print_result = 0, native = 1, optimize=1, debug_info=BPP_SANITIZERS[0]!=0,asm_comments=0; BPPTarget target=bpp_host_target();int explicit_target=0;
+    const char *path = NULL, *output = NULL, *alloc_profile=NULL,*library_name=NULL; int mode = 0, print_result = 0, native = 1, optimize=1, debug_info=BPP_SANITIZERS[0]!=0,asm_comments=0,emit_library=0,emit_library_manifest_mode=0,strict_native_runtime=0; BPPTarget target=bpp_host_target();int explicit_target=0;
+    const char **library_paths = NULL; size_t library_path_count = 0, library_path_capacity = 0;
     for (int j = 1; j < argc; ++j) {
         if (!strcmp(argv[j], "--help")) { usage(argv[0]); return 0; }
         if(!strcmp(argv[j],"--target")){
             if(++j==argc||!bpp_target_parse(argv[j],&target)){usage(argv[0]);return 2;}explicit_target=1;native=1;continue;
         }
         if(!strcmp(argv[j],"--debug-info")){debug_info=1;continue;}
+        if(!strcmp(argv[j],"--strict-native-runtime")){strict_native_runtime=1;native=1;continue;}
         if(!strcmp(argv[j],"--asm-comments")){asm_comments=1;continue;}
+        if(!strcmp(argv[j],"--emit-library")){emit_library=1;continue;}
+        if(!strcmp(argv[j],"--emit-library-manifest")){if(mode){fputs("select only one output mode\n",stderr);free(library_paths);return 2;}mode=6;emit_library_manifest_mode=1;continue;}
+        if(!strcmp(argv[j],"--library-name")){if(++j==argc||!abi_identifier(argv[j])){fputs("library name must be an ASCII identifier\n",stderr);return 2;}library_name=argv[j];continue;}
+        if(!strcmp(argv[j],"-L")){if(++j==argc||!argv[j][0]){usage(argv[0]);free(library_paths);return 2;}if(library_path_count==library_path_capacity){size_t cap=library_path_capacity?library_path_capacity*2:4;const char **items=realloc(library_paths,cap*sizeof *items);if(!items){perror("realloc");free(library_paths);return 1;}library_paths=items;library_path_capacity=cap;}library_paths[library_path_count++]=argv[j];continue;}
         if(!strcmp(argv[j],"--alloc-profile")){if(++j==argc){usage(argv[0]);return 2;}alloc_profile=argv[j];continue;}
         if(!strcmp(argv[j],"--no-opt")){optimize=0;continue;}
         if (!strcmp(argv[j], "--backend")) {
@@ -144,26 +234,36 @@ int main(int argc, char **argv) {
             else {usage(argv[0]);return 2;}continue;
         }
         if (!strcmp(argv[j], "--print-result")) { print_result = 1; continue; }
-        int selected = !strcmp(argv[j], "--check") ? 1 : !strcmp(argv[j], "--emit-ir") ? 2 : !strcmp(argv[j], "--emit-c") ? 3 : !strcmp(argv[j], "--emit-asm") ? 4 : !strcmp(argv[j],"--emit-map") ? 5 : 0;
-        if (selected) { if (mode) { fputs("select only one output mode\n", stderr); return 2; } mode = selected; continue; }
+        int selected = !strcmp(argv[j], "--check") ? 1 : !strcmp(argv[j], "--emit-ir") ? 2 : !strcmp(argv[j], "--emit-c") ? 3 : !strcmp(argv[j], "--emit-asm") ? 4 : !strcmp(argv[j],"--emit-map") ? 5 : !strcmp(argv[j],"--emit-link-map") ? 7 : 0;
+        if (selected) { if (mode) { fputs("select only one output mode\n", stderr); free(library_paths); return 2; } mode = selected; continue; }
         if (!strcmp(argv[j], "-o")) {
             if (output || ++j == argc) { usage(argv[0]); return 2; } output = argv[j]; continue;
         }
-        if (argv[j][0] == '-' || path) { fprintf(stderr, "unexpected argument: %s\n", argv[j]); return 2; }
+        if (argv[j][0] == '-' || path) { fprintf(stderr, "unexpected argument: %s\n", argv[j]); free(library_paths); return 2; }
         path = argv[j];
     }
-    if (!path || (mode == 1 && output) || (asm_comments && mode != 4)) { usage(argv[0]); return 2; }
+    if (!path && !emit_library && !emit_library_manifest_mode) path = "main.bpp";
+    if (!path || (mode == 1 && output) || (asm_comments && mode != 4) || (emit_library&&mode!=4) || (emit_library&&!library_name) || (emit_library_manifest_mode&&!library_name) || (!emit_library&&!emit_library_manifest_mode&&library_name) || (strict_native_runtime&&!native)) { usage(argv[0]); free(library_paths); return 2; }
     if(!mode&&native&&!bpp_target_is_host(target)){
-        fprintf(stderr,"native executables require a matching host and runtime objects; use --emit-asm --target %s for cross-target output\n",bpp_target_name(target));return 2;
+        fprintf(stderr,"native executables require a matching host and runtime objects; use --emit-asm --target %s for cross-target output\n",bpp_target_name(target));free(library_paths);return 2;
     }
     const char *destination = output ? output : (mode ? NULL : BPP_DEFAULT_OUTPUT);
     if (destination && same_file(path,destination)) {
-        fputs("output must differ from source\n", stderr); return 2;
+        fputs("output must differ from source\n", stderr); free(library_paths); return 2;
     }
-    if(alloc_profile){char profile_error[512];if(!bpp_reg_profile_load(alloc_profile,profile_error,sizeof profile_error)){fprintf(stderr,"B++: invalid allocation profile: %s\n",profile_error);return 2;}}
-    BLCompiler compiler = {0}; BLIRModule ir; bl_ir_init(&ir);
+    if(alloc_profile){char profile_error[512];if(!bpp_reg_profile_load(alloc_profile,profile_error,sizeof profile_error)){fprintf(stderr,"B++: invalid allocation profile: %s\n",profile_error);free(library_paths);return 2;}}
+    BLCompiler compiler = {0}; compiler.target=target; compiler.library_paths=library_paths; compiler.library_path_count=library_path_count; BLIRModule ir; bl_ir_init(&ir);
     int ok = bl_compile_file(&compiler, path, &ir);
+    if (ok && !emit_library && !emit_library_manifest_mode) {
+        int declares_main = 0;
+        for (size_t f = 1; f < ir.function_count; ++f)
+            if (strcmp(ir.functions[f].name, "main") == 0) { declares_main = 1; break; }
+        if (is_main_source(path) || declares_main) ok = bl_ir_require_zero_argument_main(&ir);
+    }
     ir.emit_asm_comments=asm_comments;
+    ir.emit_library=emit_library||emit_library_manifest_mode;
+    ir.strict_native_runtime=strict_native_runtime;
+    ir.library_name=library_name;
     /* The optimizer runs before the debug snapshot path is allocated.  Give
      * it the intent explicitly so source accesses remain visible in debug
      * output and sanitizer-instrumented native builds. */
@@ -181,13 +281,24 @@ int main(int argc, char **argv) {
         }
     }
     if (!ok) fprintf(stderr, "%s\n", compiler.last_error ? compiler.last_error : (ir.error[0] ? ir.error : "compile error"));
-    if (ok && mode != 1) {
+    if (ok && mode == 6) {
+        char *archive = library_archive_path(output, library_name); size_t archive_size = 0; unsigned long long archive_fingerprint = 0;
+        if (!archive || !archive_identity(archive, &archive_size, &archive_fingerprint)) { fprintf(stderr, "B++: cannot create manifest: expected archive '%s' beside the manifest\n", archive ? archive : "<allocation failed>"); ok = 0; }
+        FILE *out = ok ? (output ? fopen(output, "w") : stdout) : NULL;
+        if (ok && !out) { perror(output); ok = 0; }
+        else if (ok) { ok = emit_library_manifest(&ir, out, library_name, target, archive_size, archive_fingerprint); if (output && fclose(out)) ok = 0; else if (!output && fflush(out)) ok = 0; }
+        free(archive);
+    } else if (ok && mode == 7) {
+        FILE *out = output ? fopen(output, "w") : stdout;
+        if (!out) { perror(output); ok = 0; }
+        else { ok = emit_link_map(&ir, out, target); if (output && fclose(out)) ok = 0; else if (!output && fflush(out)) ok = 0; }
+    } else if (ok && mode != 1) {
         FILE *out = NULL;
         if (mode >= 2) {
             out = output ? fopen(output, "w") : stdout;
             if (!out) { perror(output); ok = 0; }
             else {
-                ok = mode == 2 ? bl_ir_dump(&ir, out) : mode == 3 ? bl_emit_c(&ir, out, print_result) : mode==5?bpp_emit_locations(&ir,out,target):bpp_emit_native(&ir,out,print_result,target);
+                ok = mode == 2 ? bl_ir_dump(&ir, out) : mode == 3 ? bl_emit_c(&ir, out, print_result) : mode==5?(bpp_raw_native_eligible(&ir)?bpp_emit_raw_locations(&ir,out,target):bpp_emit_locations(&ir,out,target)):bpp_emit_native(&ir,out,print_result,target);
                 if (output) { if (fclose(out)) ok = 0; } else if (fflush(out)) ok = 0;
             }
         } else {
@@ -202,10 +313,10 @@ int main(int argc, char **argv) {
 #endif
             if(!out_temp){perror("temporary output");ok=0;}
             else {ok=native?bpp_emit_native(&ir,out_temp,print_result,target):bl_emit_c(&ir,out_temp,print_result);if(fclose(out_temp))ok=0;}
-            if(ok)ok=native_compile(temp,output?output:BPP_DEFAULT_OUTPUT,native,target,0,debug_info);
+            if(ok)ok=native_compile(temp,output?output:BPP_DEFAULT_OUTPUT,native,target,0,debug_info,&ir);
             if(out_temp)unlink(temp);
         }
         if (!ok) fprintf(stderr, "B++: output generation failed%s%s\n", ir.error[0] ? ": " : "", ir.error);
     }
-    bl_ir_dispose(&ir); bl_compiler_dispose(&compiler);bpp_reg_profile_clear(); return ok ? 0 : 1;
+    bl_ir_dispose(&ir); bl_compiler_dispose(&compiler);bpp_reg_profile_clear(); free(library_paths); return ok ? 0 : 1;
 }

@@ -52,7 +52,7 @@ MSYS2 UCRT64 shell with make and mingw-w64-ucrt-x86_64-clang installed. The comp
 path there is `bin/release/bpp.exe`. Windows sanitizer modes need a toolchain that
 supplies the requested sanitizer runtimes; they are not yet a verified Windows gate.
 
-`test` runs unit tests, the 64-case C suite, and the 64-case native suite.
+`test` runs unit tests, the 66-case C suite, and the 66-case native suite.
 `check` runs unit tests plus C execution; `check-native` runs native execution.
 `check-arm64` remains an ARM64 compatibility target. `BUILD_MODE` is the mode
 variable; lowercase `mode` is not an alias.
@@ -73,6 +73,11 @@ Per-target register inventories, payload-cache rules, and dynamic save frames ar
 documented in [`docs/register-allocation.md`](docs/register-allocation.md).
 Instruction forms, legality, scratch demand, and flags lifetime are documented
 in [`docs/instruction-selection.md`](docs/instruction-selection.md).
+Native relocation limits, code models, range diagnostics, and the future
+assembler/linker boundary are documented in
+[`docs/branch-address-model.md`](docs/branch-address-model.md).
+The static-only B++ library ABI v1, export naming, ownership rules, and archive
+fixture are documented in [`docs/static-abi.md`](docs/static-abi.md).
 
 ```sh
 ./bin/release/bpp --target linux-arm64 --emit-asm -o demo-linux.s tests/demo.bpp
@@ -82,6 +87,7 @@ in [`docs/instruction-selection.md`](docs/instruction-selection.md).
 ./bin/release/bpp --alloc-profile hot-blocks.txt --emit-map -o demo.json tests/demo.bpp
 make BUILD_MODE=release check-targets    # requires a Clang cross-assembler
 make BUILD_MODE=release check-msabi     # Windows calling convention on Linux x64
+make BUILD_MODE=release check-static-abi # B++ producer -> archive -> consumer
 make BUILD_MODE=release check-differential check-stress
 make -s BUILD_MODE=release benchmark > instruction-selection-bench.csv
 ```
@@ -151,14 +157,62 @@ within an existing build mode.
   facts because recursion and dynamic returns are not summarized yet.
 - Safe integer constants fold; constant branches and unreachable blocks disappear.
   Effectful operations and operations that must report overflow/zero division remain.
-- ARM64 internal branches/calls use page-relative address materialization for
-  long distances. x86-64 uses its normal relative branches and RIP-relative data.
+- CFG cleanup threads jump chains, merges sole-predecessor blocks, and trace-orders
+  blocks with a deterministic loop-backedge/true-edge policy. Adjacent jumps
+  become fall-through; native branch lowering chooses an inverted conditional
+  sequence when a successor is adjacent. Failure and cleanup labels remain cold
+  out-of-line procedure paths, and the IR verifier runs after each CFG mutation.
+- ARM64 internal branches/calls use an `ADRP` page-relative small code model;
+  the post-layout guard diagnoses an out-of-range generated label before
+  assembly. x86-64 internal B++ calls, cross-block jumps, string references,
+  and frame-layout references use `movabs` plus an indirect transfer/address,
+  while short conditional branches skip only that nearby sequence. Generated
+  x86-64 ELF programs link non-PIE until the B++ linker owns relocation and
+  veneer placement.
+- `--emit-library --library-name NAME --emit-asm` omits `main`, retains named
+  procedures as library roots, and exports static ABI v1 procedure and library
+  descriptor symbols. `--emit-library-manifest --library-name NAME` writes the
+  matching target archive manifest. Native source may use
+  `import library "name";`; `-L directory` adds manifest search paths, checks
+  ABI/target/archive identity/export arity before lowering, and passes the
+  resolved static archives to the host link driver in dependency order.
+  `--emit-link-map` records the resolved archive graph. This is static-only;
+  object parsing, relocation, and final link layout remain later linker work.
 - Large frames use page probing on Unix and chkstk on Windows. Unix CFI and
   Windows SEH describe saved registers and stack allocation.
 - Native instructions have source line locations; `--emit-map` reports local
   frame offsets and IR locations. Debug snapshots preserve expanded import text.
 - Sanitized native builds check global accesses through ASAN/TSAN hooks and track
   native procedure entry/exit for TSAN. Runtime object operations stay instrumented C.
+- `include/native_runtime.h` is the compiled inventory of every helper that native
+  assembly may call, including ownership, error, and sanitizer contracts. The
+  native emitters directly allocate/zero/install the private per-procedure
+  frame, copy borrowed outgoing argument pairs, transfer return values, and
+  inspect the runtime-error field. The executable launcher owns its runtime
+  record, globals, result/error path, object-reference cleanup, and process
+  exit; it does not call `bpp_a_run`. Generated native leaves now provide
+  allocation/free/fatal handling, recursive object destruction, destination
+  clearing, diagnostics, integer/null result formatting, and direct literal
+  string construction through the host
+  ABI, without calling `codegen_runtime.c` or `value.c` for those operations.
+  ARM64 object result formatting remains a narrow C fallback until native
+  string/buffer/array formatting lands. Dynamic string operations, buffers,
+  arrays, builtin dispatch, and general dynamic operations remain behind the
+  narrow C boundary. `make
+  BUILD_MODE=release check-runtime-boundary` verifies the retired generic frame
+  entry, argument-copy, argument-base, error-probe, destination, and startup
+  bridge helpers are absent from both x86-64 and ARM64 output; it also rejects
+  the former `bpp_a_string` literal helper and executes a host-native returned
+  string literal.
+
+`--strict-native-runtime` is the migration gate for removing that boundary. It
+currently accepts only an optimized side-effect-free integer/null constant
+module and emits a helper-free executable which links without `runtime.o`,
+`value.o`, `codegen_runtime.o`, or `bpp_abi.o`. It rejects strings, globals,
+procedures, libraries, dynamic values, and `--print-result` explicitly; it
+never silently falls back to the C runtime. Run `make BUILD_MODE=release
+check-strict-native-runtime` to verify the host link/run and helper-free
+assembly for all four target descriptions.
 
 The private procedure/value boundary is **revision 2**, defined in
 `include/codegen_abi.h`. Keep this header and the native emitters from the same
@@ -166,6 +220,11 @@ source snapshot; shared overflow-checked frame-layout types and helpers live in
 this header. This is an ABI placeholder, not a public static-library ABI.
 See [CODEGEN.md](CODEGEN.md), [IR-NOTES.md](IR-NOTES.md), and
 [CODEGEN-CHECKLIST.md](CODEGEN-CHECKLIST.md) for contracts and remaining work.
+
+`Libraries/xf` is the first curated runtime library. It is a static B++ ABI
+bridge to XF core—not a general C FFI. Run
+`make BUILD_MODE=release check-xf-static-lib` to build it, validate its
+manifest, and run a B++ consumer.
 
 ## Debugging and build modes
 
@@ -220,6 +279,11 @@ LSAN run is not claimed: this host cannot perform its exit-time process scan.
 ## Language and roadmap
 
 Procedures use `define proc name(args) { ... }`; fn is no longer a keyword.
+`define proc main() { ... }` is the executable entry when present: the module
+performs top-level setup first and then calls it. Invoking `bpp` without a
+source path compiles `./main.bpp`, which must declare that zero-argument
+procedure. Explicit legacy source files without `main` retain top-level-return
+behavior during the migration.
 Forward calls and recursion work. Blocks do not introduce scopes. Locals shadow
 globals throughout their procedure, and declarations skipped at runtime remain
 uninitialized. Duplicate declarations, unknown identifiers, nested procedures,

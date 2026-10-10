@@ -1,50 +1,49 @@
-// string_array_memory.bl
+// Raw byte/pointer equivalent of the former dynamic string/array fixture.
+// The compiler sees no String or Array feature: every buffer is user memory.
 define macro "String" "ptr";
 define macro "StrArray" "ptr";
 
-#define proc string_new "native";
-#define proc string_eq "native";
-#define proc array_new "native";
-#define proc  array_grow "native";
-#define proc array_set "native";
-#define proc array_get "native";
-#define proc array_len "native";
+define proc main() {
+    new ptr raw = malloc 4;
+    raw[0] = 65;
+    raw[1] = 66;
+    raw = remalloc raw 8;
+    raw[2] = 67;
+    free raw;
+    delete raw;
 
-new ptr raw = malloc 4;
-raw[0] = 65;
-raw[1] = 66;
-raw = realloc raw 8;
-raw[2] = 67;
-assert(raw[0] == 65);
-assert(raw[1] == 66);
-assert(raw[2] == 67);
-free raw;
-delete raw;
+    new String alpha = malloc 6;
+    alpha[0] = 97;
+    alpha[1] = 108;
+    alpha[2] = 112;
+    alpha[3] = 104;
+    alpha[4] = 97;
+    alpha[5] = 10;
 
-new String first = string_new("alpha");
-new String second = string_new("beta");
-new String third = string_new("gamma");
+    new String beta = malloc 5;
+    beta[0] = 98;
+    beta[1] = 101;
+    beta[2] = 116;
+    beta[3] = 97;
+    beta[4] = 10;
 
-new StrArray words = array_new(2);
-array_set(words, 0, first);
-array_set(words, 1, second);
-assert(array_len(words) == 2);
-assert(string_eq(array_get(words, 0), first));
-assert(string_eq(array_get(words, 1), second));
+    new String gamma = malloc 6;
+    gamma[0] = 103;
+    gamma[1] = 97;
+    gamma[2] = 109;
+    gamma[3] = 109;
+    gamma[4] = 97;
+    gamma[5] = 10;
 
-words = array_grow(words, 4);
-array_set(words, 2, third);
-assert(array_len(words) == 4);
-assert(string_eq(array_get(words, 2), third));
+    print alpha, 6;
+    print beta, 5;
+    print gamma, 6;
 
-println(array_get(words, 0));
-println(array_get(words, 1));
-println(array_get(words, 2));
-
-free words;
-delete words;
-delete first;
-delete second;
-delete third;
-
-return 0;
+    free alpha;
+    delete alpha;
+    free beta;
+    delete beta;
+    free gamma;
+    delete gamma;
+    return 0;
+}

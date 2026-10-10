@@ -54,11 +54,12 @@ EXE :=
 PROJECT_DIR := $(CURDIR)
 endif
 BIN := bin/$(BUILD_MODE)/bpp$(EXE)
-SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/optimize.c src/emit_x64.c src/locations.c src/value_facts.c
+SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/range.c src/optimize.c src/emit_x64.c src/raw_native.c src/locations.c src/value_facts.c src/strict_runtime.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
-.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-differential check-stress check-asan-hook check-msan benchmark benchmark-smoke test targets clean
-RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o
+.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
+RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o
+TEST_SANITIZER_ENV := BPP_TEST_SANITIZED=$(if $(strip $(SANITIZERS)),1,0)
 all: $(BIN)
 debug:
 	$(MAKE) BUILD_MODE=debug all
@@ -68,7 +69,7 @@ msan:
 	$(MAKE) BUILD_MODE=msan all
 release:
 	$(MAKE) BUILD_MODE=release all
-$(OBJDIR)/src/main.o: CPPFLAGS += '-DBPP_PROJECT_DIR="$(PROJECT_DIR)"' '-DBPP_HOST_CC="$(CC)"' '-DBPP_SANITIZERS="$(SANITIZERS)"' '-DBPP_OPTIMIZATION="$(OPT)"' '-DBPP_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/runtime.o"' '-DBPP_VALUE_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/value.o"' '-DBPP_NATIVE_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/codegen_runtime.o"'
+$(OBJDIR)/src/main.o: CPPFLAGS += '-DBPP_PROJECT_DIR="$(PROJECT_DIR)"' '-DBPP_HOST_CC="$(CC)"' '-DBPP_SANITIZERS="$(SANITIZERS)"' '-DBPP_OPTIMIZATION="$(OPT)"' '-DBPP_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/runtime.o"' '-DBPP_VALUE_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/value.o"' '-DBPP_NATIVE_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/codegen_runtime.o"' '-DBPP_STATIC_ABI_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/bpp_abi.o"'
 $(OBJDIR)/%.o: %.c Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -MMD -MP -c "$<" -o "$@"
@@ -76,11 +77,23 @@ $(BIN): $(OBJS) $(RUNTIME_OBJS)
 	mkdir -p "$(@D)"
 	$(CC) $(LDFLAGS) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -o "$@" $(OBJS) $(LDLIBS)
 check-native: $(BIN)
-	BPP_TEST_BACKEND=native sh tests/run_tests.sh ./$(BIN)
+	$(TEST_SANITIZER_ENV) BPP_TEST_BACKEND=native sh tests/run_tests.sh ./$(BIN)
 check-arm64: $(BIN)
 	BPP_TEST_BACKEND=arm64 sh tests/run_tests.sh ./$(BIN)
 check-msabi: $(BIN)
 	BPP_MSABI_CC="$(CC)" sh tests/check_msabi.sh ./$(BIN)
+check-static-abi: $(BIN) $(RUNTIME_OBJS)
+	BPP_ABI_CC="$(CC)" AR="$(AR)" sh tests/check_static_abi.sh ./$(BIN) $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o
+check-xf-static-lib: $(BIN)
+	$(MAKE) -C Libraries/xf BPP_ROOT="$(CURDIR)" test
+check-runtime-boundary: $(BIN) tests/check_native_runtime_boundary.sh tests/native_runtime_boundary.bpp
+	sh tests/check_native_runtime_boundary.sh ./$(BIN)
+check-raw-core: $(BIN) tests/check_raw_core.sh tests/raw_core.bpp
+	sh tests/check_raw_core.sh ./$(BIN)
+check-debug-metadata: $(BIN) tests/check_debug_metadata.sh
+	sh tests/check_debug_metadata.sh ./$(BIN)
+check-strict-native-runtime: $(BIN) tests/check_strict_native_runtime.sh tests/strict_native_runtime.bpp
+	sh tests/check_strict_native_runtime.sh ./$(BIN)
 check-targets: $(BIN)
 	sh tests/check_targets.sh ./$(BIN)
 targets: $(BIN)
@@ -99,24 +112,30 @@ check-asan-hook: $(OBJDIR)/test_native_sanitizer$(EXE)
 	sh tests/check_asan_hook.sh ./$(OBJDIR)/test_native_sanitizer$(EXE)
 check-msan: $(OBJDIR)/test_msan$(EXE)
 	sh tests/check_msan.sh ./$(OBJDIR)/test_msan$(EXE)
-test: check check-native
+test: check check-native check-strict-native-runtime
 ifeq ($(BUILD_MODE),msan)
 test: check-msan
 endif
-check: $(BIN) $(OBJDIR)/test_ir$(EXE) $(OBJDIR)/test_codegen_runtime$(EXE) $(OBJDIR)/test_regalloc$(EXE) $(OBJDIR)/test_optimize$(EXE) $(OBJDIR)/test_value_facts$(EXE) $(OBJDIR)/test_ir_effects$(EXE) $(OBJDIR)/test_isel$(EXE)
+check: $(BIN) $(OBJDIR)/test_ir$(EXE) $(OBJDIR)/test_codegen_runtime$(EXE) $(OBJDIR)/test_static_abi$(EXE) $(OBJDIR)/test_regalloc$(EXE) $(OBJDIR)/test_optimize$(EXE) $(OBJDIR)/test_value_facts$(EXE) $(OBJDIR)/test_ir_effects$(EXE) $(OBJDIR)/test_isel$(EXE) $(OBJDIR)/test_ranges$(EXE)
 	./$(OBJDIR)/test_ir$(EXE)
 	./$(OBJDIR)/test_codegen_runtime$(EXE)
+	./$(OBJDIR)/test_static_abi$(EXE)
 	./$(OBJDIR)/test_regalloc$(EXE)
 	./$(OBJDIR)/test_optimize$(EXE)
 	./$(OBJDIR)/test_value_facts$(EXE)
 	./$(OBJDIR)/test_ir_effects$(EXE)
 	./$(OBJDIR)/test_isel$(EXE)
-	sh tests/run_tests.sh ./$(BIN)
+	./$(OBJDIR)/test_ranges$(EXE)
+	sh tests/check_native_runtime_boundary.sh ./$(BIN)
+	sh tests/check_debug_metadata.sh ./$(BIN)
+	$(TEST_SANITIZER_ENV) sh tests/run_tests.sh ./$(BIN)
 $(OBJDIR)/test_regalloc$(EXE): tests/test_regalloc.c src/regalloc.c src/registers.c include/regalloc.h include/target.h include/ir.h Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_regalloc.c src/regalloc.c src/registers.c -o "$@"
 $(OBJDIR)/test_codegen_runtime$(EXE): tests/test_codegen_runtime.c $(RUNTIME_OBJS) include/codegen_abi.h Makefile
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_codegen_runtime.c $(RUNTIME_OBJS) -o "$@"
+$(OBJDIR)/test_static_abi$(EXE): tests/test_static_abi.c $(RUNTIME_OBJS) include/bpp_abi.h Makefile
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_static_abi.c $(RUNTIME_OBJS) -o "$@"
 $(OBJDIR)/test_ir$(EXE): tests/test_ir.c src/ir.c include/ir.h include/parser.h include/lexer.h Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG src/ir.c tests/test_ir.c -o "$@"
@@ -129,9 +148,12 @@ $(OBJDIR)/test_value_facts$(EXE): tests/test_value_facts.c src/value_facts.c inc
 $(OBJDIR)/test_ir_effects$(EXE): tests/test_ir_effects.c src/ir_effects.c include/ir_effects.h include/ir.h Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_ir_effects.c src/ir_effects.c -o "$@"
-$(OBJDIR)/test_isel$(EXE): tests/test_isel.c src/ir.c src/ir_effects.c src/isel.c src/target.c src/emit_arm64.c src/emit_x64.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c include/isel.h include/target.h include/ir.h Makefile
+$(OBJDIR)/test_isel$(EXE): tests/test_isel.c src/ir.c src/ir_effects.c src/isel.c src/target.c src/range.c src/emit_arm64.c src/emit_x64.c src/raw_native.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c src/strict_runtime.c include/isel.h include/target.h include/ir.h Makefile
 	mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_isel.c src/ir.c src/ir_effects.c src/isel.c src/target.c src/emit_arm64.c src/emit_x64.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c -o "$@"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_isel.c src/ir.c src/ir_effects.c src/isel.c src/target.c src/range.c src/emit_arm64.c src/emit_x64.c src/raw_native.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c src/strict_runtime.c -o "$@"
+$(OBJDIR)/test_ranges$(EXE): tests/test_ranges.c src/ir.c src/ir_effects.c src/target.c src/range.c src/isel.c src/emit_arm64.c src/emit_x64.c src/raw_native.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c src/strict_runtime.c include/target.h include/ir.h Makefile
+	mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_ranges.c src/ir.c src/ir_effects.c src/target.c src/range.c src/isel.c src/emit_arm64.c src/emit_x64.c src/raw_native.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c src/strict_runtime.c -o "$@"
 $(OBJDIR)/generate_case$(EXE): tests/generate_case.c Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) tests/generate_case.c -o "$@"

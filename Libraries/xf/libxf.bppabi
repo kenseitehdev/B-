@@ -1,0 +1,9 @@
+# XF bridge for B++ static ABI v1
+bppabi 1
+name xf
+abi 1.0
+runtime 1
+archive macos-arm64 libxf.bpp.a 654544 c758616c14fa3aaa
+export xf_version 0
+export xf_run_string 1
+export xf_run_file 1

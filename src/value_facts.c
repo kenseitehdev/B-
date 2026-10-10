@@ -173,6 +173,11 @@ void bpp_value_facts_transfer(const BPPValueFacts *facts, const BLIRInst *i,
         break;
     }
     case BL_IR_INDEX_GET: out = integer_fact(0, 0); break;
+    case BL_IR_BYTE_LOAD: out = integer_fact(0, 0); break;
+    case BL_IR_MALLOC: case BL_IR_REMALLOC: out = integer_fact(0, 0); break;
+    case BL_IR_MFREE_LOCAL: case BL_IR_MFREE_GLOBAL: return;
+    case BL_IR_BYTE_STORE: return;
+    case BL_IR_PRINT_BYTE: case BL_IR_PRINT_RANGE: return;
     case BL_IR_TO_STRING_BUFFER: out = kind_fact(BPP_VALUE_BUFFER); break;
     case BL_IR_CALL:
         if (i->a == BL_IR_NONE) out = builtin_result(i, r, facts->register_count);

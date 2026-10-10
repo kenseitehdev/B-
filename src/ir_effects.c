@@ -17,6 +17,13 @@ unsigned bpp_ir_effects(const BLIRInst *i) {
     case BL_IR_NOT: case BL_IR_EQ: case BL_IR_NE: return BPP_EFFECT_NONE;
     case BL_IR_INDEX_GET: return BPP_EFFECT_OBJECT_READ | BPP_EFFECT_CAN_ERROR;
     case BL_IR_INDEX_SET: return BPP_EFFECT_OBJECT_WRITE | BPP_EFFECT_CAN_ERROR;
+    case BL_IR_MALLOC: return BPP_EFFECT_ALLOCATE | BPP_EFFECT_CAN_ERROR;
+    case BL_IR_REMALLOC: return BPP_EFFECT_ALLOCATE | BPP_EFFECT_OBJECT_WRITE | BPP_EFFECT_CAN_ERROR;
+    case BL_IR_MFREE_LOCAL: return BPP_EFFECT_LOCAL_WRITE | BPP_EFFECT_OBJECT_WRITE | BPP_EFFECT_CAN_ERROR;
+    case BL_IR_MFREE_GLOBAL: return BPP_EFFECT_GLOBAL_WRITE | BPP_EFFECT_OBJECT_WRITE | BPP_EFFECT_CAN_ERROR;
+    case BL_IR_BYTE_LOAD: return BPP_EFFECT_OBJECT_READ | BPP_EFFECT_CAN_ERROR;
+    case BL_IR_BYTE_STORE: return BPP_EFFECT_OBJECT_WRITE | BPP_EFFECT_CAN_ERROR;
+    case BL_IR_PRINT_BYTE: case BL_IR_PRINT_RANGE: return BPP_EFFECT_OUTPUT | BPP_EFFECT_CAN_ERROR;
     case BL_IR_CALL:
         /* Builtins may allocate, write passed objects, print, or fail.  A
          * direct procedure call additionally invalidates global facts. */

@@ -56,7 +56,9 @@ int bpp_c_ir_supported(BLIROp op){
  case BL_IR_LOAD_GLOBAL:case BL_IR_STORE_GLOBAL:case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:
  case BL_IR_NEG:case BL_IR_NOT:case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
  case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:
- case BL_IR_INDEX_GET:case BL_IR_INDEX_SET:case BL_IR_TO_STRING_BUFFER:case BL_IR_CALL:case BL_IR_RELEASE:
+ case BL_IR_INDEX_GET:case BL_IR_INDEX_SET:case BL_IR_TO_STRING_BUFFER:case BL_IR_MALLOC:case BL_IR_REMALLOC:
+ case BL_IR_MFREE_LOCAL:case BL_IR_MFREE_GLOBAL:case BL_IR_BYTE_LOAD:case BL_IR_BYTE_STORE:case BL_IR_CALL:case BL_IR_RELEASE:
+ case BL_IR_PRINT_BYTE:case BL_IR_PRINT_RANGE:
  case BL_IR_FREE_LOCAL:case BL_IR_FREE_GLOBAL:case BL_IR_DELETE_LOCAL:case BL_IR_DELETE_GLOBAL:
  case BL_IR_JUMP:case BL_IR_BRANCH:case BL_IR_RETURN:return 1;
  }
@@ -66,6 +68,12 @@ int bpp_c_ir_supported(BLIROp op){
  * directives, symbol decoration, and page relocations, never instructions. */
 int bpp_emit_native(BLIRModule *m,FILE *out,int print,BPPTarget t){
  const BPPBackendCapabilities *c=bpp_target_capabilities(t);if(!c||!bpp_target_validate_ir(m,t,"native"))return 0;
+ /* Ordinary programs now use the raw-word backend.  Archive ABI v1 remains
+  * a separately quarantined compatibility path until its BLValue boundary is
+  * replaced by the raw static ABI revision. */
+ if(!m->emit_library&&!m->static_library_count&&!m->static_procedure_count)
+  return bpp_emit_raw_native(m,out,print,t);
+ if(m->strict_native_runtime)return bpp_emit_strict_native_runtime(m,out,print,t);
  if(c->isa==BPP_ISA_X86_64)return bpp_emit_x64(m,out,print,c->format==BPP_FORMAT_COFF);
  if(c->format==BPP_FORMAT_MACHO)return bl_emit_arm64(m,out,print,t);
  FILE *scratch=tmpfile();if(!scratch)return 0;
@@ -74,6 +82,7 @@ int bpp_emit_native(BLIRModule *m,FILE *out,int print,BPPTarget t){
   if(!strncmp(line,".file ",6)){fputs(line,out);continue;}
   if(!strncmp(line,".section __TEXT,__text",sizeof(".section __TEXT,__text")-1)){fputs(".text\n",out);continue;}
   if(!strncmp(line,".section __TEXT,__cstring",sizeof(".section __TEXT,__cstring")-1)||!strncmp(line,".section __TEXT,__const",sizeof(".section __TEXT,__const")-1)){fputs(".section .rodata\n",out);continue;}
+  if(!strncmp(line,".section __DATA,__data",sizeof(".section __DATA,__data")-1)){fputs(".data\n",out);continue;}
   if(!strncmp(line,".subsections_via_symbols",23)){fputs(".section .note.GNU-stack,\"\",%progbits\n",out);continue;}
   char *p;while((p=strstr(line,"_bpp_")))memmove(p,p+1,strlen(p));while((p=strstr(line,"_main")))memmove(p,p+1,strlen(p));
   if((p=strstr(line,"@PAGEOFF"))){char *start=p;while(start>line&&start[-1]!=' ')--start;*p='\0';fprintf(out,"%.*s:lo12:%s%s",(int)(start-line),line,start,p+8);continue;}

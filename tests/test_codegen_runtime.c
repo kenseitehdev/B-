@@ -1,4 +1,5 @@
 #include "../include/codegen_abi.h"
+#include "../include/native_runtime.h"
 #include <assert.h>
 #include <limits.h>
 #include <stdint.h>
@@ -8,6 +9,14 @@
 
 /* Exercise the assembly/runtime boundary without executing target instructions. */
 int main(void) {
+    assert(bpp_native_runtime_helper_count()==21);
+    int lowered=0;
+    for(size_t helper=0;helper<bpp_native_runtime_helper_count();++helper){
+        const BPPNativeRuntimeHelper *entry=bpp_native_runtime_helper_at(helper);
+        assert(entry&&entry->symbol&&entry->source&&entry->effects&&entry->ownership&&entry->error_behavior&&entry->sanitizer_behavior);
+        lowered+=entry->native_lowered;
+    }
+    assert(lowered==8&&!bpp_native_runtime_helper_at(bpp_native_runtime_helper_count()));
     BPPNativeFrameLayout exact;
     assert(bpp_native_frame_layout(0,0,0,&exact));
     assert(exact.value_offset==128&&exact.value_bytes==0&&exact.locals_offset==128);
@@ -37,6 +46,11 @@ int main(void) {
     assert(!bpp_native_frame_layout(SIZE_MAX,0,0,&exact));
     assert(!bpp_native_frame_layout(0,SIZE_MAX,0,&exact));
     assert(!bpp_native_frame_layout(0,0,SIZE_MAX,&exact));
+    unsigned char *process_memory = bpp_a_allocate_zero(4, sizeof(BLValue));
+    assert(process_memory && (uintptr_t)process_memory % _Alignof(BLValue) == 0);
+    for(size_t byte = 0; byte < 4 * sizeof(BLValue); ++byte) assert(process_memory[byte] == 0);
+    bpp_a_free_memory(process_memory);
+    assert(!bpp_a_allocate_zero(SIZE_MAX, 2));
 
     int converted=0;
     BLValue numeric_text=bl_value_string_copy("-9223372036854775808");

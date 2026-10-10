@@ -24,7 +24,7 @@ static void signature(FILE *out, size_t id) {
 int bl_emit_c(BLIRModule *m, FILE *out, int print_result) {
     if (!out || !bl_ir_validate_pass(m, "C reference backend input")) return 0;
     for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];if(!bpp_c_ir_supported(i->op)){snprintf(m->error,sizeof m->error,"%s:%d:%d: C reference backend does not support IR opcode '%s' (function '%s', block %zu, instruction %zu)",m->path?m->path:"<input>",i->line,i->column,bl_ir_op_name(i->op),m->functions[f].name,b,k);return 0;}}
-    fputs("/* Generated from B++ register IR. */\n#include \"runtime.h\"\n#include <stdio.h>\n#include <stdlib.h>\n#include <limits.h>\n", out);
+    fputs("/* Generated from B++ register IR. */\n#include \"runtime.h\"\n#include <stdio.h>\n#include <stdlib.h>\n#include <stdint.h>\n#include <limits.h>\n", out);
     for (size_t f = 0; f < m->function_count; ++f) { signature(out, f); fputs(";\n", out); }
     for (size_t f = 0; f < m->function_count; ++f) {
         BLIRFunction *fn = &m->functions[f]; signature(out, f); fputs(" {\n", out);
@@ -72,8 +72,20 @@ int bl_emit_c(BLIRModule *m, FILE *out, int print_result) {
                 case BL_IR_INDEX_SET:
                     fputs("bl_rt_index_set(vm,", out); site(out, i); fprintf(out, ",r[%zu],r[%zu],r[%zu])", i->a, i->b, i->c); break;
                 case BL_IR_TO_STRING_BUFFER: fprintf(out, "bl_rt_to_buffer(r[%zu])", i->a); break;
+                case BL_IR_MALLOC: fprintf(out, "bl_value_int((long long)(intptr_t)malloc((size_t)r[%zu].as.i))", i->a); break;
+                case BL_IR_REMALLOC: fprintf(out, "bl_value_int((long long)(intptr_t)realloc((void *)(intptr_t)r[%zu].as.i,(size_t)r[%zu].as.i))", i->a, i->b); break;
+                case BL_IR_BYTE_LOAD: fprintf(out, "bl_value_int((long long)((unsigned char *)(intptr_t)r[%zu].as.i)[(size_t)r[%zu].as.i])", i->a, i->b); break;
+                case BL_IR_BYTE_STORE:
+                    fprintf(out, "((unsigned char *)(intptr_t)r[%zu].as.i)[(size_t)r[%zu].as.i]=(unsigned char)r[%zu].as.i", i->a, i->b, i->c); break;
+                case BL_IR_MFREE_LOCAL: fprintf(out, "free((void *)(intptr_t)l[%zu].as.i)", i->a); break;
+                case BL_IR_MFREE_GLOBAL: fprintf(out, "free((void *)(intptr_t)g[%zu].as.i)", i->a); break;
+                case BL_IR_PRINT_BYTE: fprintf(out, "putchar((unsigned char)r[%zu].as.i)", i->a); break;
+                case BL_IR_PRINT_RANGE: fprintf(out, "fwrite((const void *)(intptr_t)r[%zu].as.i,1,(size_t)r[%zu].as.i,stdout)", i->a, i->b); break;
                 case BL_IR_CALL:
-                    if (i->a == BL_IR_NONE) {
+                    if (i->a == BL_IR_NONE && i->c != BL_IR_NONE) {
+                        snprintf(m->error,sizeof m->error,"%s:%d:%d: C reference backend cannot link static B++ procedure '%s'; use --backend native",m->path?m->path:"<input>",i->line,i->column,i->text);
+                        return 0;
+                    } else if (i->a == BL_IR_NONE) {
                         fputs("bl_rt_builtin(vm,", out); site(out, i); fputc(',', out); cstring(out, i->text); fputc(',', out); args(out, i);
                     } else { fprintf(out, "bpp_f%zu(vm,g,gi,", i->a); args(out, i); }
                     fprintf(out, ",%zu)", i->arg_count); break;
@@ -88,7 +100,10 @@ int bl_emit_c(BLIRModule *m, FILE *out, int print_result) {
                     fputs("bl_rt_store(vm,", out); site(out, i); fprintf(out, ",&%s[%zu],&%s[%zu],bl_value_null(),0,", global ? "g" : "l", i->a, global ? "gi" : "li", i->a);
                     cstring(out, global ? m->globals[i->a] : fn->locals[i->a]); fputc(')', out); break;
                 }
-                case BL_IR_JUMP: fprintf(out, "goto b%zu", i->a); break;
+                case BL_IR_JUMP:
+                    if (i->a == b + 1) fputs("/* CFG fallthrough */", out);
+                    else fprintf(out, "goto b%zu", i->a);
+                    break;
                 case BL_IR_BRANCH: fprintf(out, "if(bl_value_is_truthy(r[%zu])) goto b%zu; else goto b%zu", i->a, i->b, i->c); break;
                 case BL_IR_RETURN: fprintf(out, "result=r[%zu]; r[%zu]=bl_value_null(); goto cleanup", i->a, i->a); break;
                 default:

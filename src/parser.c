@@ -118,10 +118,11 @@ static int bl_token_is_name_part(BLTokenKind kind) {
         case TOK_DELETE:
         case TOK_FREE:
         case TOK_MALLOC:
-        case TOK_REALLOC:
+        case TOK_REMALLOC:
         case TOK_IF:
         case TOK_ELSE:
         case TOK_WHILE:
+        case TOK_PRINT:
             return 1;
         default:
             return 0;
@@ -187,10 +188,12 @@ static BLNode *bl_parse_primary(BLParser *parser) {
         return node;
     }
 
-    if (bl_match(parser, TOK_STRING)) {
-        BLNode *node = bl_new_node(parser, AST_STRING, token.line, token.column);
-        node->as.string.text = bl_token_text(token);
-        return node;
+    /* Quoted text exists only in compile-time directives (macros/imports).
+     * It is not a B++ runtime value. */
+    if (parser->current.kind == TOK_STRING) {
+        bl_parser_set_error(parser, token.line, token.column,
+                            "quoted text is only valid in compile-time directives");
+        return NULL;
     }
 
     if (parser->current.kind == TOK_IDENT) {
@@ -223,10 +226,10 @@ static BLNode *bl_parse_primary(BLParser *parser) {
         return node;
     }
 
-    if (bl_match(parser, TOK_REALLOC)) {
+    if (bl_match(parser, TOK_REMALLOC)) {
         BLNode *node = bl_new_node(parser, AST_CALL, token.line, token.column);
         BLNode *callee = bl_new_node(parser, AST_IDENT, token.line, token.column);
-        callee->as.ident.name = bl_strdup_local("realloc");
+        callee->as.ident.name = bl_strdup_local("remalloc");
         node->as.call.callee = callee;
         node->as.call.args = (BLNode **)calloc(2, sizeof(BLNode *));
         if (!node->as.call.args) {
@@ -501,6 +504,33 @@ static BLNode *bl_parse_statement(BLParser *parser) {
         node->as.free_stmt.expr = bl_parse_expression(parser);
         if (!bl_expect(parser, TOK_SEMI, "expected ';' after free")) return NULL;
         return node;
+    }
+
+    if (bl_match(parser, TOK_PRINT)) {
+        BLToken token = parser->previous;
+        BLNode *callee = bl_new_node(parser, AST_IDENT, token.line, token.column);
+        callee->as.ident.name = bl_strdup_local("print");
+        BLNode *node = bl_new_node(parser, AST_CALL, token.line, token.column);
+        node->as.call.callee = callee;
+        BLNode *first = bl_parse_expression(parser);
+        if (!first) return NULL;
+        node->as.call.args = calloc(1, sizeof *node->as.call.args);
+        if (!node->as.call.args) { perror("calloc"); exit(1); }
+        node->as.call.args[0] = first;
+        node->as.call.arg_count = 1;
+        if (bl_match(parser, TOK_COMMA)) {
+            BLNode *second = bl_parse_expression(parser);
+            if (!second) return NULL;
+            BLNode **args = realloc(node->as.call.args, 2 * sizeof *args);
+            if (!args) { perror("realloc"); exit(1); }
+            node->as.call.args = args;
+            node->as.call.args[1] = second;
+            node->as.call.arg_count = 2;
+        }
+        if (!bl_expect(parser, TOK_SEMI, "expected ';' after print")) return NULL;
+        BLNode *statement = bl_new_node(parser, AST_EXPR_STMT, token.line, token.column);
+        statement->as.expr_stmt.expr = node;
+        return statement;
     }
 
     if (bl_match(parser, TOK_DELETE)) {

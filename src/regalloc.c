@@ -86,6 +86,12 @@ static int native_payload_use(const BLIRInst *i,size_t r){
  case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
  case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:return r==i->a||r==i->b;
  case BL_IR_STORE_LOCAL:case BL_IR_STORE_GLOBAL:case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:return r==i->b;
+ case BL_IR_MALLOC:return r==i->a;
+ case BL_IR_REMALLOC:return r==i->a||r==i->b;
+ case BL_IR_BYTE_LOAD:return r==i->a||r==i->b;
+ case BL_IR_BYTE_STORE:return r==i->a||r==i->b||r==i->c;
+ case BL_IR_PRINT_BYTE:return r==i->a;
+ case BL_IR_PRINT_RANGE:return r==i->a||r==i->b;
  default:return 0;
  }
 }
@@ -105,6 +111,9 @@ static size_t native_payload_cost(const BLIRInst *i){
  case BL_IR_NEG:case BL_IR_NOT:return 6;
  case BL_IR_BRANCH:return 5;
  case BL_IR_STORE_LOCAL:case BL_IR_STORE_GLOBAL:case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:return 4;
+ case BL_IR_MALLOC:case BL_IR_REMALLOC:return 10;
+ case BL_IR_BYTE_LOAD:case BL_IR_BYTE_STORE:return 8;
+ case BL_IR_PRINT_BYTE:case BL_IR_PRINT_RANGE:return 6;
  default:return 1;
  }
 }
@@ -191,6 +200,10 @@ static unsigned char visibility_kind(const BLIRInst *i){
  case BL_IR_DELETE_LOCAL:case BL_IR_DELETE_GLOBAL:
   return BPP_CLOBBER_HELPER|BPP_CLOBBER_RUNTIME_ERROR;
  case BL_IR_RELEASE:return BPP_CLOBBER_HELPER;
+ case BL_IR_MALLOC:case BL_IR_REMALLOC:case BL_IR_MFREE_LOCAL:case BL_IR_MFREE_GLOBAL:
+  return BPP_CLOBBER_HELPER|BPP_CLOBBER_RUNTIME_ERROR;
+ case BL_IR_BYTE_LOAD:case BL_IR_BYTE_STORE:return BPP_CLOBBER_HELPER|BPP_CLOBBER_RUNTIME_ERROR;
+ case BL_IR_PRINT_BYTE:case BL_IR_PRINT_RANGE:return BPP_CLOBBER_HELPER;
  case BL_IR_LOAD_GLOBAL:case BL_IR_STORE_GLOBAL:case BL_IR_INIT_GLOBAL:
   return BPP_CLOBBER_HELPER|BPP_CLOBBER_RUNTIME_ERROR|BPP_CLOBBER_SANITIZER;
  default:return BPP_CLOBBER_HELPER|BPP_CLOBBER_RUNTIME_ERROR;
@@ -207,6 +220,9 @@ static int is_unconditional_helper(const BLIRInst *i){
  case BL_IR_STRING:case BL_IR_INDEX_GET:case BL_IR_INDEX_SET:case BL_IR_TO_STRING_BUFFER:
  case BL_IR_CALL:case BL_IR_FREE_LOCAL:case BL_IR_FREE_GLOBAL:
  case BL_IR_DELETE_LOCAL:case BL_IR_DELETE_GLOBAL:return 1;
+ case BL_IR_MALLOC:case BL_IR_REMALLOC:case BL_IR_MFREE_LOCAL:case BL_IR_MFREE_GLOBAL:
+ case BL_IR_BYTE_LOAD:case BL_IR_BYTE_STORE:return 1;
+ case BL_IR_PRINT_BYTE:case BL_IR_PRINT_RANGE:return 1;
  default:return 0;
  }
 }
@@ -215,12 +231,12 @@ static int is_unconditional_helper(const BLIRInst *i){
  * register bitmap for every instruction. */
 static size_t use_count(const BLIRInst *i){
  switch(i->op){
- case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_RELEASE:case BL_IR_BRANCH:case BL_IR_RETURN:
+ case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_RELEASE:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_MALLOC:case BL_IR_PRINT_BYTE:
   return i->a!=BL_IR_NONE;
  case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
- case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:case BL_IR_INDEX_GET:
+ case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:case BL_IR_INDEX_GET:case BL_IR_BYTE_LOAD:case BL_IR_REMALLOC:case BL_IR_PRINT_RANGE:
   return 2;
- case BL_IR_INDEX_SET:return 3;
+ case BL_IR_INDEX_SET:case BL_IR_BYTE_STORE:return 3;
  case BL_IR_STORE_LOCAL:case BL_IR_STORE_GLOBAL:case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:return i->b!=BL_IR_NONE;
  case BL_IR_CALL:return i->arg_count;
  default:return 0;
@@ -229,13 +245,13 @@ static size_t use_count(const BLIRInst *i){
 static size_t copy_uses(const BLIRInst *i,BLIRId *out){
  size_t n=0;
  switch(i->op){
- case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_RELEASE:case BL_IR_BRANCH:case BL_IR_RETURN:
+ case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_RELEASE:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_MALLOC:case BL_IR_PRINT_BYTE:
   if(i->a!=BL_IR_NONE)out[n++]=i->a;
   break;
  case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
- case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:case BL_IR_INDEX_GET:
+ case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:case BL_IR_INDEX_GET:case BL_IR_BYTE_LOAD:case BL_IR_REMALLOC:case BL_IR_PRINT_RANGE:
   out[n++]=i->a;out[n++]=i->b;break;
- case BL_IR_INDEX_SET:out[n++]=i->a;out[n++]=i->b;out[n++]=i->c;break;
+ case BL_IR_INDEX_SET:case BL_IR_BYTE_STORE:out[n++]=i->a;out[n++]=i->b;out[n++]=i->c;break;
  case BL_IR_STORE_LOCAL:case BL_IR_STORE_GLOBAL:case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:
   if(i->b!=BL_IR_NONE)out[n++]=i->b;
   break;
@@ -289,7 +305,7 @@ static void local_use_def(const BLIRInst *i,uint64_t *use,uint64_t *def){
  case BL_IR_LOAD_LOCAL:l=i->a;reads=1;break;
  case BL_IR_STORE_LOCAL:l=i->a;reads=1;writes=1;break;
  case BL_IR_INIT_LOCAL:l=i->a;writes=1;break;
- case BL_IR_FREE_LOCAL:case BL_IR_DELETE_LOCAL:l=i->a;reads=1;writes=1;break;
+ case BL_IR_FREE_LOCAL:case BL_IR_DELETE_LOCAL:case BL_IR_MFREE_LOCAL:l=i->a;reads=1;writes=1;break;
  default:return;
  }
  if(reads&&!has(def,l))set(use,l);
@@ -298,7 +314,7 @@ static void local_use_def(const BLIRInst *i,uint64_t *use,uint64_t *def){
 static void local_access(const BLIRInst *i,size_t *l,int *initializes){
  *l=BL_IR_NONE;*initializes=0;
  switch(i->op){
- case BL_IR_LOAD_LOCAL:case BL_IR_STORE_LOCAL:case BL_IR_FREE_LOCAL:case BL_IR_DELETE_LOCAL:*l=i->a;break;
+ case BL_IR_LOAD_LOCAL:case BL_IR_STORE_LOCAL:case BL_IR_FREE_LOCAL:case BL_IR_DELETE_LOCAL:case BL_IR_MFREE_LOCAL:*l=i->a;break;
  case BL_IR_INIT_LOCAL:*l=i->a;*initializes=1;break;
  default:break;
  }

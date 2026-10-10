@@ -1,7 +1,9 @@
 #include "../include/codegen_abi.h"
+#include "../include/native_runtime.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
 
 
 struct BPPNativeFrame {
@@ -17,6 +19,33 @@ struct BPPNativeFrame {
     const size_t *local_map;
     size_t root_count;
 };
+static const BPPNativeRuntimeHelper native_helpers[] = {
+    {"bpp_n_enter", "native emitter", "frame initialization", "none; parameter ownership uses bpp_a_clone_parameters", "cannot report language errors", "not applicable", 1},
+    {"bpp_a_clone_parameters", "legacy/unit helper", "parameter ownership initialization", "clones borrowed incoming parameters into local slots", "cannot report language errors", "C runtime sanitizer instrumentation", 1},
+    {"bpp_a_run", "legacy/unit helper", "startup; globals; process exit", "owns module result and globals", "prints one recorded runtime error", "C runtime sanitizer instrumentation", 1},
+    {"bpp_a_op", "codegen_runtime.c + runtime.c", "dynamic values; slots; indexing; release", "moves owned result into destination", "records source-located runtime errors", "C runtime sanitizer instrumentation", 0},
+    {"bpp_a_string", "codegen_runtime.c + value.c", "static-library literal fallback", "moves new owned string into destination", "allocation failure terminates host process", "C runtime sanitizer instrumentation", 0},
+    {"bpp_a_destination", "codegen_runtime.c + runtime.c", "destination object cleanup", "releases previous destination object", "cannot report language errors", "C runtime sanitizer instrumentation", 0},
+    {"bpp_a_builtin", "codegen_runtime.c + runtime.c", "builtin dispatch; allocation; output", "moves owned builtin result into destination", "records source-located runtime errors", "C runtime sanitizer instrumentation", 0},
+    {"bpp_a_leave", "native emitter", "return-value transfer", "moves selected result to the caller slot", "cannot report language errors", "not applicable", 1},
+    {"bpp_a_cleanup_frame", "legacy/unit helper", "frame root/local cleanup", "releases remaining owned roots and locals", "cannot report language errors", "C runtime sanitizer instrumentation", 1},
+    {"bpp_a_release_object", "codegen_runtime.c + value.c", "object refcount/destructor", "releases one owned object reference", "cannot report language errors", "C runtime sanitizer instrumentation", 0},
+    {"bpp_a_print_result", "codegen_runtime.c + runtime.c", "result formatting/output", "borrows completed result", "cannot report language errors", "C runtime sanitizer instrumentation", 0},
+    {"bpp_a_report_error", "codegen_runtime.c", "diagnostic output", "borrows completed error string", "cannot report language errors", "C runtime sanitizer instrumentation", 0},
+    {"bpp_a_allocate_zero", "codegen_runtime.c", "zeroed process-state allocation", "returns unowned max-align allocation", "returns null/ENOMEM; launcher terminates", "C runtime sanitizer instrumentation", 0},
+    {"bpp_a_free_memory", "codegen_runtime.c", "process-state deallocation", "consumes allocation", "cannot report language errors", "C runtime sanitizer instrumentation", 0},
+    {"bpp_a_allocation_failed", "codegen_runtime.c", "host allocation failure", "none", "terminates host process after perror", "C runtime sanitizer instrumentation", 0},
+    {"bpp_a_access", "codegen_runtime.c", "instrumented global access", "borrows frame storage", "cannot report language errors", "ASAN/TSAN hooks", 0},
+    {"bpp_a_trace_enter", "codegen_runtime.c", "procedure entry instrumentation", "none", "cannot report language errors", "TSAN hook", 0},
+    {"bpp_a_trace_exit", "codegen_runtime.c", "procedure exit instrumentation", "none", "cannot report language errors", "TSAN hook", 0},
+    {"bpp_a_arg", "native emitter", "outgoing argument cell copy", "borrows tag/payload into call area", "cannot report language errors", "not applicable", 1},
+    {"bpp_a_args", "native emitter", "outgoing argument-base lookup", "borrows frame pointer", "cannot report language errors", "not applicable", 1},
+    {"bpp_a_failed", "native emitter", "runtime-error probe", "borrows runtime pointer", "tests recorded error only", "not applicable", 1}
+};
+size_t bpp_native_runtime_helper_count(void) { return sizeof native_helpers / sizeof native_helpers[0]; }
+const BPPNativeRuntimeHelper *bpp_native_runtime_helper_at(size_t index) {
+    return index < bpp_native_runtime_helper_count() ? &native_helpers[index] : NULL;
+}
 static size_t slot(BPPNativeFrame *f,size_t r){return f->register_map?f->register_map[r]:r;}
 static size_t local_slot(BPPNativeFrame *f,size_t l){return f->local_map?f->local_map[l]:l;}
 static void *allocate(size_t n, size_t size) {
@@ -25,6 +54,13 @@ static void *allocate(size_t n, size_t size) {
 }
 BPP_HOSTCALL void bpp_a_integer(BPPNativeFrame *f, size_t dst, long long v) { bl_rt_move(&f->registers[slot(f,dst)], bl_value_int(v)); }
 BPP_HOSTCALL void bpp_a_string(BPPNativeFrame *f, size_t dst, const char *s) { bl_rt_move(&f->registers[slot(f,dst)], bl_value_string_copy(s)); }
+BPP_HOSTCALL void bpp_a_clone_parameters(BPPNativeFrame *f, const BLValue *args, size_t count) {
+    for (size_t j = 0; j < count; ++j) {
+        size_t local = local_slot(f, j);
+        f->locals[local] = bl_value_clone(args[j]);
+        f->local_initialized[local] = 1;
+    }
+}
 BPP_HOSTCALL void bpp_a_arg(BPPNativeFrame *f, size_t arg, size_t reg) { f->args[arg] = f->registers[slot(f,reg)]; }
 BPP_HOSTCALL BLValue * bpp_a_args(BPPNativeFrame *f) { return f->args; }
 BPP_HOSTCALL BLValue * bpp_a_destination(BPPNativeFrame *f, size_t r) { bl_rt_move(&f->registers[slot(f,r)], bl_value_null()); return &f->registers[slot(f,r)]; }
@@ -62,11 +98,33 @@ BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *f, size_t op, size_t dst, size_t a, s
     }
     bl_rt_move(&f->registers[slot(f,dst)], v);
 }
+BPP_HOSTCALL void bpp_a_cleanup_frame(BPPNativeFrame *f) {
+    for (size_t j = 0; j < f->root_count; ++j) bl_value_release(f->registers[j]);
+    for (size_t j = 0; j < f->local_count; ++j) bl_value_release(f->locals[j]);
+}
+BPP_HOSTCALL void bpp_a_release_object(BLObject *object) {
+    if (!object) return;
+    BLValue value = bl_value_null();
+    value.tag = BLV_OBJECT;
+    value.as.obj = object;
+    bl_value_release(value);
+}
+BPP_HOSTCALL void bpp_a_print_result(const BLValue *value) {
+    if (value) bl_rt_print_result(*value);
+}
+BPP_HOSTCALL void bpp_a_report_error(const char *error) {
+    if (error) fprintf(stderr, "%s\n", error);
+}
+BPP_HOSTCALL void *bpp_a_allocate_zero(size_t count, size_t size) {
+    if (size && count > SIZE_MAX / size) { errno = ENOMEM; return NULL; }
+    return calloc(count ? count : 1, size ? size : 1);
+}
+BPP_HOSTCALL void bpp_a_free_memory(void *memory) { free(memory); }
+BPP_HOSTCALL void bpp_a_allocation_failed(void) { perror("calloc"); exit(1); }
 BPP_HOSTCALL void bpp_a_leave(BPPNativeFrame *f, size_t reg, BLValue *out) {
     *out = reg == BL_IR_NONE ? bl_value_null() : f->registers[slot(f,reg)];
     if (reg != BL_IR_NONE) f->registers[slot(f,reg)] = bl_value_null();
-    for (size_t j = 0; j < f->root_count; ++j) bl_value_release(f->registers[j]);
-    for (size_t j = 0; j < f->local_count; ++j) bl_value_release(f->locals[j]);
+    bpp_a_cleanup_frame(f);
 }
 BPP_HOSTCALL int bpp_a_run(BPPNativeProc entry, const char *path, size_t count, int print_result) {
     BLRuntime vm = {path, NULL}; BLValue result = bl_value_null();
@@ -79,12 +137,29 @@ BPP_HOSTCALL int bpp_a_run(BPPNativeProc entry, const char *path, size_t count, 
 }
 
 _Static_assert(sizeof(BPPNativeFrame) == BPP_CG_HEADER_BYTES, "private frame header layout changed");
+_Static_assert(offsetof(BPPNativeFrame, vm) == BPP_CG_FRAME_VM_OFFSET &&
+    offsetof(BPPNativeFrame, globals) == BPP_CG_FRAME_GLOBALS_OFFSET &&
+    offsetof(BPPNativeFrame, registers) == BPP_CG_FRAME_REGISTERS_OFFSET &&
+    offsetof(BPPNativeFrame, locals) == BPP_CG_FRAME_LOCALS_OFFSET &&
+    offsetof(BPPNativeFrame, args) == BPP_CG_FRAME_ARGS_OFFSET &&
+    offsetof(BPPNativeFrame, global_initialized) == BPP_CG_FRAME_GLOBAL_INITIALIZED_OFFSET &&
+    offsetof(BPPNativeFrame, local_initialized) == BPP_CG_FRAME_LOCAL_INITIALIZED_OFFSET &&
+    offsetof(BPPNativeFrame, register_count) == BPP_CG_FRAME_REGISTER_COUNT_OFFSET &&
+    offsetof(BPPNativeFrame, local_count) == BPP_CG_FRAME_LOCAL_COUNT_OFFSET &&
+    offsetof(BPPNativeFrame, register_map) == BPP_CG_FRAME_REGISTER_MAP_OFFSET &&
+    offsetof(BPPNativeFrame, cell_count) == BPP_CG_FRAME_CELL_COUNT_OFFSET &&
+    offsetof(BPPNativeFrame, output) == BPP_CG_FRAME_OUTPUT_OFFSET,
+    "private native frame offsets changed");
 _Static_assert(offsetof(BPPNativeFrame, call_output_scratch) == BPP_CG_CALL_OUTPUT_OFFSET,
     "private call output scratch offset changed");
 _Static_assert(offsetof(BPPNativeFrame, local_map) == BPP_CG_LOCAL_MAP_OFFSET && offsetof(BPPNativeFrame, root_count) == BPP_CG_ROOT_COUNT_OFFSET,
     "private local/root metadata offsets changed");
 _Static_assert(sizeof(BLValue) == BPP_CG_VALUE_BYTES && offsetof(BLValue, tag) == 0 && offsetof(BLValue, as) == 8,
     "private value layout changed");
+_Static_assert(offsetof(BLRuntime, error) == BPP_CG_RUNTIME_ERROR_OFFSET,
+    "private runtime error offset changed");
+_Static_assert(offsetof(BLObject, ref_count) == BPP_CG_OBJECT_REF_COUNT_OFFSET,
+    "private object reference-count offset changed");
 BPP_HOSTCALL BPPNativeFrame * bpp_n_enter(BLRuntime *vm, BLValue *g, unsigned char *gi,
     const BLValue *args, const BPPNativeLayout *layout, void *storage) {
     unsigned char *base = storage;
@@ -107,7 +182,7 @@ BPP_HOSTCALL BPPNativeFrame * bpp_n_enter(BLRuntime *vm, BLValue *g, unsigned ch
     f->register_map=(layout->map_flags&BPP_LAYOUT_REGISTER_MAP)?maps:NULL;
     if(layout->map_flags&BPP_LAYOUT_REGISTER_MAP)maps+=layout->registers;
     f->local_map=(layout->map_flags&BPP_LAYOUT_LOCAL_MAP)?maps:NULL;
-    for (size_t j = 0; j < layout->params; ++j) { size_t local=local_slot(f,j);f->locals[local] = bl_value_clone(args[j]); f->local_initialized[local] = 1; }
+    bpp_a_clone_parameters(f, args, layout->params);
     return f;
 }
 

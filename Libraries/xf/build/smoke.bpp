@@ -1,0 +1,3 @@
+import library "xf";
+xf_run_string("BEGIN { print(6 * 7); }");
+return xf_version();

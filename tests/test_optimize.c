@@ -25,12 +25,12 @@ int main(void){
     assert(bl_ir_compile(&m,"overflow.bpp",&program));assert(bpp_ir_optimize(&m));assert(count(&m,BL_IR_MUL)==1);
     product.as.binary.op=TOK_SLASH;b.as.number.value=0;
     assert(bl_ir_compile(&m,"zero.bpp",&program));assert(bpp_ir_optimize(&m));assert(count(&m,BL_IR_DIV)==1);
-    BLNode zero=number(0),unused=node(AST_STRING);unused.as.string.text="unreachable";
+    BLNode zero=number(0),unused=number(99);
     BLNode unreachable=node(AST_RETURN);unreachable.as.ret_stmt.value=&unused;
     BLNode choose=node(AST_IF);choose.as.if_stmt.condition=&zero;choose.as.if_stmt.then_branch=&unreachable;choose.as.if_stmt.else_branch=&ret;
     items[0]=&choose;
     assert(bl_ir_compile(&m,"branch.bpp",&program));size_t old=m.functions[0].block_count;
-    assert(bpp_ir_optimize(&m));assert(!count(&m,BL_IR_STRING)&&!count(&m,BL_IR_BRANCH));assert(m.functions[0].block_count<old);
+    assert(bpp_ir_optimize(&m));assert(!count(&m,BL_IR_BRANCH));assert(m.functions[0].block_count<old);
     bl_ir_dispose(&m);
 
     /* Pure primitive numbering must rewrite all same-block users while
@@ -72,6 +72,30 @@ int main(void){
     assert(bpp_ir_optimize(&m));
     assert(count(&m,BL_IR_LOAD_LOCAL)==1 && count(&m,BL_IR_NOT)==0);
     assert(count(&m,BL_IR_RELEASE)==0 && count(&m,BL_IR_DIV)==1);
+    bl_ir_dispose(&m);
+
+    /* CFG cleanup threads a jump-only block, merges sole-predecessor paths,
+     * then lays out the source-order true path directly after the branch. */
+    setup_manual(&m,3,1,1);m.functions[0].param_count=1;
+    BLIRFunction *cfg=&m.functions[0];
+    free(cfg->blocks[0].insts);free(cfg->blocks);
+    cfg->block_count=cfg->block_capacity=6;cfg->blocks=calloc(6,sizeof *cfg->blocks);
+    for(size_t bidx=0;bidx<6;++bidx){cfg->blocks[bidx].count=cfg->blocks[bidx].capacity=bidx==0?2:(bidx==1||bidx==3?3:1);cfg->blocks[bidx].insts=calloc(cfg->blocks[bidx].count,sizeof *cfg->blocks[bidx].insts);}
+    cfg->blocks[0].insts[0]=ir(BL_IR_LOAD_LOCAL,0,0,BL_IR_NONE);
+    cfg->blocks[0].insts[1]=ir(BL_IR_BRANCH,BL_IR_NONE,0,3);cfg->blocks[0].insts[1].c=1;
+    cfg->blocks[1].insts[0]=ir(BL_IR_RELEASE,BL_IR_NONE,0,BL_IR_NONE);
+    cfg->blocks[1].insts[1]=ir(BL_IR_INT,2,BL_IR_NONE,BL_IR_NONE);cfg->blocks[1].insts[1].integer=12;
+    cfg->blocks[1].insts[2]=ir(BL_IR_JUMP,BL_IR_NONE,2,BL_IR_NONE);
+    cfg->blocks[2].insts[0]=ir(BL_IR_JUMP,BL_IR_NONE,5,BL_IR_NONE);
+    cfg->blocks[3].insts[0]=ir(BL_IR_RELEASE,BL_IR_NONE,0,BL_IR_NONE);
+    cfg->blocks[3].insts[1]=ir(BL_IR_INT,1,BL_IR_NONE,BL_IR_NONE);cfg->blocks[3].insts[1].integer=11;
+    cfg->blocks[3].insts[2]=ir(BL_IR_JUMP,BL_IR_NONE,4,BL_IR_NONE);
+    cfg->blocks[4].insts[0]=ir(BL_IR_RETURN,BL_IR_NONE,1,BL_IR_NONE);
+    cfg->blocks[5].insts[0]=ir(BL_IR_RETURN,BL_IR_NONE,2,BL_IR_NONE);
+    assert(bl_ir_validate(&m));assert(bpp_ir_optimize(&m));assert(bl_ir_validate(&m));
+    assert(cfg->block_count==3);assert(m.redundant_access_metrics.cfg_threaded_jumps>0);
+    assert(m.redundant_access_metrics.cfg_merged_blocks>0&&m.redundant_access_metrics.cfg_layout_moves>0);
+    for(size_t bidx=0;bidx<cfg->block_count;++bidx){BLIRInst *end=&cfg->blocks[bidx].insts[cfg->blocks[bidx].count-1];assert(end->op!=BL_IR_JUMP||cfg->blocks[end->a].count!=1||cfg->blocks[end->a].insts[0].op!=BL_IR_JUMP);}
     bl_ir_dispose(&m);
     puts("Checked folding, redundant accesses, and effect-aware DCE tests passed");return 0;
 }

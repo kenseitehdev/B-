@@ -1,0 +1,5 @@
+define proc add(left, right) {
+    return left + right;
+}
+
+return add(19, 23);

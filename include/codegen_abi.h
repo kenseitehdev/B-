@@ -1,18 +1,39 @@
 #ifndef BPP_CODEGEN_ABI_PLACEHOLDER_H
 #define BPP_CODEGEN_ABI_PLACEHOLDER_H
-#include "runtime.h"
+#include "bpp_abi.h"
 #include <stdint.h>
-/* Compiler-private placeholder, revision 2. No public library ABI guarantee.
- * Override BPP_HOSTCALL only when testing a foreign host calling convention. */
-#ifndef BPP_HOSTCALL
-#define BPP_HOSTCALL
-#endif
+/* Compiler-private frame ABI, revision 2.  BPPStaticProc is the separate,
+ * public static-library procedure boundary. */
 #define BPP_CODEGEN_ABI_REVISION 2
 #define BPP_CG_HEADER_BYTES 128u
 #define BPP_CG_VALUE_BYTES 16u
+#define BPP_CG_FRAME_VM_OFFSET 0u
+#define BPP_CG_FRAME_GLOBALS_OFFSET 8u
+#define BPP_CG_FRAME_REGISTERS_OFFSET 16u
+#define BPP_CG_FRAME_LOCALS_OFFSET 24u
+#define BPP_CG_FRAME_ARGS_OFFSET 32u
+#define BPP_CG_FRAME_GLOBAL_INITIALIZED_OFFSET 40u
+#define BPP_CG_FRAME_LOCAL_INITIALIZED_OFFSET 48u
+#define BPP_CG_FRAME_REGISTER_COUNT_OFFSET 56u
+#define BPP_CG_FRAME_LOCAL_COUNT_OFFSET 64u
 #define BPP_CG_CALL_OUTPUT_OFFSET 72u
+#define BPP_CG_FRAME_REGISTER_MAP_OFFSET 80u
+#define BPP_CG_FRAME_CELL_COUNT_OFFSET 88u
+#define BPP_CG_FRAME_OUTPUT_OFFSET 96u
+#define BPP_CG_FRAME_LOCAL_MAP_OFFSET 112u
 #define BPP_CG_LOCAL_MAP_OFFSET 112u
 #define BPP_CG_ROOT_COUNT_OFFSET 120u
+#define BPP_CG_RUNTIME_ERROR_OFFSET 8u
+/* Private object-header facts used only by the native ownership fast path.
+ * The public static ABI deliberately does not expose object internals. */
+#define BPP_CG_OBJECT_KIND_OFFSET 0u
+#define BPP_CG_OBJECT_REF_COUNT_OFFSET 4u
+#define BPP_CG_OBJECT_DATA_OFFSET 8u
+#define BPP_CG_OBJECT_SIZE_OFFSET 16u
+#define BPP_CG_OBJECT_OWNED_OFFSET 24u
+#define BPP_CG_STRING_BYTES 24u
+#define BPP_CG_BUFFER_BYTES 32u
+#define BPP_CG_ARRAY_BYTES 32u
 typedef struct BPPNativeFrame BPPNativeFrame;
 typedef struct {
     size_t value_offset, value_bytes;
@@ -26,7 +47,7 @@ typedef struct {
     size_t params, registers, locals, call_args, cells, local_slots, roots, map_flags;
 } BPPNativeLayout;
 enum { BPP_LAYOUT_REGISTER_MAP = 1u, BPP_LAYOUT_LOCAL_MAP = 2u };
-typedef void BPP_HOSTCALL (*BPPNativeProc)(BLRuntime *, BLValue *, unsigned char *, const BLValue *, BLValue *);
+typedef BPPStaticProc BPPNativeProc;
 static inline int bpp_native_frame_layout(size_t cells,size_t locals,size_t outgoing_cells,BPPNativeFrameLayout *out){
     if(!out||cells>(SIZE_MAX-BPP_CG_HEADER_BYTES)/BPP_CG_VALUE_BYTES)return 0;
     BPPNativeFrameLayout l={0};
@@ -53,6 +74,7 @@ static inline int bpp_native_stack_usage(size_t frame_bytes,size_t save_count,in
     *out=u;return 1;
 }
 BPP_HOSTCALL BPPNativeFrame *bpp_n_enter(BLRuntime *, BLValue *, unsigned char *, const BLValue *, const BPPNativeLayout *, void *);
+BPP_HOSTCALL void bpp_a_clone_parameters(BPPNativeFrame *, const BLValue *, size_t);
 BPP_HOSTCALL void bpp_a_access(BPPNativeFrame *, size_t, size_t);
 BPP_HOSTCALL void bpp_a_trace_enter(const void *);
 BPP_HOSTCALL void bpp_a_trace_exit(void);
@@ -64,6 +86,13 @@ BPP_HOSTCALL BLValue *bpp_a_args(BPPNativeFrame *);
 BPP_HOSTCALL BLValue *bpp_a_destination(BPPNativeFrame *, size_t);
 BPP_HOSTCALL void bpp_a_builtin(BPPNativeFrame *, size_t, const char *, size_t, int, int);
 BPP_HOSTCALL int bpp_a_failed(BPPNativeFrame *);
+BPP_HOSTCALL void bpp_a_cleanup_frame(BPPNativeFrame *);
+BPP_HOSTCALL void bpp_a_release_object(BLObject *);
+BPP_HOSTCALL void bpp_a_print_result(const BLValue *);
+BPP_HOSTCALL void bpp_a_report_error(const char *);
+BPP_HOSTCALL void *bpp_a_allocate_zero(size_t, size_t);
+BPP_HOSTCALL void bpp_a_free_memory(void *);
+BPP_HOSTCALL void bpp_a_allocation_failed(void);
 BPP_HOSTCALL void bpp_a_leave(BPPNativeFrame *, size_t, BLValue *);
 BPP_HOSTCALL int bpp_a_run(BPPNativeProc, const char *, size_t, int);
 #endif

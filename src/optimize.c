@@ -12,12 +12,12 @@ static int operands(const BLIRInst *i,unsigned char *used) {
     int changed=0;
 #define USE(value) do { BLIRId r_=(value); if(r_!=BL_IR_NONE&&!used[r_]) { used[r_]=1; changed=1; } } while(0)
     switch(i->op) {
-    case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_RELEASE:USE(i->a);
+    case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_RELEASE:case BL_IR_MALLOC:case BL_IR_PRINT_BYTE:USE(i->a);
     break;
     case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
     case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:
-    case BL_IR_INDEX_GET:case BL_IR_INDEX_SET:USE(i->a);USE(i->b);
-    if(i->op==BL_IR_INDEX_SET)USE(i->c);
+    case BL_IR_INDEX_GET:case BL_IR_INDEX_SET:case BL_IR_BYTE_LOAD:case BL_IR_BYTE_STORE:case BL_IR_REMALLOC:case BL_IR_PRINT_RANGE:USE(i->a);USE(i->b);
+    if(i->op==BL_IR_INDEX_SET||i->op==BL_IR_BYTE_STORE)USE(i->c);
     break;
     case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:case BL_IR_STORE_LOCAL:case BL_IR_STORE_GLOBAL:USE(i->b);
     break;
@@ -37,7 +37,7 @@ static int dce_produces_primitive(BLIROp op) {
     case BL_IR_NULL: case BL_IR_INT: case BL_IR_NEG: case BL_IR_SUB:
     case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD: case BL_IR_NOT:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE:
-    case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET:
+    case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET: case BL_IR_BYTE_LOAD:
         return 1;
     default:
         return 0;
@@ -67,10 +67,10 @@ static void rewrite_uses(BLIRInst *i, const BLIRId *map, size_t n) {
 #define REP(field) do { if (i->field != BL_IR_NONE) i->field = representative(map, n, i->field); } while (0)
     switch (i->op) {
     case BL_IR_INIT_LOCAL: case BL_IR_STORE_LOCAL: case BL_IR_INIT_GLOBAL: case BL_IR_STORE_GLOBAL: REP(b); break;
-    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: REP(a); break;
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: case BL_IR_MALLOC: case BL_IR_PRINT_BYTE: REP(a); break;
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
-    case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET: REP(a); REP(b); break;
-    case BL_IR_INDEX_SET: REP(a); REP(b); REP(c); break;
+    case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET: case BL_IR_BYTE_LOAD: case BL_IR_REMALLOC: case BL_IR_PRINT_RANGE: REP(a); REP(b); break;
+    case BL_IR_INDEX_SET: case BL_IR_BYTE_STORE: REP(a); REP(b); REP(c); break;
     case BL_IR_CALL: for (size_t j = 0; j < i->arg_count; ++j) i->args[j] = representative(map, n, i->args[j]); break;
     default: break;
     }
@@ -125,20 +125,21 @@ static void mark_cross_block_uses(const BLIRInst *i, size_t block,
 #define MARK(field) do { BLIRId r_ = i->field; if (r_ != BL_IR_NONE && r_ < n && definition_block[r_] != block) cross_block[r_] = 1; } while (0)
     switch (i->op) {
     case BL_IR_INIT_LOCAL: case BL_IR_STORE_LOCAL: case BL_IR_INIT_GLOBAL: case BL_IR_STORE_GLOBAL: MARK(b); break;
-    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: MARK(a); break;
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: case BL_IR_MALLOC: case BL_IR_PRINT_BYTE: MARK(a); break;
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
-    case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET: MARK(a); MARK(b); break;
-    case BL_IR_INDEX_SET: MARK(a); MARK(b); MARK(c); break;
+    case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET: case BL_IR_BYTE_LOAD: case BL_IR_REMALLOC: case BL_IR_PRINT_RANGE: MARK(a); MARK(b); break;
+    case BL_IR_INDEX_SET: case BL_IR_BYTE_STORE: MARK(a); MARK(b); MARK(c); break;
     case BL_IR_CALL: for (size_t j = 0; j < i->arg_count; ++j) { BLIRId r_ = i->args[j]; if (r_ != BL_IR_NONE && r_ < n && definition_block[r_] != block) cross_block[r_] = 1; } break;
     default: break;
     }
 #undef MARK
 }
 
-/* A deliberately local forwarding pass.  It only forwards exact primitive
- * integers after their required source check has executed.  Object loads keep
- * clone/release semantics, and debug or sanitizer builds retain all source
- * accesses so hooks and stepping remain observable. */
+/* A deliberately local forwarding pass. It only forwards exact primitive
+ * integers after their required source check has executed. Object loads keep
+ * clone/release semantics. Debug output retains all source accesses; native
+ * sanitizer hooks make globals observable, but local scalar accesses do not
+ * have a hook and may still be safely folded. */
 static int eliminate_redundant_accesses(BLIRModule *m, BLIRFunction *fn) {
     const size_t n = fn->register_count, slots = fn->local_count + m->global_count;
     if (slots < fn->local_count) return 0;
@@ -162,7 +163,7 @@ static int eliminate_redundant_accesses(BLIRModule *m, BLIRFunction *fn) {
     for (size_t b = 0; b < fn->block_count; ++b)
         for (size_t k = 0; k < fn->blocks[b].count; ++k)
             mark_cross_block_uses(&fn->blocks[b].insts[k], b, definition_block, cross_block, n);
-    const int access_elision = !m->instrument_native && !m->preserve_access_observability;
+    const int access_elision = !m->preserve_access_observability;
     for (size_t block_index = 0; block_index < fn->block_count; ++block_index) {
         BLIRBlock *block = &fn->blocks[block_index];
         drop = calloc(block->count ? block->count : 1, 1);
@@ -246,6 +247,190 @@ static int eliminate_redundant_accesses(BLIRModule *m, BLIRFunction *fn) {
     free(map); free(known); free(slot_known); free(slot_initialized); free(cross_block); free(definition_block); free(values); free(slot_values); free(numbers);
     return 1;
 }
+
+static BLIRInst *cfg_end(BLIRFunction *fn, size_t block) {
+    BLIRBlock *value = &fn->blocks[block];
+    return value->count ? &value->insts[value->count - 1] : NULL;
+}
+
+static size_t cfg_resolve_jump(const BLIRFunction *fn, size_t block) {
+    size_t current = block;
+    for (size_t hops = 0; hops < fn->block_count; ++hops) {
+        const BLIRBlock *candidate = &fn->blocks[current];
+        if (candidate->count != 1 || candidate->insts[0].op != BL_IR_JUMP ||
+            candidate->insts[0].a == current) break;
+        current = candidate->insts[0].a;
+    }
+    return current;
+}
+
+static int cfg_thread_jumps(BLIRFunction *fn, BPPIROptMetrics *metrics) {
+    int changed = 0;
+    for (size_t block = 0; block < fn->block_count; ++block) {
+        BLIRInst *end = cfg_end(fn, block);
+        if (!end) continue;
+        if (end->op == BL_IR_JUMP) {
+            size_t target = cfg_resolve_jump(fn, end->a);
+            if (target != end->a) { end->a = target; ++metrics->cfg_threaded_jumps; changed = 1; }
+        } else if (end->op == BL_IR_BRANCH) {
+            size_t yes = cfg_resolve_jump(fn, end->b), no = cfg_resolve_jump(fn, end->c);
+            if (yes != end->b) { end->b = yes; ++metrics->cfg_threaded_jumps; changed = 1; }
+            if (no != end->c) { end->c = no; ++metrics->cfg_threaded_jumps; changed = 1; }
+            if (end->b == end->c) {
+                /* Keep the condition's later release in the common successor;
+                 * only the transfer itself becomes unconditional. */
+                end->op = BL_IR_JUMP;
+                end->a = end->b;
+                end->b = end->c = BL_IR_NONE;
+                changed = 1;
+            }
+        }
+    }
+    return changed;
+}
+
+static int cfg_compact_reachable(BLIRModule *m, BLIRFunction *fn) {
+    unsigned char *reachable = calloc(fn->block_count ? fn->block_count : 1, 1);
+    size_t *map = calloc(fn->block_count ? fn->block_count : 1, sizeof *map);
+    size_t *queue = calloc(fn->block_count ? fn->block_count : 1, sizeof *queue);
+    if (!reachable || !map || !queue) { free(reachable); free(map); free(queue); return -1; }
+    size_t head = 0, tail = 0;
+    reachable[0] = 1; queue[tail++] = 0;
+    while (head < tail) {
+        BLIRInst *end = cfg_end(fn, queue[head++]);
+        size_t successors[2] = {BL_IR_NONE, BL_IR_NONE};
+        if (end->op == BL_IR_JUMP) successors[0] = end->a;
+        else if (end->op == BL_IR_BRANCH) { successors[0] = end->b; successors[1] = end->c; }
+        for (size_t edge = 0; edge < 2; ++edge)
+            if (successors[edge] != BL_IR_NONE && !reachable[successors[edge]]) {
+                reachable[successors[edge]] = 1; queue[tail++] = successors[edge];
+            }
+    }
+    size_t kept = 0;
+    for (size_t block = 0; block < fn->block_count; ++block) if (reachable[block]) map[block] = kept++;
+    if (kept == fn->block_count) { free(reachable); free(map); free(queue); return 0; }
+    size_t output = 0;
+    for (size_t block = 0; block < fn->block_count; ++block) {
+        BLIRBlock value = fn->blocks[block];
+        if (!reachable[block]) {
+            for (size_t k = 0; k < value.count; ++k) { free(value.insts[k].text); free(value.insts[k].args); }
+            free(value.insts);
+            ++m->redundant_access_metrics.cfg_removed_blocks;
+            continue;
+        }
+        fn->blocks[output++] = value;
+    }
+    fn->block_count = kept;
+    for (size_t block = 0; block < kept; ++block) {
+        BLIRInst *end = cfg_end(fn, block);
+        if (end->op == BL_IR_JUMP) end->a = map[end->a];
+        else if (end->op == BL_IR_BRANCH) { end->b = map[end->b]; end->c = map[end->c]; }
+    }
+    free(reachable); free(map); free(queue);
+    return 1;
+}
+
+static int cfg_merge_one(BLIRModule *m, BLIRFunction *fn) {
+    size_t *predecessors = calloc(fn->block_count ? fn->block_count : 1, sizeof *predecessors);
+    if (!predecessors) return -1;
+    for (size_t block = 0; block < fn->block_count; ++block) {
+        BLIRInst *end = cfg_end(fn, block);
+        if (end->op == BL_IR_JUMP) ++predecessors[end->a];
+        else if (end->op == BL_IR_BRANCH) { ++predecessors[end->b]; ++predecessors[end->c]; }
+    }
+    for (size_t block = 0; block < fn->block_count; ++block) {
+        BLIRBlock *from = &fn->blocks[block];
+        BLIRInst *end = cfg_end(fn, block);
+        if (end->op != BL_IR_JUMP || end->a == block || predecessors[end->a] != 1) continue;
+        BLIRBlock *to = &fn->blocks[end->a];
+        size_t retained = from->count - 1;
+        if (to->count > SIZE_MAX - retained || to->count + retained > SIZE_MAX / sizeof *from->insts) { free(predecessors); return -1; }
+        BLIRInst *joined = realloc(from->insts, (retained + to->count) * sizeof *joined);
+        if (!joined && retained + to->count) { free(predecessors); return -1; }
+        from->insts = joined;
+        memcpy(from->insts + retained, to->insts, to->count * sizeof *to->insts);
+        from->count = retained + to->count;
+        from->capacity = from->count;
+        free(to->insts); to->insts = NULL; to->count = to->capacity = 0;
+        ++m->redundant_access_metrics.cfg_merged_blocks;
+        free(predecessors);
+        return 1;
+    }
+    free(predecessors);
+    return 0;
+}
+
+static size_t cfg_preferred_successor(const BLIRFunction *fn, size_t block) {
+    const BLIRInst *end = cfg_end((BLIRFunction *)fn, block);
+    if (end->op == BL_IR_JUMP) return end->a;
+    if (end->op != BL_IR_BRANCH) return BL_IR_NONE;
+    /* A backwards target is the static loop-hot edge. Otherwise retain the
+     * source-order true edge, which is the language's normal then/body path. */
+    if (end->b <= block && end->c > block) return end->b;
+    if (end->c <= block && end->b > block) return end->c;
+    return end->b;
+}
+
+static int cfg_layout_traces(BLIRModule *m, BLIRFunction *fn) {
+    if (fn->block_count < 2) return 0;
+    unsigned char *placed = calloc(fn->block_count, 1);
+    size_t *order = calloc(fn->block_count, sizeof *order), *map = calloc(fn->block_count, sizeof *map);
+    BLIRBlock *reordered = calloc(fn->block_count, sizeof *reordered);
+    if (!placed || !order || !map || !reordered) { free(placed); free(order); free(map); free(reordered); return -1; }
+    order[0] = 0; placed[0] = 1;
+    for (size_t position = 1; position < fn->block_count; ++position) {
+        size_t previous = order[position - 1], next = cfg_preferred_successor(fn, previous);
+        if (next == BL_IR_NONE || placed[next]) {
+            next = BL_IR_NONE;
+            for (size_t candidate = 0; candidate < fn->block_count && next == BL_IR_NONE; ++candidate) if (!placed[candidate]) {
+                for (size_t pred = 0; pred < fn->block_count; ++pred) if (placed[pred]) {
+                    BLIRInst *end = cfg_end(fn, pred);
+                    if ((end->op == BL_IR_JUMP && end->a == candidate) ||
+                        (end->op == BL_IR_BRANCH && (end->b == candidate || end->c == candidate))) { next = candidate; break; }
+                }
+            }
+            if (next == BL_IR_NONE) for (size_t candidate = 0; candidate < fn->block_count; ++candidate) if (!placed[candidate]) { next = candidate; break; }
+        }
+        order[position] = next; placed[next] = 1;
+    }
+    int changed = 0;
+    for (size_t position = 0; position < fn->block_count; ++position) { map[order[position]] = position; changed |= order[position] != position; }
+    if (changed) {
+        for (size_t old = 0; old < fn->block_count; ++old) reordered[map[old]] = fn->blocks[old];
+        for (size_t block = 0; block < fn->block_count; ++block) {
+            BLIRInst *end = reordered[block].count ? &reordered[block].insts[reordered[block].count - 1] : NULL;
+            if (end->op == BL_IR_JUMP) end->a = map[end->a];
+            else if (end->op == BL_IR_BRANCH) { end->b = map[end->b]; end->c = map[end->c]; }
+        }
+        free(fn->blocks); fn->blocks = reordered; reordered = NULL;
+        ++m->redundant_access_metrics.cfg_layout_moves;
+    }
+    free(placed); free(order); free(map); free(reordered);
+    return changed;
+}
+
+static int cfg_optimize(BLIRModule *m, BLIRFunction *fn) {
+    for (size_t round = 0; round <= fn->block_count; ++round) {
+        int changed = cfg_thread_jumps(fn, &m->redundant_access_metrics);
+        int compacted = cfg_compact_reachable(m, fn);
+        if (compacted < 0) return 0;
+        int merged = cfg_merge_one(m, fn);
+        if (merged < 0) return 0;
+        /* A merged successor has no remaining predecessor, so compact it
+         * before validating: every observable intermediate stays valid IR. */
+        if (merged) {
+            int post_merge_compacted = cfg_compact_reachable(m, fn);
+            if (post_merge_compacted < 0) return 0;
+            compacted |= post_merge_compacted;
+        }
+        if (!bl_ir_validate_pass(m, "optimizer CFG simplify")) return 0;
+        if (!changed && !compacted && !merged) break;
+    }
+    int laid_out = cfg_layout_traces(m, fn);
+    if (laid_out < 0) return 0;
+    return bl_ir_validate_pass(m, "optimizer CFG layout");
+}
+
 int bpp_ir_optimize(BLIRModule *m) {
     if(!bl_ir_validate_pass(m,"optimizer input"))return 0;
     memset(&m->redundant_access_metrics,0,sizeof m->redundant_access_metrics);
@@ -324,8 +509,15 @@ int bpp_ir_optimize(BLIRModule *m) {
             return 0;
         }
         if(!bl_ir_validate_pass(m,"optimizer function folding and CFG cleanup"))return 0;
+        if(!cfg_optimize(m,fn)) {
+            if (!m->error[0]) snprintf(m->error,sizeof m->error,"%s: optimizer CFG pass allocation failed in function '%s'",m->path?m->path:"<input>",fn->name?fn->name:"<module>");
+            return 0;
+        }
     }
     if(!bl_ir_validate_pass(m,"optimizer before unreachable-procedure elimination"))return 0;
+    /* A static-library assembly unit exports every named procedure.  Its
+     * roots are external archive consumers rather than calls from module 0. */
+    if(m->emit_library)return bl_ir_validate_pass(m,"optimizer library export retention");
     /* Native procedures are private; retain only those reachable from module entry. */
     unsigned char *reachable=calloc(m->function_count,1);
     size_t *map=calloc(m->function_count,sizeof *map);

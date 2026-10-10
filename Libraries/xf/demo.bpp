@@ -1,0 +1,5 @@
+import library "xf";
+new String version = xf_version();
+println(version);
+xf_run_string("BEGIN { print(6 * 7); }");
+return 0;
