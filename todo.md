@@ -297,28 +297,28 @@ Current evidence: hosted macOS ARM64 release, ASAN/UBSAN and TSAN pass; Linux Cl
 
 Priority carryover:
 
-- [ ] Add AND, OR, XOR and bitwise NOT at the end of 1.0.16, with parser/IR/optimizer/native/static-ABI coverage.
-- [ ] Define and implement TAU (`=>`) from the supplied table/equations, including fractional uncertainty/error propagation across all Boolean results and conditions. Accepted: `a => b = sign(b-a)`, signed truth in [-1,1], logical AND=min/OR=max/NOT=negation/XOR=max(min(a,-b),min(-a,b)), and conditions that threshold transition velocity rather than final state. Binary64 state representation, explicit velocity thresholds and retained error provenance are implemented with ABI 2.0/runtime revision 3; see `docs/truth-and-tau.md`.
+- [x] Add AND, OR, XOR and bitwise NOT at the end of 1.0.16, with parser/IR/optimizer/native/static-ABI coverage.
+- [x] Define and implement TAU (`=>`) from the supplied table/equations, including fractional uncertainty/error propagation across all Boolean results and conditions. Accepted: `a => b = sign(b-a)`, signed truth in [-1,1], logical AND=min/OR=max/NOT=negation/XOR=max(min(a,-b),min(-a,b)), and conditions that threshold transition velocity rather than final state. Binary64 state representation, explicit velocity thresholds and retained error provenance are implemented with ABI 2.0/runtime revision 3; see `docs/truth-and-tau.md`.
 
 - [ ] Finish Linux ELF metadata and native GDB verification on x86-64/ARM64, including source stepping, imported recursion, variable values and unwinding. Validate the extra DWARF-terminator fix, readelf formatting checks and x86 callback trap-flag masking on matching runners.
 - [ ] Finish Windows x86-64 native portable sanitizer checks, CodeView/PDB inspection, LLDB stepping/variable values and SEH/stack-probe execution. Validate Windows temp/import paths, executable suffix handling, and ELF-only inspection guards.
 - [ ] Resolve unusually long GCC debug/TSAN jobs on both Linux architectures; retain toolchain/runtime probes and complete native intentional-fault/differential execution. Keep unsupported sanitizer combinations explicit.
 - [ ] Verify existing static linking and ABI v2 on each native runner: separately compiled archive producers/consumers, transitive dependencies and archive order, exports/arity, manifest/archive identity, and incompatible ABI/target rejection. Retain `check-static-abi` evidence alongside native executable tests.
 - [ ] Complete the final Clang/GCC/OS/architecture matrix with exact compiler revisions and retained transcripts; rerun Linux/Clang MSAN after the final verification fixes. Cross-assembly alone does not satisfy execution gates.
-- [ ] Keep CI runs bounded, cancel superseded runs and avoid duplicate push/PR verification jobs; remove invalid AppleDouble workflow metadata from the repository.
+- [x] Keep CI runs bounded, cancel superseded runs and avoid duplicate push/PR verification jobs; remove invalid AppleDouble workflow metadata from the repository.
 
 - [ ] Run all tests on every supported native OS/architecture; cross-assembly is a separate gate.
 - [x] Retire the temporary C backend at 1.0.15. Native modes compare fixed stdout/return expectations and independent seeded results; intentional-fault fixtures compare source location, category and exit behavior in both optimization modes.
-- [ ] Extend deterministic randomized programs across arithmetic, branch, loop, call, recursion, string, buffer, array and error behavior.
-- [ ] Add seed reporting and save the smallest reproducer for every generated failure.
-- [ ] Add deep recursion, stack exhaustion, many parameters, high live-value pressure, many locals, huge block count, large text section, and frame-probe boundary tests.
-- [ ] Test both optimized and `--no-opt` native modes for every fixture.
+- [x] Extend deterministic randomized programs across supported arithmetic, branches, loops, calls, recursion and byte buffers; independently verify state/error propagation and reject unsupported runtime string/array source constructs.
+- [x] Add seed reporting and save the smallest reproducer for every generated failure.
+- [x] Add deep recursion, stack exhaustion, many parameters, high live-value pressure, many locals, huge block count, large text section, and frame-probe boundary tests.
+- [x] Test both optimized and `--no-opt` native modes for every fixture.
 - [ ] Test debug metadata builds and sanitizer builds separately from release.
 - [ ] Run the Linux/Clang MSAN job and retain its transcript; do not report MSAN as a macOS/Windows sanitizer mode or as full hand-emitted-assembly instrumentation.
 - [ ] Run native CI on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64 and retain logs/artifacts.
-- [ ] Add compiler warning-as-error builds on Clang and GCC-compatible toolchains where supported.
-- [ ] Fuzz lexer/parser/IR validator/optimizer/emitter with resource limits and sanitizer builds.
-- [ ] Test reproducible assembly/object output or document nondeterministic fields.
+- [x] Add compiler warning-as-error builds on Clang and GCC-compatible toolchains where supported.
+- [x] Fuzz lexer/parser/IR validator/optimizer/emitter with resource limits and sanitizer builds.
+- [x] Test reproducible assembly/object output or document nondeterministic fields.
 - [ ] Gate a target release on its native runtime suite, ABI conformance, unwind, debug, and supported sanitizer checks.
 
 ### 17. Bake build tooling, static linking and performance

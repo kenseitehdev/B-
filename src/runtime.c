@@ -55,6 +55,22 @@ static BLValue bl_runtime_error(BLRuntime *vm, BLSite *node, const char *fmt, ..
     return bl_value_null();
 }
 
+static BLValue state_runtime_error(BLRuntime *vm,BLSite *site,const char *message,BPPStateContext input){
+    BLValue result=bl_runtime_error(vm,site,"%s",message);
+    BLState *state=bl_value_as_state(result);
+    if(state){
+        state->state.context.faults|=input.faults;
+        state->state.context.start=input.start;
+        state->state.context.end=input.end;
+        state->state.context.dt=input.dt;
+        state->state.context.origin_start=input.faults?input.origin_start:input.start;
+        state->state.context.origin_end=input.faults?input.origin_end:input.end;
+        state->state.context.origin_dt=input.faults?input.origin_dt:input.dt;
+        recent_context=state->state.context;
+    }
+    return result;
+}
+
 void bl_rt_bridge_error(BLRuntime *vm,const char *message){BLSite site={1,1,0};bl_value_release(bl_runtime_error(vm,&site,"%s",message?message:"static bridge error"));}
 static int bl_value_require_int(BLRuntime *vm, BLSite *node, BLValue value, const char *context, long long *out) {
     if (value.tag != BLV_INT) {
@@ -476,13 +492,13 @@ BLValue bl_rt_binary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a, BLValue 
     if(op==BL_IR_ADD&&a.tag==BLV_INT&&bl_value_is_buffer(b))return native_offset(vm,site,b,a.as.i);
     if(bl_value_as_state(a)||bl_value_as_state(b)){
         BPPStateValue x,y;if(!state_number(a,&x)||!state_number(b,&y))return bl_runtime_error(vm,site,"numeric operation requires numbers");
-        BPPStateValue r=x.context.faults?x:y;r.context.faults=x.context.faults|y.context.faults;
+        BPPStateValue r=x.context.faults?x:y.context.faults?y:x;r.context.faults=x.context.faults|y.context.faults;
         switch(op){case BL_IR_ADD:r.value=x.value+y.value;break;case BL_IR_SUB:r.value=x.value-y.value;break;case BL_IR_MUL:r.value=x.value*y.value;break;
-        case BL_IR_DIV:if(y.value==0)return bl_runtime_error(vm,site,"division by zero");r.value=x.value/y.value;break;
+        case BL_IR_DIV:if(y.value==0)return state_runtime_error(vm,site,"division by zero",r.context);r.value=x.value/y.value;break;
         case BL_IR_EQ:r.value=x.value==y.value?1:-1;break;case BL_IR_NE:r.value=x.value!=y.value?1:-1;break;
         case BL_IR_LT:r.value=x.value<y.value?1:-1;break;case BL_IR_LE:r.value=x.value<=y.value?1:-1;break;case BL_IR_GT:r.value=x.value>y.value?1:-1;break;case BL_IR_GE:r.value=x.value>=y.value?1:-1;break;
-        default:return bl_runtime_error(vm,site,"bitwise/remainder operation requires integers");}
-        if(!isfinite(r.value))return bl_runtime_error(vm,site,"nonfinite numeric result");
+        default:return state_runtime_error(vm,site,"bitwise/remainder operation requires integers",r.context);}
+        if(!isfinite(r.value))return state_runtime_error(vm,site,"nonfinite numeric result",r.context);
         return state_result(r,a,b);
     }
     if (op == BL_IR_EQ || op == BL_IR_NE) {
