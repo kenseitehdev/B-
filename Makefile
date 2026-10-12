@@ -3,9 +3,9 @@ LLVM_PREFIX ?= /opt/homebrew/opt/llvm/bin
 UNAME_S := $(shell uname -s)
 ifeq ($(origin CC),default)
 CC := clang
-endif
 ifneq ($(wildcard $(LLVM_PREFIX)/clang),)
 CC := $(LLVM_PREFIX)/clang
+endif
 endif
 BUILD_MODE ?= debug
 ifeq ($(UNAME_S),Darwin)
@@ -58,11 +58,18 @@ EXE :=
 PROJECT_DIR := $(CURDIR)
 endif
 BIN := bin/$(BUILD_MODE)/bpp$(EXE)
-SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/range.c src/optimize.c src/emit_x64.c src/raw_native.c src/locations.c src/value_facts.c src/strict_runtime.c
+SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/range.c src/optimize.c src/emit_x64.c src/raw_native.c src/locations.c src/value_facts.c src/strict_runtime.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
-.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
+.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-native-sanitizer check-native-checks check-sanitizer-availability check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
 RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o
+NATIVE_SANITIZER_OBJ := $(OBJDIR)/src/native_sanitizer.o
+DEPS += $(NATIVE_SANITIZER_OBJ:.o=.d)
+ifeq ($(BUILD_MODE),msan)
+# Assembly cannot populate Clang's parameter/return TLS shadow. The portable
+# byte-definedness map checks native values; retain MSAN for C memory accesses.
+$(NATIVE_SANITIZER_OBJ): CFLAGS += -fno-sanitize-memory-param-retval
+endif
 TEST_SANITIZER_ENV := BPP_TEST_SANITIZED=$(if $(strip $(SANITIZERS)),1,0)
 DEBUGGER_TEST_ENV :=
 ifneq ($(BUILD_MODE),debug)
@@ -77,11 +84,11 @@ msan:
 	$(MAKE) BUILD_MODE=msan all
 release:
 	$(MAKE) BUILD_MODE=release all
-$(OBJDIR)/src/main.o: CPPFLAGS += '-DBPP_PROJECT_DIR="$(PROJECT_DIR)"' '-DBPP_HOST_CC="$(CC)"' '-DBPP_SANITIZERS="$(SANITIZERS)"' '-DBPP_OPTIMIZATION="$(OPT)"' '-DBPP_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/runtime.o"' '-DBPP_VALUE_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/value.o"' '-DBPP_NATIVE_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/codegen_runtime.o"' '-DBPP_STATIC_ABI_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/bpp_abi.o"'
+$(OBJDIR)/src/main.o: CPPFLAGS += '-DBPP_PROJECT_DIR="$(PROJECT_DIR)"' '-DBPP_HOST_CC="$(CC)"' '-DBPP_SANITIZERS="$(SANITIZERS)"' '-DBPP_OPTIMIZATION="$(OPT)"' '-DBPP_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/runtime.o"' '-DBPP_VALUE_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/value.o"' '-DBPP_NATIVE_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/codegen_runtime.o"' '-DBPP_NATIVE_SANITIZER_OBJECT="$(PROJECT_DIR)/$(NATIVE_SANITIZER_OBJ)"' '-DBPP_STATIC_ABI_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/bpp_abi.o"'
 $(OBJDIR)/%.o: %.c Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -MMD -MP -c "$<" -o "$@"
-$(BIN): $(OBJS) $(RUNTIME_OBJS)
+$(BIN): $(OBJS) $(RUNTIME_OBJS) $(NATIVE_SANITIZER_OBJ)
 	mkdir -p "$(@D)"
 	$(CC) $(LDFLAGS) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -o "$@" $(OBJS) $(LDLIBS)
 check-native: $(BIN)
@@ -96,6 +103,14 @@ check-xf-static-lib: $(BIN)
 	$(MAKE) -C Libraries/xf BPP_ROOT="$(CURDIR)" test
 check-runtime-boundary: $(BIN) tests/check_native_runtime_boundary.sh tests/native_runtime_boundary.bpp
 	sh tests/check_native_runtime_boundary.sh ./$(BIN)
+check-native-checks: $(BIN) $(OBJDIR)/test_raw_sanitizer$(EXE)
+	BPP_TEST_SANITIZED=1 BPP_NATIVE_CHECKS=1 sh tests/check_native_sanitizer.sh ./$(BIN) ./$(OBJDIR)/test_raw_sanitizer$(EXE)
+check-sanitizer-availability:
+	sh tests/check_sanitizer_availability.sh "$(CC)"
+check-native-sanitizer: $(BIN) $(OBJDIR)/test_raw_sanitizer$(EXE)
+	$(TEST_SANITIZER_ENV) sh tests/check_native_sanitizer.sh ./$(BIN) ./$(OBJDIR)/test_raw_sanitizer$(EXE)
+$(OBJDIR)/test_raw_sanitizer$(EXE): tests/test_raw_sanitizer.c $(NATIVE_SANITIZER_OBJ) include/native_sanitizer.h Makefile
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_raw_sanitizer.c $(NATIVE_SANITIZER_OBJ) -o "$@"
 check-raw-core: $(BIN) tests/check_raw_core.sh tests/raw_core.bpp
 	sh tests/check_raw_core.sh ./$(BIN)
 check-debug-metadata: $(BIN) tests/check_debug_metadata.sh
@@ -120,7 +135,7 @@ check-asan-hook: $(OBJDIR)/test_native_sanitizer$(EXE)
 	sh tests/check_asan_hook.sh ./$(OBJDIR)/test_native_sanitizer$(EXE)
 check-msan: $(OBJDIR)/test_msan$(EXE)
 	sh tests/check_msan.sh ./$(OBJDIR)/test_msan$(EXE)
-test: check check-native check-strict-native-runtime
+test: check check-native check-strict-native-runtime check-native-sanitizer
 ifeq ($(BUILD_MODE),msan)
 test: check-msan
 endif
@@ -135,7 +150,7 @@ check: $(BIN) $(OBJDIR)/test_ir$(EXE) $(OBJDIR)/test_codegen_runtime$(EXE) $(OBJ
 	./$(OBJDIR)/test_isel$(EXE)
 	./$(OBJDIR)/test_ranges$(EXE)
 	sh tests/check_native_runtime_boundary.sh ./$(BIN)
-	sh tests/check_debug_metadata.sh ./$(BIN)
+	$(DEBUGGER_TEST_ENV) sh tests/check_debug_metadata.sh ./$(BIN)
 	$(TEST_SANITIZER_ENV) sh tests/run_tests.sh ./$(BIN)
 $(OBJDIR)/test_regalloc$(EXE): tests/test_regalloc.c src/regalloc.c src/registers.c include/regalloc.h include/target.h include/ir.h Makefile
 	mkdir -p "$(@D)"

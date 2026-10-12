@@ -36,6 +36,9 @@
 #ifndef BPP_HOST_CC
 #define BPP_HOST_CC "cc"
 #endif
+#ifndef BPP_NATIVE_SANITIZER_OBJECT
+#define BPP_NATIVE_SANITIZER_OBJECT "build/debug/obj/src/native_sanitizer.o"
+#endif
 #ifndef BPP_SANITIZERS
 #define BPP_SANITIZERS ""
 #endif
@@ -43,7 +46,7 @@
 #define BPP_OPTIMIZATION "-O2"
 #endif
 static void usage(const char *name) {
-    fprintf(stderr, "usage: %s [--check | --emit-ir | --emit-c | --emit-asm | --emit-map | --emit-link-map | --emit-library-manifest] [--print-result] [--backend c|native|arm64|x86_64] [--target TARGET] [-L directory] [--alloc-profile FILE] [--no-opt] [--debug-info] [--asm-comments] [--strict-native-runtime] [--emit-library --library-name NAME] [-o output] [file.bpp]\n       %s --list-targets | --target-info TARGET\n\nWith no source path, B++ compiles ./main.bpp and requires define proc main().\n", name,name);
+    fprintf(stderr, "usage: %s [--check | --emit-ir | --emit-asm | --emit-map | --emit-link-map | --emit-library-manifest] [--print-result] [--backend native|arm64|x86_64] [--target TARGET] [-L directory] [--alloc-profile FILE] [--no-opt] [--debug-info] [--asm-comments] [--strict-native-runtime] [--native-sanitizers] [--emit-library --library-name NAME] [-o output] [file.bpp]\n       %s --list-targets | --target-info TARGET\n\nWith no source path, B++ compiles ./main.bpp and requires define proc main().\n", name,name);
 }
 static const char *format_name(BPPObjectFormat f){return f==BPP_FORMAT_MACHO?"macho":f==BPP_FORMAT_ELF?"elf":"coff";}
 static const char *isa_name(BPPISA i){return i==BPP_ISA_ARM64?"arm64":"x86_64";}
@@ -130,15 +133,18 @@ static char *library_archive_path(const char *manifest_output, const char *name)
 #else
 #define BPP_DEFAULT_OUTPUT "a.out"
 #endif
-static int native_compile(const char *temp, const char *output, int native, BPPTarget target, int object, int debug, const BLIRModule *module) {
+static int native_compile(const char *temp, const char *output, BPPTarget target, int object, int debug, const BLIRModule *module) {
     const char *cc = getenv("BPP_CC"); if (!cc || !*cc) cc = BPP_HOST_CC;
-    char include_path[] = "-I" BPP_PROJECT_DIR "/include";
     char runtime_path[] = BPP_RUNTIME_OBJECT;
     char value_path[] = BPP_VALUE_OBJECT;
     char sanitizer_flag[] = "-fsanitize=" BPP_SANITIZERS;
     int msan = strcmp(BPP_SANITIZERS, "memory") == 0;
     const BPPBackendCapabilities *cap=bpp_target_capabilities(target);
-    int macho_debug=native&&!object&&debug&&cap&&cap->format==BPP_FORMAT_MACHO;
+    int macho_debug=!object&&debug&&cap&&cap->format==BPP_FORMAT_MACHO;
+    int coff_debug=!object&&debug&&cap&&cap->format==BPP_FORMAT_COFF;
+    char pdb_flag[4096];
+    if(coff_debug){int length=snprintf(pdb_flag,sizeof pdb_flag,"-Wl,--pdb=%s.pdb",output);
+        if(length<0||(size_t)length>=sizeof pdb_flag){fputs("B++: PDB output path is too long\n",stderr);return 0;}}
     char object_temp[4096],dsym_path[4096];
     if(macho_debug){
         int object_length=snprintf(object_temp,sizeof object_temp,"%s.o",temp);
@@ -162,38 +168,44 @@ static int native_compile(const char *temp, const char *output, int native, BPPT
         if(!run_command(command)){free(command);unlink(object_temp);return 0;}
         n=0;
     }
-    command[n++] = (char *)cc; if (!native) command[n++] = "-std=c11";
+    command[n++] = (char *)cc;
+    if(coff_debug){command[n++]="-fuse-ld=lld";command[n++]=pdb_flag;}
     if(!macho_debug)command[n++] = BPP_OPTIMIZATION;
     if (BPP_SANITIZERS[0]) {
         command[n++] = sanitizer_flag; command[n++] = "-g";
-        if(!native){command[n++] = "-fno-omit-frame-pointer"; command[n++] = "-fno-sanitize-recover=undefined";}
     }
     if(debug&&!BPP_SANITIZERS[0])command[n++]="-g";
-    if(!macho_debug)command[n++] = include_path;
-    if (native && cap && cap->format==BPP_FORMAT_MACHO && cap->isa==BPP_ISA_ARM64) { command[n++] = "-arch"; command[n++] = "arm64"; }
+    if (cap && cap->format==BPP_FORMAT_MACHO && cap->isa==BPP_ISA_ARM64) { command[n++] = "-arch"; command[n++] = "arm64"; }
     /* The x86-64 large internal code model uses R_X86_64_64 for B++ labels.
      * Generated ELF executables therefore deliberately use the non-PIE static
      * model until the linker stage owns PLT/GOT and veneer placement. */
-    if (native && cap && cap->format==BPP_FORMAT_ELF && cap->isa==BPP_ISA_X86_64) command[n++] = "-no-pie";
+    if (cap && cap->format==BPP_FORMAT_ELF && cap->isa==BPP_ISA_X86_64) command[n++] = "-no-pie";
     if (object) command[n++] = "-c";
     if(macho_debug)command[n++]=object_temp;
-    else {command[n++] = "-x"; command[n++] = native ? "assembler" : "c";command[n++] = (char *)temp;}
+    else {command[n++] = "-x"; command[n++] = "assembler";command[n++] = (char *)temp;}
     if (!object) {
+        /* -x selects the generated source only. Runtime objects and archives
+         * must be passed back to the driver's ordinary input detection. */
+        int legacy_native_boundary = module && (module->emit_library || module->static_library_count || module->static_procedure_count);
+        if(legacy_native_boundary||(module&&module->instrument_native)){
+            command[n++]="-x";command[n++]="none";
+        }
         /* The strict bootstrap profile is deliberately linkable without any
          * B++ C runtime object. Do not weaken this by adding an implicit
          * compatibility object here. */
         /* Raw-word executables call only the host allocation/output boundary;
          * they do not link runtime.o, value.o, codegen_runtime.o, or the
          * legacy static-ABI bridge.  Archive v1 remains transitional. */
-        int legacy_native_boundary = native && module && (module->emit_library || module->static_library_count || module->static_procedure_count);
-        if (!native || legacy_native_boundary) {
+        if (legacy_native_boundary) {
             command[n++] = runtime_path; command[n++] = value_path;
-            if (native) { command[n++] = BPP_NATIVE_RUNTIME_OBJECT; command[n++] = BPP_STATIC_ABI_OBJECT; }
+            command[n++] = BPP_NATIVE_RUNTIME_OBJECT; command[n++] = BPP_STATIC_ABI_OBJECT;
         }
+        if(module && module->instrument_native && !legacy_native_boundary)
+            command[n++] = BPP_NATIVE_SANITIZER_OBJECT;
         /* Manifest resolution records dependencies before dependants.  Reverse
          * that order for traditional one-pass static archive linkers. */
-        if (native && module) for (size_t i = module->static_library_count; i-- > 0;) command[n++] = module->static_libraries[i].archive_path;
-        if (native && module) for (size_t i = 0; i < module->static_link_flag_count; ++i) command[n++] = module->static_link_flags[i];
+        if (module) for (size_t i = module->static_library_count; i-- > 0;) command[n++] = module->static_libraries[i].archive_path;
+        if (module) for (size_t i = 0; i < module->static_link_flag_count; ++i) command[n++] = module->static_link_flags[i];
         if (msan) command[n++] = "-pie";
     }
     command[n++] = "-o"; command[n++] = (char *)output; command[n] = NULL;
@@ -242,15 +254,16 @@ static int emit_link_map(const BLIRModule *ir, FILE *out, BPPTarget target) {
 }
 int main(int argc, char **argv) {
     int query=target_query(argc,argv);if(query)return query>0?0:2;
-    const char *path = NULL, *output = NULL, *alloc_profile=NULL,*library_name=NULL; int mode = 0, print_result = 0, native = 1, optimize=1, debug_info=BPP_SANITIZERS[0]!=0,asm_comments=0,emit_library=0,emit_library_manifest_mode=0,strict_native_runtime=0; BPPTarget target=bpp_host_target();int explicit_target=0;
+    const char *path = NULL, *output = NULL, *alloc_profile=NULL,*library_name=NULL; int mode = 0, print_result = 0, optimize=1, debug_info=BPP_SANITIZERS[0]!=0,asm_comments=0,emit_library=0,emit_library_manifest_mode=0,strict_native_runtime=0,native_checks=0; BPPTarget target=bpp_host_target();int explicit_target=0;
     const char **library_paths = NULL; size_t library_path_count = 0, library_path_capacity = 0;
     for (int j = 1; j < argc; ++j) {
         if (!strcmp(argv[j], "--help")) { usage(argv[0]); return 0; }
         if(!strcmp(argv[j],"--target")){
-            if(++j==argc||!bpp_target_parse(argv[j],&target)){usage(argv[0]);return 2;}explicit_target=1;native=1;continue;
+            if(++j==argc||!bpp_target_parse(argv[j],&target)){usage(argv[0]);return 2;}explicit_target=1;continue;
         }
         if(!strcmp(argv[j],"--debug-info")){debug_info=1;continue;}
-        if(!strcmp(argv[j],"--strict-native-runtime")){strict_native_runtime=1;native=1;continue;}
+        if(!strcmp(argv[j],"--native-sanitizers")){native_checks=1;debug_info=1;continue;}
+        if(!strcmp(argv[j],"--strict-native-runtime")){strict_native_runtime=1;continue;}
         if(!strcmp(argv[j],"--asm-comments")){asm_comments=1;continue;}
         if(!strcmp(argv[j],"--emit-library")){emit_library=1;continue;}
         if(!strcmp(argv[j],"--emit-library-manifest")){if(mode){fputs("select only one output mode\n",stderr);free(library_paths);return 2;}mode=6;emit_library_manifest_mode=1;continue;}
@@ -259,15 +272,14 @@ int main(int argc, char **argv) {
         if(!strcmp(argv[j],"--alloc-profile")){if(++j==argc){usage(argv[0]);return 2;}alloc_profile=argv[j];continue;}
         if(!strcmp(argv[j],"--no-opt")){optimize=0;continue;}
         if (!strcmp(argv[j], "--backend")) {
-            if (++j == argc) { usage(argv[0]); return 2; }
-            if(!strcmp(argv[j],"c"))native=0;
-            else if(!strcmp(argv[j],"native"))native=1;
-            else if(!strcmp(argv[j],"arm64")){native=1;if(!explicit_target)target=bpp_target_default_for_isa(BPP_ISA_ARM64);}
-            else if(!strcmp(argv[j],"x86_64")){native=1;if(!explicit_target)target=bpp_target_default_for_isa(BPP_ISA_X86_64);}
-            else {usage(argv[0]);return 2;}continue;
+            if (++j == argc) { usage(argv[0]); free(library_paths); return 2; }
+            if(!strcmp(argv[j],"native"))continue;
+            else if(!strcmp(argv[j],"arm64")){if(!explicit_target)target=bpp_target_default_for_isa(BPP_ISA_ARM64);}
+            else if(!strcmp(argv[j],"x86_64")){if(!explicit_target)target=bpp_target_default_for_isa(BPP_ISA_X86_64);}
+            else {usage(argv[0]);free(library_paths);return 2;}continue;
         }
         if (!strcmp(argv[j], "--print-result")) { print_result = 1; continue; }
-        int selected = !strcmp(argv[j], "--check") ? 1 : !strcmp(argv[j], "--emit-ir") ? 2 : !strcmp(argv[j], "--emit-c") ? 3 : !strcmp(argv[j], "--emit-asm") ? 4 : !strcmp(argv[j],"--emit-map") ? 5 : !strcmp(argv[j],"--emit-link-map") ? 7 : 0;
+        int selected = !strcmp(argv[j], "--check") ? 1 : !strcmp(argv[j], "--emit-ir") ? 2 : !strcmp(argv[j], "--emit-asm") ? 4 : !strcmp(argv[j],"--emit-map") ? 5 : !strcmp(argv[j],"--emit-link-map") ? 7 : 0;
         if (selected) { if (mode) { fputs("select only one output mode\n", stderr); free(library_paths); return 2; } mode = selected; continue; }
         if (!strcmp(argv[j], "-o")) {
             if (output || ++j == argc) { usage(argv[0]); return 2; } output = argv[j]; continue;
@@ -276,8 +288,8 @@ int main(int argc, char **argv) {
         path = argv[j];
     }
     if (!path && !emit_library && !emit_library_manifest_mode) path = "main.bpp";
-    if (!path || (mode == 1 && output) || (asm_comments && mode != 4) || (emit_library&&mode!=4) || (emit_library&&!library_name) || (emit_library_manifest_mode&&!library_name) || (!emit_library&&!emit_library_manifest_mode&&library_name) || (strict_native_runtime&&!native)) { usage(argv[0]); free(library_paths); return 2; }
-    if(!mode&&native&&!bpp_target_is_host(target)){
+    if (!path || (mode == 1 && output) || (asm_comments && mode != 4) || (emit_library&&mode!=4) || (emit_library&&!library_name) || (emit_library_manifest_mode&&!library_name) || (!emit_library&&!emit_library_manifest_mode&&library_name) || (native_checks&&(strict_native_runtime||emit_library))) { usage(argv[0]); free(library_paths); return 2; }
+    if(!mode&&!bpp_target_is_host(target)){
         fprintf(stderr,"native executables require a matching host and runtime objects; use --emit-asm --target %s for cross-target output\n",bpp_target_name(target));free(library_paths);return 2;
     }
     const char *destination = output ? output : (mode ? NULL : BPP_DEFAULT_OUTPUT);
@@ -300,10 +312,13 @@ int main(int argc, char **argv) {
     /* The optimizer runs before the debug snapshot path is allocated.  Give
      * it the intent explicitly so source accesses remain visible in debug
      * output and sanitizer-instrumented native builds. */
-    ir.instrument_native=BPP_SANITIZERS[0]!=0;
+    /* The explicitly requested bootstrap profile promises helper-free output.
+     * Sanitized raw output requires the checked-memory C boundary instead. */
+    ir.instrument_native=(BPP_SANITIZERS[0]!=0||native_checks)&&!strict_native_runtime;
     ir.preserve_access_observability=debug_info;
+    if(ok&&native_checks)ok=bpp_raw_native_eligible(&ir);
     if(ok&&optimize)ok=bpp_ir_optimize(&ir);
-    if(ok&&debug_info&&ir.expanded_source&&(mode==4||mode==5||(!mode&&native))){
+    if(ok&&debug_info&&ir.expanded_source&&(mode==4||mode==5||(!mode))){
         const char *base=output?output:(!mode?BPP_DEFAULT_OUTPUT:NULL);
         if(base){size_t size=strlen(base)+32;ir.debug_path=calloc(size,1);
             if(!ir.debug_path)ok=0;
@@ -331,7 +346,7 @@ int main(int argc, char **argv) {
             out = output ? fopen(output, "w") : stdout;
             if (!out) { perror(output); ok = 0; }
             else {
-                ok = mode == 2 ? bl_ir_dump(&ir, out) : mode == 3 ? bl_emit_c(&ir, out, print_result) : mode==5?(bpp_raw_native_eligible(&ir)?bpp_emit_raw_locations(&ir,out,target):bpp_emit_locations(&ir,out,target)):bpp_emit_native(&ir,out,print_result,target);
+                ok = mode == 2 ? bl_ir_dump(&ir, out) : mode==5?(bpp_raw_native_eligible(&ir)?bpp_emit_raw_locations(&ir,out,target):bpp_emit_locations(&ir,out,target)):bpp_emit_native(&ir,out,print_result,target);
                 if (output) { if (fclose(out)) ok = 0; } else if (fflush(out)) ok = 0;
             }
         } else {
@@ -345,8 +360,8 @@ int main(int argc, char **argv) {
             if(fd>=0&&!out_temp)close(fd);
 #endif
             if(!out_temp){perror("temporary output");ok=0;}
-            else {ok=native?bpp_emit_native(&ir,out_temp,print_result,target):bl_emit_c(&ir,out_temp,print_result);if(fclose(out_temp))ok=0;}
-            if(ok)ok=native_compile(temp,output?output:BPP_DEFAULT_OUTPUT,native,target,0,debug_info,&ir);
+            else {ok=bpp_emit_native(&ir,out_temp,print_result,target);if(fclose(out_temp))ok=0;}
+            if(ok)ok=native_compile(temp,output?output:BPP_DEFAULT_OUTPUT,target,0,debug_info,&ir);
             if(out_temp)unlink(temp);
         }
         if (!ok) fprintf(stderr, "B++: output generation failed%s%s\n", ir.error[0] ? ": " : "", ir.error);

@@ -9,9 +9,20 @@ jobs:
       matrix:
         os: [macos-15, ubuntu-24.04, ubuntu-24.04-arm]
         mode: [release, debug, tsan]
+        compiler: [clang]
+        include:
+          - {os: ubuntu-24.04, mode: release, compiler: gcc}
+          - {os: ubuntu-24.04, mode: debug, compiler: gcc}
+          - {os: ubuntu-24.04, mode: tsan, compiler: gcc}
+          - {os: ubuntu-24.04-arm, mode: release, compiler: gcc}
+          - {os: ubuntu-24.04-arm, mode: debug, compiler: gcc}
+          - {os: ubuntu-24.04-arm, mode: tsan, compiler: gcc}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Discard checked-in build artifacts
+        shell: bash
+        run: rm -rf build bin
       - name: Verify native runner architecture
         run: |
           machine=$(uname -m)
@@ -33,13 +44,13 @@ jobs:
           sudo apt-get install -y gdb llvm
       - name: Record native runner and toolchain
         run: |
-          log="verification-${{ matrix.os }}-${{ matrix.mode }}.log"
+          log="verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
           {
             echo "revision=$GITHUB_SHA"
             echo "runner=${{ matrix.os }}"
             echo "mode=${{ matrix.mode }}"
             echo "uname=$(uname -a)"
-            clang --version
+            ${{ matrix.compiler }} --version
             make --version
             command -v readelf || true
             command -v llvm-dwarfdump || true
@@ -47,40 +58,46 @@ jobs:
             command -v lldb || true
             command -v gdb || true
           } | tee "$log"
+      - name: Probe sanitizer runtimes
+        run: |
+          set -o pipefail
+          make CC=${{ matrix.compiler }} check-sanitizer-availability 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Compiler and native execution
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=${{ matrix.mode }} -j2 test ${{ matrix.mode == 'release' && 'check-static-abi' || '' }} 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
+          make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} -j2 test ${{ matrix.mode == 'release' && 'check-static-abi' || '' }} 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Differential execution
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=${{ matrix.mode }} check-differential 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
+          make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} check-differential 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Native ASAN access hook
         if: matrix.mode == 'debug'
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=debug check-asan-hook 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
+          make CC=${{ matrix.compiler }} BUILD_MODE=debug check-asan-hook 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Cross-target assembly
         if: matrix.mode == 'release'
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=release check-targets 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
+          make CC=${{ matrix.compiler }} BUILD_MODE=release check-targets 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Large procedure and branches
         if: matrix.mode == 'release'
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=release check-stress 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
-      - name: Windows calling-convention bridge
-        if: matrix.os == 'ubuntu-24.04' && matrix.mode == 'release'
-        run: |
-          set -o pipefail
-          make CC=clang BUILD_MODE=release check-msabi 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
+          make CC=${{ matrix.compiler }} BUILD_MODE=release check-stress 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
+      - name: Upload failing metadata evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}
+          path: build/debug-evidence
+          if-no-files-found: ignore
       - name: Upload native verification transcript
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: verification-${{ matrix.os }}-${{ matrix.mode }}
-          path: verification-${{ matrix.os }}-${{ matrix.mode }}.log
+          name: verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}
+          path: verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log
           if-no-files-found: warn
           retention-days: 30
   windows:
@@ -90,7 +107,11 @@ jobs:
         shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
+      - name: Discard checked-in build artifacts
+        shell: bash
+        run: rm -rf build bin
       - name: Verify native runner architecture
+        shell: bash
         run: test "$(uname -m)" = x86_64
       - uses: msys2/setup-msys2@v2
         with:
@@ -100,6 +121,8 @@ jobs:
             make
             mingw-w64-ucrt-x86_64-clang
             mingw-w64-ucrt-x86_64-llvm
+            mingw-w64-ucrt-x86_64-lld
+            mingw-w64-ucrt-x86_64-lldb
       - name: Record native runner and toolchain
         run: |
           log=verification-windows-2022-release.log
@@ -113,10 +136,23 @@ jobs:
             command -v llvm-dwarfdump || true
             command -v llvm-readobj || true
           } | tee "$log"
+      - name: Require Windows PDB inspection tools
+        run: |
+          command -v lld-link
+          command -v llvm-pdbutil
+          command -v lldb
+      - name: Probe Windows sanitizer runtimes
+        run: |
+          set -o pipefail
+          make CC=clang check-sanitizer-availability 2>&1 | tee -a verification-windows-2022-release.log
       - name: Windows native execution
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=release -j2 test check-debug-metadata check-static-abi check-differential check-stress 2>&1 | tee -a verification-windows-2022-release.log
+          make CC=clang BUILD_MODE=release -j2 test check-native-checks check-debug-metadata check-static-abi check-differential check-stress 2>&1 | tee -a verification-windows-2022-release.log
+      - name: Windows source stepping and variable inspection
+        run: |
+          set -o pipefail
+          BPP_REQUIRE_WINDOWS_DEBUGGER=1 make CC=clang BUILD_MODE=release DEBUGGER_TEST_ENV= check-debug-metadata 2>&1 | tee -a verification-windows-2022-release.log
       - name: Cross-target assembly
         run: |
           set -o pipefail
@@ -133,6 +169,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Discard checked-in build artifacts
+        shell: bash
+        run: rm -rf build bin
       - name: Verify Linux x86-64 MSAN runner
         run: |
           test "$(uname -s)" = Linux

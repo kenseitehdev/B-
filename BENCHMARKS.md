@@ -1,5 +1,8 @@
 # Native timing harness
 
+These older C-backend measurements are historical. The C output backend was
+retired in 1.0.15; current comparisons use native optimized and baseline output.
+
 Run `make -s BUILD_MODE=release benchmark > timings.csv` after a release build.
 The C clock wrapper uses a monotonic host clock and measures five process runs
 following one warmup. BPP_BENCHMARK_RUNS changes that count. Each workload includes

@@ -10,7 +10,7 @@ source_file=
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --backend) shift 2;;
-        --check|--emit-ir|--emit-c|--emit-asm|--emit-map) mode=$1; shift;;
+        --check|--emit-ir|--emit-asm|--emit-map) mode=$1; shift;;
         --print-result) print_flag=--print-result; shift;;
         --debug-info) debug_flag=--debug-info; shift;;
         --no-opt) opt_flag=--no-opt; shift;;

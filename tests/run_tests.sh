@@ -67,8 +67,13 @@ progress 'output modes'
 printf '%s\n' 'define proc main(){return 7;}' > "$task_dir/modes.bpp"
 bpp --emit-ir -o "$task_dir/out.ir" "$task_dir/modes.bpp"
 grep -F 'function' "$task_dir/out.ir" >/dev/null
-bpp --emit-c -o "$task_dir/out.c" "$task_dir/modes.bpp"
-grep -F 'int main' "$task_dir/out.c" >/dev/null
+# Retired C routes must fail explicitly and must not create output files.
+for flag in --emit-c '--backend c'; do
+    status=0
+    "$project_compiler" $flag -o "$task_dir/out.c" "$task_dir/modes.bpp" >"$task_dir/out" 2>"$task_dir/err" || status=$?
+    test "$status" = 2
+    test ! -e "$task_dir/out.c"
+done
 bpp --emit-asm -o "$task_dir/out.s" "$task_dir/modes.bpp"
 grep -E '\.globl (_)?main' "$task_dir/out.s" >/dev/null
 if grep -E 'BL(Value|Runtime)|bpp_[an]_' "$task_dir/out.s" >/dev/null; then

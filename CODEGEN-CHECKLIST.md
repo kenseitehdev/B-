@@ -20,8 +20,8 @@ passes. The following separates implemented foundations from unfinished work.
 | Long branches | ARM64 internal address transfers | Range diagnostics or alternative code models for extreme sections |
 | Call lowering | Host conventions implemented for all four targets | Stable public ABI is roadmap stage 2 |
 | C runtime dependency | Native arithmetic/control/calls bypass generated C | Native/B++ object runtime and startup remain needed |
-| Debug metadata | Line tables, unwind metadata and local-offset map | DWARF variable records, procedure names, original import maps |
-| Sanitizers | Runtime instrumentation, global hooks and native TSAN entry/exit | Full native stack instrumentation and Windows sanitizer execution |
+| Debug metadata | DWARF5/CodeView source variables/types/scopes, original imports, macOS LLDB and unwind checks | Native Linux GDB and Windows LLDB/PDB CI transcripts |
+| Sanitizers | Portable native checks, guarded frames, allocation/definedness/leak tracking and native TSAN tracing; C output retired | Matching Linux/MSAN/Windows native verification |
 | Verification | Unit/stress/differential/Cross-object checks | Actual updated macOS, Linux ARM64 and Windows native CI |
 | Benchmarks | Portable CSV harness for loops/calls/objects | Repeatable measurements on all four actual hosts |
 | More targets | Four emitters and native-host CI workflow | Three foreign-host gates must run before support is called verified |
