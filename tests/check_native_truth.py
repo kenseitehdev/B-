@@ -96,6 +96,8 @@ def main():
             new state invalid=velocity(-1.0,1.0,0);
             if(invalid!=0.0){return 7;}if(faults(invalid)!=2){return 8;}
             if(faults(err)!=2){return 9;}
+            new state bad_gate=AND(2.0,1.0);
+            if(faults(bad_gate)!=1 OR faults(err)!=1){return 10;}
             return 0;
         }""")
     print("Native truth passed: 125 transitions, signed fractional gates, velocity conditions, loops and error propagation; both optimization modes")

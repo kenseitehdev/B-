@@ -345,6 +345,7 @@ BLValue bl_rt_builtin(BLRuntime *vm, BLSite *call_node, const char *name, BLValu
         if(argc&&!state_number(args[0],&a))return bl_runtime_error(vm,call_node,"state operation requires numeric values");
         if(argc>1&&!state_number(args[1],&b))return bl_runtime_error(vm,call_node,"state operation requires numeric values");
         if(argc>2&&!state_number(args[2],&c))return bl_runtime_error(vm,call_node,"state operation requires numeric values");
+        uint32_t incoming_faults=a.context.faults|b.context.faults|c.context.faults;
         if(!strcmp(name,"state"))r=bpp_truth_state(a.value,a.context);
         else if(!strcmp(name,"velocity")){
             r=bpp_truth_velocity(bpp_truth_state(a.value,a.context),bpp_truth_state(b.value,b.context),c.value);
@@ -357,7 +358,7 @@ BLValue bl_rt_builtin(BLRuntime *vm, BLSite *call_node, const char *name, BLValu
         if(r.context.faults&&!r.context.line){r.context.source_file=call_node?call_node->source_file:0;r.context.line=(unsigned)(call_node?call_node->line:1);r.context.column=(unsigned)(call_node?call_node->column:1);}
         BLValue result=state_result(r,argc?args[0]:bl_value_null(),argc>1?args[1]:bl_value_null());
         if(argc>2&&c.context.faults&&!(a.context.faults|b.context.faults)){BLState *state=bl_value_as_state(args[2]);if(state)snprintf(bl_value_as_state(result)->diagnostic,512,"%s",state->diagnostic);}
-        if(vm==truth_runtime && (r.context.faults & ~(a.context.faults|b.context.faults|c.context.faults))){
+        if(vm==truth_runtime && (r.context.faults & ~incoming_faults)){
             ++error_serial;recent_context=r.context;
             snprintf(recent_diagnostic,sizeof recent_diagnostic,"%s",r.context.faults&BPP_TRUTH_INVALID_INTERVAL?"invalid transition interval":"invalid truth state");
             BLState *result_state=bl_value_as_state(result);

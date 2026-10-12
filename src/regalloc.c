@@ -33,7 +33,7 @@ static int bytes_add_product(size_t *total,size_t a,size_t b,size_t width){if(a&
 static int workspace_ok(const BLIRFunction *fn,size_t blocks,size_t instructions,size_t words,size_t sparse_uses,size_t *peak){
  if(fn->local_count>SIZE_MAX-63||blocks>SIZE_MAX-63)return 0;
  size_t local_words=(fn->local_count+63)/64,block_words=(blocks+63)/64,total=0;
- int ok=bytes_add(&total,fn->register_count,256)&&bytes_add_product(&total,blocks,words,8*8)&&bytes_add_product(&total,instructions,words,sizeof(uint64_t))&&bytes_add_product(&total,blocks,fn->register_count,sizeof(unsigned short)*2)&&bytes_add_product(&total,blocks,block_words,sizeof(uint64_t))&&bytes_add_product(&total,blocks,local_words,8*8)&&bytes_add(&total,blocks,160)&&bytes_add(&total,instructions,96)&&bytes_add(&total,instructions+1,sizeof(size_t))&&bytes_add(&total,sparse_uses,sizeof(BLIRId));
+ int ok=bytes_add(&total,fn->register_count,256)&&bytes_add_product(&total,blocks,words,8*8)&&bytes_add_product(&total,instructions,words,sizeof(uint64_t))&&bytes_add_product(&total,blocks,fn->register_count,sizeof(unsigned short)*2)&&bytes_add_product(&total,blocks,block_words,sizeof(uint64_t))&&bytes_add_product(&total,blocks,local_words,8*8)&&bytes_add(&total,blocks,192)&&bytes_add(&total,instructions,96)&&bytes_add(&total,instructions+1,sizeof(size_t))&&bytes_add(&total,sparse_uses,sizeof(BLIRId));
  if(ok&&peak)*peak=total;
  return ok&&total<=BPP_REGALLOC_MAX_WORKSPACE;
 }
@@ -140,7 +140,22 @@ static size_t successors(const BLIRFunction *fn,size_t block,size_t out[2]){
  else if(last->op==BL_IR_BRANCH){if(last->b<fn->block_count)out[n++]=last->b;if(last->c<fn->block_count&&last->c!=last->b)out[n++]=last->c;}
  return n;
 }
-static int block_has_successor(const BLIRFunction *fn,size_t from,size_t to){size_t out[2];size_t n=successors(fn,from,out);for(size_t i=0;i<n;++i)if(out[i]==to)return 1;return 0;}
+typedef struct {size_t *offsets,*blocks;} PredIndex;
+static void pred_destroy(PredIndex *p){free(p->offsets);free(p->blocks);memset(p,0,sizeof *p);}
+/* Stable incoming-edge lists avoid scanning every block for each predecessor.
+ * The order is the same ascending source-block order used by the old scans. */
+static int pred_create(const BLIRFunction *fn,PredIndex *p){
+ size_t blocks=fn->block_count;if(blocks>SIZE_MAX/2)return 0;
+ memset(p,0,sizeof *p);p->offsets=array(blocks+1,sizeof *p->offsets);
+ size_t *cursor=array(blocks,sizeof *cursor);
+ if(!p->offsets||!cursor){free(cursor);pred_destroy(p);return 0;}
+ for(size_t from=0;from<blocks;++from){size_t out[2],count=successors(fn,from,out);for(size_t j=0;j<count;++j)++p->offsets[out[j]+1];}
+ for(size_t b=0;b<blocks;++b){p->offsets[b+1]+=p->offsets[b];cursor[b]=p->offsets[b];}
+ p->blocks=array(p->offsets[blocks],sizeof *p->blocks);
+ if(!p->blocks){free(cursor);pred_destroy(p);return 0;}
+ for(size_t from=0;from<blocks;++from){size_t out[2],count=successors(fn,from,out);for(size_t j=0;j<count;++j)p->blocks[cursor[out[j]]++]=from;}
+ free(cursor);return 1;
+}
 /* Compute dominance backedges and natural-loop nesting. A header gets one
  * loop membership set even when it has several latches, avoiding artificial
  * depth inflation for loops with multiple backedges. */
@@ -152,16 +167,17 @@ static int plan_block_weights(const BLIRFunction *fn,BPPRegPlan *p){
  if(words&&blocks>SIZE_MAX/words)return 0;
  unsigned char *reachable=array(blocks,1),*member=array(blocks,1);uint64_t *dom=array(blocks*words,sizeof *dom),*input=array(words,sizeof *input);size_t *stack=array(blocks,sizeof *stack);
  if(!reachable||!member||!dom||!input||!stack){free(reachable);free(member);free(dom);free(input);free(stack);return 0;}
+ PredIndex pred={0};if(!pred_create(fn,&pred)){free(reachable);free(member);free(dom);free(input);free(stack);return 0;}
  reachable[0]=1;int changed;
  do{changed=0;for(size_t b=0;b<blocks;++b)if(reachable[b]){size_t out[2];size_t n=successors(fn,b,out);for(size_t i=0;i<n;++i)if(!reachable[out[i]]){reachable[out[i]]=1;changed=1;}}}while(changed);
  for(size_t b=0;b<blocks;++b)if(reachable[b]){for(size_t w=0;w<words;++w)dom[b*words+w]=UINT64_MAX;if(words&&(blocks&63))dom[b*words+words-1]=(UINT64_C(1)<<(blocks&63))-1;}
  memset(dom,0,words*sizeof *dom);set(dom,0);
- do{changed=0;for(size_t b=1;b<blocks;++b)if(reachable[b]){int have=0;for(size_t w=0;w<words;++w)input[w]=UINT64_MAX;for(size_t from=0;from<blocks;++from)if(reachable[from]&&block_has_successor(fn,from,b)){if(!have){memcpy(input,dom+from*words,words*sizeof *input);have=1;}else for(size_t w=0;w<words;++w)input[w]&=dom[from*words+w];}if(!have)memset(input,0,words*sizeof *input);set(input,b);if(memcmp(input,dom+b*words,words*sizeof *input)){memcpy(dom+b*words,input,words*sizeof *input);changed=1;}}}while(changed);
+ do{changed=0;for(size_t b=1;b<blocks;++b)if(reachable[b]){int have=0;for(size_t w=0;w<words;++w)input[w]=UINT64_MAX;for(size_t edge=pred.offsets[b];edge<pred.offsets[b+1];++edge){size_t from=pred.blocks[edge];if(!reachable[from])continue;if(!have){memcpy(input,dom+from*words,words*sizeof *input);have=1;}else for(size_t w=0;w<words;++w)input[w]&=dom[from*words+w];}if(!have)memset(input,0,words*sizeof *input);set(input,b);if(memcmp(input,dom+b*words,words*sizeof *input)){memcpy(dom+b*words,input,words*sizeof *input);changed=1;}}}while(changed);
  for(size_t header=0;header<blocks;++header)if(reachable[header]){size_t top=0;int have_latch=0;memset(member,0,blocks);
-  for(size_t from=0;from<blocks;++from)if(reachable[from]&&block_has_successor(fn,from,header)&&has(dom+from*words,header)){have_latch=1;if(!member[from]){member[from]=1;stack[top++]=from;}}
+  for(size_t edge=pred.offsets[header];edge<pred.offsets[header+1];++edge){size_t from=pred.blocks[edge];if(!reachable[from]||!has(dom+from*words,header))continue;have_latch=1;if(!member[from]){member[from]=1;stack[top++]=from;}}
   if(!have_latch)continue;
   member[header]=1;
-  while(top){size_t node=stack[--top];if(node==header)continue;for(size_t from=0;from<blocks;++from)if(reachable[from]&&block_has_successor(fn,from,node)&&!member[from]){member[from]=1;stack[top++]=from;}}
+  while(top){size_t node=stack[--top];if(node==header)continue;for(size_t edge=pred.offsets[node];edge<pred.offsets[node+1];++edge){size_t from=pred.blocks[edge];if(!reachable[from]||member[from])continue;member[from]=1;stack[top++]=from;}}
   ++p->metrics.natural_loop_headers;for(size_t b=0;b<blocks;++b)if(member[b]){if(p->block_loop_depth[b]!=USHRT_MAX)++p->block_loop_depth[b];if(p->block_loop_depth[b]>p->metrics.max_loop_depth)p->metrics.max_loop_depth=p->block_loop_depth[b];}
  }
  for(size_t b=0;b<blocks;++b){p->block_hot_successor[b]=SIZE_MAX;if(!reachable[b]){p->block_weight[b]=0;continue;}size_t factor=sat_add(1,sat_mul((size_t)p->block_loop_depth[b],4));p->block_weight[b]=sat_mul(8,factor);size_t multiplier=profile_multiplier(fn->name,b);if(multiplier!=1){p->block_weight[b]=sat_mul(p->block_weight[b],multiplier);p->metrics.profiled_blocks=sat_add(p->metrics.profiled_blocks,1);}
@@ -180,7 +196,7 @@ static int plan_block_weights(const BLIRFunction *fn,BPPRegPlan *p){
     frequency equation. Only a statically preferred successor is reinforced. */
  for(size_t b=0;b<blocks;++b)if(p->block_hot_successor[b]!=SIZE_MAX&&p->block_hot_successor[b]<blocks)
   p->block_weight[p->block_hot_successor[b]]=sat_add(p->block_weight[p->block_hot_successor[b]],p->block_weight[b]/4);
- free(reachable);free(member);free(dom);free(input);free(stack);return 1;
+ pred_destroy(&pred);free(reachable);free(member);free(dom);free(input);free(stack);return 1;
 }
 static unsigned char call_clobber_mask(const BLIRInst *i){
  if(i->op==BL_IR_JUMP||i->op==BL_IR_BRANCH||i->op==BL_IR_RETURN)return 0;
@@ -497,11 +513,6 @@ static void block_successors(const BLIRFunction *fn,size_t block,size_t out[2],s
  if(last->op==BL_IR_JUMP){if(last->a<fn->block_count)out[(*count)++]=last->a;}
  else if(last->op==BL_IR_BRANCH){if(last->b<fn->block_count)out[(*count)++]=last->b;if(last->c<fn->block_count&&last->c!=last->b)out[(*count)++]=last->c;}
 }
-static int block_reaches(const BLIRFunction *fn,size_t from,size_t to){
- size_t succ[2],count=0;block_successors(fn,from,succ,&count);
- for(size_t i=0;i<count;++i)if(succ[i]==to)return 1;
- return 0;
-}
 /* Retain a dirty payload across a CFG join only when all reachable incoming
  * edges carry the same value in the same physical register. */
 static int plan_dirty_flow(const BLIRFunction *fn,BPPRegPlan *p){
@@ -514,6 +525,7 @@ static int plan_dirty_flow(const BLIRFunction *fn,BPPRegPlan *p){
  size_t *queue=array(blocks,sizeof *queue);
  unsigned short *input=array(n,sizeof *input),*state=array(n,sizeof *state);
  if(!p->block_dirty_in||!p->block_dirty_out||!reachable||!seen||!queue||!input||!state){free(reachable);free(seen);free(queue);free(input);free(state);return 0;}
+ PredIndex predecessors={0};if(!pred_create(fn,&predecessors)){free(reachable);free(seen);free(queue);free(input);free(state);return 0;}
  if(blocks){size_t head=0,tail=0;reachable[0]=1;queue[tail++]=0;
   while(head<tail){size_t b=queue[head++],succ[2],count=0;block_successors(fn,b,succ,&count);
    for(size_t j=0;j<count;++j)if(!reachable[succ[j]]){reachable[succ[j]]=1;queue[tail++]=succ[j];}
@@ -524,13 +536,13 @@ static int plan_dirty_flow(const BLIRFunction *fn,BPPRegPlan *p){
  int changed=1;size_t rounds=0;
  while(changed){
   changed=0;
-  if(++rounds>max_rounds){free(reachable);free(seen);free(queue);free(input);free(state);return 0;}
+  if(++rounds>max_rounds){pred_destroy(&predecessors);free(reachable);free(seen);free(queue);free(input);free(state);return 0;}
   for(size_t b=0;b<blocks;++b){
    if(!reachable[b])continue;
    int have=0;
    if(b==0){memset(input,0,n*sizeof *input);have=1;}
-   for(size_t pred=0;pred<blocks;++pred){
-    if(!reachable[pred]||!seen[pred]||!block_reaches(fn,pred,b))continue;
+   for(size_t edge=predecessors.offsets[b];edge<predecessors.offsets[b+1];++edge){
+    size_t pred=predecessors.blocks[edge];if(!reachable[pred]||!seen[pred])continue;
     const unsigned short *pred_out=p->block_dirty_out+pred*n;
     if(!have){
      for(size_t r=0;r<n;++r){unsigned short v=pred_out[r];
@@ -569,7 +581,7 @@ static int plan_dirty_flow(const BLIRFunction *fn,BPPRegPlan *p){
    if(!seen[b]||memcmp(block_out,state,n*sizeof *state)){memcpy(block_out,state,n*sizeof *state);seen[b]=1;changed=1;}
   }
  }
- free(reachable);free(seen);free(queue);free(input);free(state);return 1;
+ pred_destroy(&predecessors);free(reachable);free(seen);free(queue);free(input);free(state);return 1;
 }
 static size_t instruction_count(const BLIRFunction *fn){size_t n=0;for(size_t b=0;b<fn->block_count;++b){if(fn->blocks[b].count>SIZE_MAX-n)return SIZE_MAX;n+=fn->blocks[b].count;}return n;}
 int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget target,size_t limit){

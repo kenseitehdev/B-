@@ -26,7 +26,9 @@ claim. Artifacts are written to `build/verification-failures` (override with
 `check-fuzz` runs valid, mutated and rejected input through lexer/parser,
 lowering, baseline/optimized IR validation and each native emitter. It also
 corrupts a valid instruction destination and requires verifier rejection.
-Each input runs in a separate process with wall/CPU/output limits. ASAN/MSAN
+Each input runs in a separate process with wall/CPU/output limits. Large
+stress compilations receive 60 CPU seconds and a 90-second wall deadline;
+fuzz probes and native execution keep their smaller 20-second CPU budget. ASAN/MSAN
 virtual-address space is intentionally not capped because their shadow maps
 require large reservations. CI compiles the compiler/runtime with warnings as
 errors separately from test-fixture warning policies.
@@ -42,7 +44,9 @@ executable or cross-toolchain identity is claimed.
 Linux LLVM verification targets compiler-owned DWARF in the generated native
 object. GCC/compiler-rt C units can contain inlined sanitizer call-site records
 rejected by LLVM, and older LLVM verifiers can stall on those units; verifying
-unrelated C-toolchain debug info is not a B++ release gate. Linked B++ DIEs,
+unrelated C-toolchain debug info is not a B++ release gate. Leak checking remains a separate gate outside debugger subprocesses; ptrace
+debugger runs disable leak tracing and have 60-second command deadlines.
+Linked B++ DIEs,
 location lists and CFI remain inspected with readelf and exercised in native
 GDB, including local values and imported recursive frames. macOS verifies the
 linked dSYM and uses LLDB. Windows verifies COFF/PDB records and native LLDB

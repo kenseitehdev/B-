@@ -125,7 +125,7 @@ check-raw-core: $(BIN) tests/check_raw_core.sh tests/raw_core.bpp
 check-debug-metadata: $(BIN) tests/check_debug_metadata.sh
 	$(DEBUGGER_TEST_ENV) sh tests/check_debug_metadata.sh ./$(BIN)
 check-strict-native-runtime: $(BIN) tests/check_strict_native_runtime.sh tests/strict_native_runtime.bpp
-	sh tests/check_strict_native_runtime.sh ./$(BIN)
+	BPP_STRICT_CC="$(CC)" sh tests/check_strict_native_runtime.sh ./$(BIN)
 check-targets: $(BIN)
 	sh tests/check_targets.sh ./$(BIN)
 targets: $(BIN)

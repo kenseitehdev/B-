@@ -3,6 +3,12 @@ set -eu
 if [ "${CI:-}" = true ]; then set -x; fi
 
 bpp=$1
+# LeakSanitizer cannot attach through an already ptraced debugger. Ownership
+# and leak gates run separately, outside this metadata/debugger subprocess.
+if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ]; then
+    ASAN_OPTIONS="${ASAN_OPTIONS:+${ASAN_OPTIONS}:}detect_leaks=0"
+    export ASAN_OPTIONS
+fi
 work=${TMPDIR:-/tmp}/bpp-debug-metadata-$$
 if command -v cygpath >/dev/null 2>&1; then work=$(cygpath -m "$work"); fi
 cleanup() {
@@ -310,7 +316,7 @@ if [ "$(uname -s)" = Darwin ]; then
 
     if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v lldb >/dev/null 2>&1; then
         "$bpp" --native-sanitizers --debug-info -o "$work/lldb-runtime-error" tests/lldb_runtime_error.bpp
-        lldb --batch -o 'settings set use-color false' \
+        "${PYTHON:-python3}" tests/run_bounded.py 60 lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file lldb_runtime_error.bpp --line 6' \
             -o 'breakpoint set --file lldb_runtime_error.bpp --line 15' \
             -o 'breakpoint set --file lldb_runtime_error.bpp --line 7' \
@@ -328,7 +334,7 @@ if [ "$(uname -s)" = Darwin ]; then
         grep -F 'main at lldb_runtime_error.bpp:21' "$work/lldb.txt" >/dev/null
 
         "$bpp" --native-sanitizers --debug-info -o "$work/lldb-import-recursion" tests/lldb_import_recursion.bpp
-        lldb --batch -o 'settings set use-color false' \
+        "${PYTHON:-python3}" tests/run_bounded.py 60 lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file lldb_recursive_helper.bpp --line 3' \
             -o 'breakpoint set --file lldb_recursive_helper.bpp --line 10' \
             -o run -o continue -o bt -o 'breakpoint disable 1' -o continue -o bt \
@@ -357,13 +363,13 @@ if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v lldb >/dev/null 2>&1; 
     if [ "${BPP_REQUIRE_WINDOWS_DEBUGGER:-0}" = 1 ]; then
         # NativePDB resolves source breakpoints against the primary source.
         # Stop at the call site, then run to the imported procedure and its return line.
-        lldb --batch -o 'settings set use-color false' \
+        "${PYTHON:-python3}" tests/run_bounded.py 60 lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file main.bpp --line 4' -o run \
             -o 'breakpoint set --name increment' -o continue -o 'thread step-over' \
             -o 'frame variable n local' -o 'thread step-over' -o bt \
             -o 'process kill' -o quit "$program" >"$work/variables.txt" 2>&1
     else
-    lldb --batch -o 'settings set use-color false' \
+    "${PYTHON:-python3}" tests/run_bounded.py 60 lldb --batch -o 'settings set use-color false' \
         -o 'breakpoint set --file library.bpp --line 4' -o run \
         -o 'frame variable n local' -o 'thread step-over' -o bt \
         -o 'process kill' -o quit "$program" >"$work/variables.txt" 2>&1
@@ -386,7 +392,7 @@ EOF
     state_program="$work/states"
     if [ -f "$work/states.exe" ]; then state_program="$work/states.exe"; fi
     if command -v lldb >/dev/null 2>&1; then
-        lldb --batch -o 'settings set use-color false' \
+        "${PYTHON:-python3}" tests/run_bounded.py 60 lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file states.bpp --line 4' -o run \
             -o 'frame variable -P 1 current speed' -o 'process kill' -o quit \
             "$state_program" >"$work/state-variables.txt" 2>&1
@@ -397,7 +403,7 @@ EOF
             grep -E 'speed = 0.5' "$work/state-variables.txt" >/dev/null
         fi
     elif command -v gdb >/dev/null 2>&1; then
-        gdb --batch -ex 'set pagination off' -ex 'set confirm off' \
+        "${PYTHON:-python3}" tests/run_bounded.py 60 gdb --batch -ex 'set pagination off' -ex 'set confirm off' \
             -ex 'break states.bpp:4' -ex run -ex 'print current' -ex 'print speed' \
             -ex quit "$state_program" >"$work/state-variables.txt" 2>&1
         test "$(grep -Ec '= 0.5$' "$work/state-variables.txt")" -ge 2
@@ -409,14 +415,14 @@ fi
 # supplied by the host C compiler. The second fixture verifies imported source
 # files and distinct recursive frames before stopping at an imported fault.
 if [ "$(uname -s)" = Linux ] && [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v gdb >/dev/null 2>&1; then
-    gdb --batch -ex 'set pagination off' -ex 'set confirm off' \
+    "${PYTHON:-python3}" tests/run_bounded.py 60 gdb --batch -ex 'set pagination off' -ex 'set confirm off' \
         -ex 'break library.bpp:4' -ex run -ex 'print n' -ex 'print local' \
         -ex next -ex bt -ex quit "$linked_program" >"$work/gdb-variables.txt" 2>&1
     grep -E '= 41$' "$work/gdb-variables.txt" >/dev/null
     grep -E '= 42$' "$work/gdb-variables.txt" >/dev/null
     grep -F 'increment' "$work/gdb-variables.txt" >/dev/null
     "$bpp" --native-sanitizers --debug-info -o "$work/gdb-runtime-error" tests/lldb_runtime_error.bpp
-    gdb --batch \
+    "${PYTHON:-python3}" tests/run_bounded.py 60 gdb --batch \
         -ex 'set pagination off' \
         -ex 'set confirm off' \
         -ex 'break lldb_runtime_error.bpp:6' \
@@ -432,7 +438,7 @@ if [ "$(uname -s)" = Linux ] && [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && comm
     grep -E 'SIGSEGV|SIGBUS|Program received signal|B\+\+ sanitizer:' "$work/gdb.txt" >/dev/null
 
     "$bpp" --native-sanitizers --debug-info -o "$work/gdb-import-recursion" tests/lldb_import_recursion.bpp
-    gdb --batch \
+    "${PYTHON:-python3}" tests/run_bounded.py 60 gdb --batch \
         -ex 'set pagination off' \
         -ex 'set confirm off' \
         -ex 'break lldb_recursive_helper.bpp:3' \

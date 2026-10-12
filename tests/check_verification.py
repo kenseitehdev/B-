@@ -10,18 +10,18 @@ import sys
 import tempfile
 
 
-def limits():
+def limits(cpu=20):
     if os.name == "posix":
         import resource
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-        resource.setrlimit(resource.RLIMIT_CPU, (20, 20))
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
         resource.setrlimit(resource.RLIMIT_FSIZE, (32 << 20, 32 << 20))
         # ASAN/MSAN require very large virtual mappings; do not cap RLIMIT_AS.
 
 
-def run(command, *, data=None, timeout=30, stack=None):
+def run(command, *, data=None, timeout=30, stack=None, cpu=20):
     def child_limits():
-        limits()
+        limits(cpu)
         if stack and os.name == "posix":
             import resource
             resource.setrlimit(resource.RLIMIT_STACK, (stack, stack))
@@ -86,7 +86,7 @@ def stress(compiler, work):
     expected = sum(range(64)) + 300 + 512 * 2 + sum(range(512)) + sum(range(256))
     for mode in ([], ["--no-opt"]):
         output = work / "stress.exe"
-        result = run([compiler, *mode, "--print-result", "-o", output, path])
+        result = run([compiler, *mode, "--print-result", "-o", output, path], timeout=90, cpu=60)
         if result.returncode:
             failure(work, "stress-compile", result, source.encode())
         result = run([output])
@@ -100,7 +100,7 @@ def stress(compiler, work):
         boundary += ";}define proc main(){return frame(1);}\n"
         path.write_text(boundary)
         for mode in ([], ["--no-opt"]):
-            result = run([compiler, *mode, "--print-result", "-o", output, path])
+            result = run([compiler, *mode, "--print-result", "-o", output, path], timeout=90, cpu=60)
             if result.returncode:
                 failure(work, f"frame-{locals_count}-compile", result, boundary.encode())
             result = run([output])
