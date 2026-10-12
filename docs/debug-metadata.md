@@ -39,5 +39,6 @@ does not count as a Windows debugger run.
 
 The macOS ARM64 LLDB and dSYM checks passed locally for this change. ELF and
 COFF assemblies pass cross-assembly and COFF records decode with LLVM.
-Successful Linux GDB and Windows LLDB/PDB runner transcripts remain release
-gates; no matching native execution is inferred from cross-assembly.
+Remaining Linux GDB, Windows LLDB/PDB and final-matrix verification fixes
+are assigned to 1.0.16 in `todo.md`; no matching native execution is inferred
+from cross-assembly.
