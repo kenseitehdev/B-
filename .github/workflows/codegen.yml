@@ -12,6 +12,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Discard checked-in build artifacts
+        shell: bash
+        run: rm -rf build bin
       - name: Verify native runner architecture
         run: |
           machine=$(uname -m)
@@ -47,6 +50,10 @@ jobs:
             command -v lldb || true
             command -v gdb || true
           } | tee "$log"
+      - name: Probe sanitizer runtimes
+        run: |
+          set -o pipefail
+          make CC=clang check-sanitizer-availability 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
       - name: Compiler and native execution
         run: |
           set -o pipefail
@@ -70,11 +77,6 @@ jobs:
         run: |
           set -o pipefail
           make CC=clang BUILD_MODE=release check-stress 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
-      - name: Windows calling-convention bridge
-        if: matrix.os == 'ubuntu-24.04' && matrix.mode == 'release'
-        run: |
-          set -o pipefail
-          make CC=clang BUILD_MODE=release check-msabi 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}.log"
       - name: Upload native verification transcript
         if: always()
         uses: actions/upload-artifact@v4
@@ -90,6 +92,9 @@ jobs:
         shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
+      - name: Discard checked-in build artifacts
+        shell: bash
+        run: rm -rf build bin
       - name: Verify native runner architecture
         run: test "$(uname -m)" = x86_64
       - uses: msys2/setup-msys2@v2
@@ -100,6 +105,8 @@ jobs:
             make
             mingw-w64-ucrt-x86_64-clang
             mingw-w64-ucrt-x86_64-llvm
+            mingw-w64-ucrt-x86_64-lld
+            mingw-w64-ucrt-x86_64-lldb
       - name: Record native runner and toolchain
         run: |
           log=verification-windows-2022-release.log
@@ -113,10 +120,23 @@ jobs:
             command -v llvm-dwarfdump || true
             command -v llvm-readobj || true
           } | tee "$log"
+      - name: Require Windows PDB inspection tools
+        run: |
+          command -v lld-link
+          command -v llvm-pdbutil
+          command -v lldb
+      - name: Probe Windows sanitizer runtimes
+        run: |
+          set -o pipefail
+          make CC=clang check-sanitizer-availability 2>&1 | tee -a verification-windows-2022-release.log
       - name: Windows native execution
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=release -j2 test check-debug-metadata check-static-abi check-differential check-stress 2>&1 | tee -a verification-windows-2022-release.log
+          make CC=clang BUILD_MODE=release -j2 test check-native-checks check-debug-metadata check-static-abi check-differential check-stress 2>&1 | tee -a verification-windows-2022-release.log
+      - name: Windows source stepping and variable inspection
+        run: |
+          set -o pipefail
+          BPP_REQUIRE_WINDOWS_DEBUGGER=1 make CC=clang BUILD_MODE=release DEBUGGER_TEST_ENV= check-debug-metadata 2>&1 | tee -a verification-windows-2022-release.log
       - name: Cross-target assembly
         run: |
           set -o pipefail
@@ -133,6 +153,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Discard checked-in build artifacts
+        shell: bash
+        run: rm -rf build bin
       - name: Verify Linux x86-64 MSAN runner
         run: |
           test "$(uname -s)" = Linux

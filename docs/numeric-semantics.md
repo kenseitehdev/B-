@@ -1,7 +1,7 @@
 # B++ numeric and conversion semantics (revision 1)
 
-This is the normative numeric contract for the parser, optimizer, C reference
-backend, native backends, and their tests. Language integers are signed 64-bit
+This is the normative numeric contract for the parser, optimizer, compiler/runtime
+helpers, native backends, and their tests. Language integers are signed 64-bit
 two's-complement values. A decimal integer literal must be in
 `0..9223372036854775807`; larger literal magnitudes are compile-time errors.
 The minimum value is expressible as `-9223372036854775807 - 1`.

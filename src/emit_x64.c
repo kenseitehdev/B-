@@ -429,12 +429,14 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     if(!ok&&!m->error[0])frame_error(m,&m->functions[failed_fn],"x86-64");
     if(ok){
         bpp_asm_source(o,m);
+        if(win&&m->debug_path)bpp_asm_codeview_source(o,m);
         fputs("# B++ native x86-64, static ABI revision 1 / private frame revision 2\n.text\n",o);
         X *e=&all[0];
         if(!m->emit_library){emit_native_platform_leaves(o,win);emit_native_main(e,m->global_count,print);}
         for(size_t f=0;f<m->function_count;++f){e=&all[f];size_t alloc=e->alloc;
             if(m->emit_library&&f)fprintf(o,".globl bpp_v1_%s\nbpp_v1_%s:\n",e->fn->name,e->fn->name);
             fprintf(o,".p2align 4\nL_proc_%zu:\n",f);
+            if(win&&m->debug_path)fprintf(o,".cv_func_id %zu\n",f);
             if(win)fprintf(o,"    .seh_proc L_proc_%zu\n",f);else fputs("    .cfi_startproc\n",o);
             for(size_t s=0;s<e->saved_count;++s){const char *name=cache(e,e->saved[s]);fprintf(o,"    pushq %s\n",name);
     if(win)fprintf(o,"    .seh_pushreg %s\n",name);else{
@@ -448,7 +450,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
             for(size_t b=0;b<e->fn->block_count;++b){e->b=b;bpp_value_facts_begin_block(&e->facts,b,e->fact_regs,e->fact_locals,e->fact_globals);sync_known(e);memset(e->dirty,0,e->fn->register_count);memset(e->dirty_phys,0,e->fn->register_count*sizeof *e->dirty_phys);memset(e->loaded_phys,0,e->fn->register_count*sizeof *e->loaded_phys);if(!m->instrument_native)for(size_t r=0;r<e->fn->register_count;++r){unsigned p=bpp_reg_dirty_entry(&e->plan,b,r);if(p){e->dirty[r]=1;e->dirty_phys[r]=p;e->loaded_phys[r]=p;}}fprintf(o,"L_f%zu_b%zu:\n",f,b);
                 for(size_t k=0;k<e->fn->blocks[b].count;++k){e->k=k;const BLIRInst *i=&e->fn->blocks[b].insts[k];
                     if(i->dst!=BL_IR_NONE&&e->plan.begin[i->dst]==SIZE_MAX)continue;
-                    if(m->debug_path)bpp_asm_location(o,m,i);
+                    if(m->debug_path){bpp_asm_location(o,m,i);if(win)bpp_asm_codeview_location(o,m,i,f);}
                     if(m->emit_asm_comments)bpp_asm_instruction_comment(o,e->fn,f,b,k,&e->plan,target,1);
                     if(m->instrument_native&&(i->op==BL_IR_LOAD_GLOBAL||i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL)){flush(e,e->dirty,1);arg(e,0,"%r12",0);number(e,1,i->op);number(e,2,i->a);call(e,"bpp_a_access");}
                     if(i->op==BL_IR_RETURN){flush(e,e->dirty,1);fprintf(o,"    leaq %zu(%%r12), %%rax\n    movq %%rax, %u(%%r12)\n",cell(e,i->a),BPP_CG_CALL_OUTPUT_OFFSET);char cleanup[64];snprintf(cleanup,sizeof cleanup,"L_cleanup_%zu",f);long_label(e,cleanup);continue;}
@@ -472,7 +474,10 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     if(!win)fprintf(o,"    .cfi_restore %s\n",name);}
             if(!win)fputs("    .cfi_def_cfa %rsp, 8\n",o);
     fputs("    ret\n",o);
-    fputs(win?"    .seh_endproc\n":"    .cfi_endproc\n",o);if(e->asm_comments){fprintf(o,"    # B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",e->fn->name,e->emitted_spills,e->emitted_reloads,e->emitted_rematerializations);access_traffic(o,e->fn);}
+    if(win&&m->debug_path)fprintf(o,"L_proc_end_%zu:\n",f);
+    fputs(win?"    .seh_endproc\n":"    .cfi_endproc\n",o);
+
+    if(e->asm_comments){fprintf(o,"    # B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",e->fn->name,e->emitted_spills,e->emitted_reloads,e->emitted_rematerializations);access_traffic(o,e->fn);}
         }
         fputs(win?".section .rdata,\"dr\"\n":".section .rodata\n",o);literal(o,"L_path",m->path);
         if(!m->emit_library){literal(o,"L_native_fmt_int","%lld\n");literal(o,"L_native_fmt_buffer","<buffer size=%zu owned=%d>\n");literal(o,"L_native_fmt_array","<array size=%zu owned=%d>\n");literal(o,"L_native_newline","\n");}
@@ -485,6 +490,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
             fprintf(o,".globl bpp_v1_library_%s\nbpp_v1_library_%s:\n    .long 0x42505031,1,0,7\n    .long 16,0,8,0\n    .quad %zu\n    .quad bpp_v1_procedures_%s\nbpp_v1_procedures_%s:\n",name,name,count,name,name);
             for(size_t f=1;f<m->function_count;++f)fprintf(o,"    .quad L_abi_name_%zu\n    .long %zu,1\n    .quad bpp_v1_%s\n",f,m->functions[f].param_count,m->functions[f].name);
         }
+        if(win)bpp_asm_codeview_symbols(o,m,0);
         if(!win)fputs(".section .note.GNU-stack,\"\",@progbits\n",o);
     }
             for(size_t f=0;f<m->function_count;++f){bpp_reg_plan_destroy(&all[f].plan);bpp_value_facts_destroy(&all[f].facts);free(all[f].dirty);free(all[f].before);free(all[f].kind);free(all[f].constant);free(all[f].loaded_phys);free(all[f].value);free(all[f].dirty_phys);free(all[f].fact_regs);free(all[f].fact_locals);free(all[f].fact_globals);}free(all);return ok&&!ferror(o);

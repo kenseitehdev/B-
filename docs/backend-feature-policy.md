@@ -26,14 +26,14 @@ fields and one lowering classification per IR opcode.
 
 Every opcode introduced to IR must receive an explicit lowering classification
 for each registered backend before that backend can accept it. `unsupported`
-must fail before assembly or C output is emitted, with target, opcode,
+must fail before assembly is emitted, with target, opcode,
 function, block, instruction, and source location in the diagnostic. A new
 operation can be enabled by one of three explicit choices:
 
 1. implement a native lowering that preserves the documented opcode contract;
 2. call a B++ runtime helper with the same value ownership, errors, and source
    location; or
-3. add a target-specific lowering and test it against the C reference backend.
+3. add a target-specific lowering and test it against independent expected results in optimized and baseline native modes.
 
 No default switch arm may fabricate a value, omit an effect, or silently
 translate an unknown opcode to a generic operation. New backend code must keep

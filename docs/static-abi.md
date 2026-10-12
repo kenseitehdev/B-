@@ -125,9 +125,8 @@ The source directory is searched first, then every `-L directory`, then
 checks call arity while lowering, emits direct `bpp_v1_<procedure>` calls, and
 adds archives to the host-link command in dependant-before-dependency order.
 It preserves ordinary textual `import "file.bpp";` and global
-`import {name};` imports unchanged. Static imports are native-backend only;
-the C reference backend diagnoses them explicitly rather than pretending they
-are runtime builtins.
+`import {name};` imports unchanged. Static imports follow native code generation and the validated archive link
+boundary. The C output backend was removed in 1.0.15.
 
 Inspect the exact resolved inputs without assembling or linking:
 

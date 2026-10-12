@@ -49,10 +49,28 @@ static int local_flow(const BLIRFunction *fn,uint64_t **in_out,size_t *words_out
 static size_t sleb_bytes(long long value,unsigned char bytes[10]){
     size_t n=0;int more=1;while(more&&n<10){unsigned char byte=(unsigned char)(value&0x7f);int sign=(byte&0x40)!=0;value>>=7;more=!((value==0&&!sign)||(value==-1&&sign));if(more)byte|=0x80;bytes[n++]=byte;}return n;
 }
+void bpp_raw_variable_ranges(FILE *o,const BLIRFunction *fn){
+    uint64_t *flow=NULL;size_t words=0;int comma=0;
+    fputc('[',o);
+    if(local_flow(fn,&flow,&words))for(size_t l=0;l<fn->local_count;++l){
+        for(size_t b=0;b<fn->block_count;++b){int live=(int)((flow[b*words+l/64]>>(l%64))&1u);size_t begin=live?0:SIZE_MAX;
+            for(size_t k=0;k<=fn->blocks[b].count;++k){int next=live;
+                if(k==fn->blocks[b].count)next=0;
+                else {const BLIRInst *i=&fn->blocks[b].insts[k];if(i->a==l){if(local_set_op(i->op))next=1;else if(local_clear_op(i->op))next=0;}}
+                size_t end=k==fn->blocks[b].count?k:k+1;
+                if(live&&!next&&begin<end){if(comma++)fputc(',',o);fprintf(o,"{\"slot\":%zu,\"block\":%zu,\"begin_instruction\":%zu,\"end_instruction_exclusive\":%zu,\"location\":{\"kind\":\"frame-slot\",\"offset\":%zu}}",l,b,begin,end,32+fn->register_count*8+l*8);begin=SIZE_MAX;}
+                if(!live&&next)begin=k+1;
+                live=next;
+            }
+        }
+    }
+    free(flow);fputc(']',o);
+}
 static void emit_sleb(FILE *o,long long value){unsigned char bytes[10];size_t n=sleb_bytes(value,bytes);for(size_t i=0;i<n;++i)fprintf(o,"%s0x%02x",i?", ":"",bytes[i]);}
 static void dwarf_section(FILE *o,BPPTarget target,const char *name){
     const BPPBackendCapabilities *cap=bpp_target_capabilities(target);
     if(cap&&cap->format==BPP_FORMAT_MACHO)fprintf(o,".section __DWARF,__%s,regular,debug\n",name);
+    else if(!strcmp(name,"debug_str"))fputs(".section .debug_str,\"MS\",@progbits,1\n",o);
     else fprintf(o,".section .%s,\"\",@progbits\n",name);
 }
 static void dwarf_str_offset(FILE *o,int macho,size_t offset){
@@ -65,14 +83,14 @@ static void dwarf_loclist_offset(FILE *o,int macho,size_t fi,size_t local){
 }
 static size_t dwarf_type_die_size(const BLIRFunction *fn,size_t local){
     const char *type=fn->local_types?fn->local_types[local]:NULL;
-    if(local<fn->param_count||!type)return 5;
-    return !strcmp(type,"byte")||!strcmp(type,"ptr")||!strcmp(type,"pointer")?7:5;
+    if(local<fn->param_count||!type)return 7;
+    return !strcmp(type,"ptr")||!strcmp(type,"pointer")?6:7;
 }
 static size_t dwarf_function_die_size(const BLIRFunction *fn){
-    return 26+fn->param_count*13+17+(fn->local_count-fn->param_count)*18+2;
+    return 29+fn->param_count*13+17+(fn->local_count-fn->param_count)*21+2;
 }
 static size_t dwarf_type_offset(const BLIRModule *m,size_t function,size_t local){
-    size_t offset=12+29;
+    size_t offset=12+33;
     for(size_t f=0;f<m->function_count;++f){
         const BLIRFunction *fn=&m->functions[f];
         offset+=dwarf_function_die_size(fn);
@@ -206,6 +224,76 @@ void bpp_asm_location(FILE *o,const BLIRModule *m,const BLIRInst *i){
     size_t file=i->source_file==BL_IR_NONE||!m||i->source_file>=m->source_file_count?1:i->source_file+1;
     fprintf(o,"    .loc %zu %d %d\n",file,i->source_line,i->source_column>0?i->source_column:0);
 }
+void bpp_asm_codeview_source(FILE *o,const BLIRModule *m){
+    if(!o||!m||!m->debug_path)return;
+    if(!m->source_file_count){
+        fputs(".cv_file 1 ",o);quote(o,m->debug_path?m->debug_path:m->path);fputc('\n',o);return;
+    }
+    for(size_t s=0;s<m->source_file_count;++s){
+        fprintf(o,".cv_file %zu ",s+1);quote(o,m->source_files[s].path);fputc('\n',o);
+    }
+}
+void bpp_asm_codeview_location(FILE *o,const BLIRModule *m,const BLIRInst *i,size_t function){
+    if(!o||!m||!i||i->source_line<=0)return;
+    size_t file=i->source_file==BL_IR_NONE||i->source_file>=m->source_file_count?1:i->source_file+1;
+    fprintf(o,"    .cv_loc %zu %zu %d %d is_stmt 1\n",function,file,i->source_line,
+            i->source_column>0?i->source_column:0);
+}
+/* CodeView records use assembler-resolved lengths/section relocations.  The
+ * raw locals have canonical homes; a location is emitted only over PCs where
+ * definite-initialization proves that home valid.  Legacy cached IR payloads
+ * are not source variables and deliberately receive no defrange. */
+void bpp_asm_codeview_symbols(FILE *o,const BLIRModule *m,int raw){
+    if(!o||!m||!m->debug_path)return;
+    fputs(".section .debug$T,\"dr\"\n.p2align 2\n    .long 4\n",o);
+    /* Match Clang's typedef representation: S_UDT names a primitive storage
+     * type. LF_ALIAS is not supported by LLVM's PDB type-record merger. */
+    size_t procedure_type=4096;
+    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];
+        fprintf(o,"    .short %zu\n    .short 0x1201\n    .long %zu\n",6+fn->param_count*4,fn->param_count);
+        for(size_t p=0;p<fn->param_count;++p)fprintf(o,"    .long %u\n",raw?0x13u:0u);
+        fprintf(o,"    .short 14\n    .short 0x1008\n    .long 0x13\n    .byte 0, 0\n    .short %zu\n    .long %zu\n",fn->param_count,procedure_type+f*2);
+    }
+    fputs(".section .debug$S,\"dr\"\n.p2align 2\n    .long 4\n",o);
+    if(raw){
+        static const char *const types[]={"byte","ptr","pointer","B++ word (parameter type unspecified)"};
+        fputs("    .long 241\n    .long L_cv_typedefs_end - L_cv_typedefs\nL_cv_typedefs:\n",o);
+        for(size_t t=0;t<4;++t){
+            fprintf(o,"    .short L_cv_typedef_end_%zu - L_cv_typedef_%zu\nL_cv_typedef_%zu:\n    .short 0x1108\n    .long %u\n    .asciz ",t,t,t,t==1||t==2?0x603u:0x13u);
+            quote(o,types[t]);fprintf(o,"\n.p2align 2, 0\nL_cv_typedef_end_%zu:\n",t);
+        }
+        fputs("L_cv_typedefs_end:\n.p2align 2, 0\n",o);
+    }
+    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];
+        char low[80],high[80];snprintf(low,sizeof low,raw?"bpp_raw_proc_%zu":"L_proc_%zu",f);
+        snprintf(high,sizeof high,raw?"L_bpp_codeview_end_%zu":"L_proc_end_%zu",f);
+        fprintf(o,"    .long 241\n    .long L_cv_symbols_end_%zu - L_cv_symbols_%zu\nL_cv_symbols_%zu:\n"
+                  "    .short L_cv_proc_end_%zu - L_cv_proc_%zu\nL_cv_proc_%zu:\n"
+                  "    .short 0x1110\n    .long 0, 0, 0\n    .long %s - %s\n    .long 0, 0\n"
+                  "    .long %zu\n    .secrel32 %s\n    .secidx %s\n    .byte 0\n    .asciz ",
+                  f,f,f,f,f,f,high,low,procedure_type+1+f*2,low,low);
+        quote(o,fn->name?fn->name:"<procedure>");fprintf(o,"\n.p2align 2, 0\nL_cv_proc_end_%zu:\n",f);
+        uint64_t *flow=NULL;size_t words=0;if(raw&&!local_flow(fn,&flow,&words))flow=NULL;
+        for(size_t l=0;l<fn->local_count;++l){
+            const char *type=fn->local_types?fn->local_types[l]:NULL;
+            unsigned ti=!raw?0u:type&&(!strcmp(type,"ptr")||!strcmp(type,"pointer"))?0x603u:0x13u;
+            fprintf(o,"    .short L_cv_local_end_%zu_%zu - L_cv_local_%zu_%zu\nL_cv_local_%zu_%zu:\n"
+                      "    .short 0x113e\n    .long %u\n    .short %u\n    .asciz ",f,l,f,l,f,l,ti,l<fn->param_count?1u:0u);
+            quote(o,fn->locals[l]?fn->locals[l]:"<local>");fprintf(o,"\n.p2align 2, 0\nL_cv_local_end_%zu_%zu:\n",f,l);
+            uint64_t *state=flow?malloc(words*sizeof *state):NULL;
+            if(state)for(size_t b=0;b<fn->block_count;++b){memcpy(state,flow+b*words,words*sizeof *state);
+                for(size_t k=0;k<fn->blocks[b].count;++k){const BLIRInst *i=&fn->blocks[b].insts[k];
+                    if((state[l/64]>>(l%64))&1u)fprintf(o,"    .cv_def_range L_bpp_pc_f%zu_b%zu_i%zu_begin L_bpp_pc_f%zu_b%zu_i%zu_end, reg_rel, 340, 0, %zu\n",f,b,k,f,b,k,32+fn->register_count*8+l*8);
+                    if((local_set_op(i->op)||local_clear_op(i->op))&&i->a==l){uint64_t bit=UINT64_C(1)<<(l%64);if(local_clear_op(i->op))state[l/64]&=~bit;else state[l/64]|=bit;}
+                }
+            }
+            free(state);
+        }
+        free(flow);fprintf(o,"    .short 2\n    .short 0x0006\nL_cv_symbols_end_%zu:\n.p2align 2, 0\n",f);
+    }
+    for(size_t f=0;f<m->function_count;++f)fprintf(o,raw?"    .cv_linetable %zu, bpp_raw_proc_%zu, L_bpp_codeview_end_%zu\n":"    .cv_linetable %zu, L_proc_%zu, L_proc_end_%zu\n",f,f,f);
+    fputs("    .cv_filechecksums\n    .cv_stringtable\n.text\n",o);
+}
 void bpp_asm_compile_unit(FILE *o,const BLIRModule *m,BPPTarget target,const char *low_label,const char *high_label,
                           const char *proc_low_prefix,const char *proc_high_prefix,const char *proc_high_suffix){
     if(!o||!m||!m->debug_path||!low_label||!high_label||!proc_low_prefix||!proc_high_prefix||!proc_high_suffix)return;
@@ -223,12 +311,13 @@ void bpp_asm_compile_unit(FILE *o,const BLIRModule *m,BPPTarget target,const cha
           "    .byte 0x10, 0x17\n" /* DW_AT_stmt_list, DW_FORM_sec_offset */
           "    .byte 0x03, 0x0e\n" /* DW_AT_name, DW_FORM_strp */
           "    .byte 0x1b, 0x0e\n" /* DW_AT_comp_dir, DW_FORM_strp */
+          "    .byte 0x73, 0x17\n" /* DW_AT_addr_base, DW_FORM_sec_offset */
           "    .byte 0, 0\n"
           "    .byte 2, 0x2e, 1\n" /* subprogram */
           "    .byte 0x03, 0x0e\n" /* DW_AT_name, DW_FORM_strp */
           "    .byte 0x11, 0x01\n" /* DW_AT_low_pc, DW_FORM_addr */
           "    .byte 0x12, 0x01\n" /* DW_AT_high_pc, DW_FORM_addr */
-          "    .byte 0x3a, 0x0b\n" /* DW_AT_decl_file, DW_FORM_data1 */
+          "    .byte 0x3a, 0x06\n" /* DW_AT_decl_file, DW_FORM_data4 */
           "    .byte 0x3b, 0x06\n" /* DW_AT_decl_line, DW_FORM_data4 */
           "    .byte 0, 0\n"
           "    .byte 3, 0x05, 0\n" /* formal_parameter */
@@ -239,7 +328,7 @@ void bpp_asm_compile_unit(FILE *o,const BLIRModule *m,BPPTarget target,const cha
           "    .byte 4, 0x34, 0\n" /* variable */
           "    .byte 0x03, 0x0e\n"
           "    .byte 0x49, 0x13\n"
-          "    .byte 0x3a, 0x0b\n" /* declaration file */
+          "    .byte 0x3a, 0x06\n" /* declaration file */
           "    .byte 0x3b, 0x06\n" /* declaration line */
           "    .byte 0x02, 0x17\n" /* location list offset */
           "    .byte 0, 0\n"
@@ -255,7 +344,11 @@ void bpp_asm_compile_unit(FILE *o,const BLIRModule *m,BPPTarget target,const cha
           "    .byte 0x11, 0x01\n"
           "    .byte 0x12, 0x01\n"
           "    .byte 0, 0\n"
+          "    .byte 8, 0x0f, 0\n" /* pointer_type (void pointer) */
+          "    .byte 0x03, 0x0e\n    .byte 0x0b, 0x0b\n    .byte 0, 0\n"
           "    .byte 0\n",o);
+    dwarf_section(o,target,"debug_addr");
+    fprintf(o,".L_bpp_debug_addr_begin:\n    .long 12\n    .short 5\n    .byte 8, 0\n.L_bpp_debug_addr_entries:\n    .quad %s\n",low_label);
     dwarf_section(o,target,"debug_str");fputs(".L_bpp_debug_str_begin:\n",o);
     fputs("    .asciz ",o);quote(o,name);fputc('\n',o);
     fputs("    .asciz ",o);quote(o,comp_dir);fputc('\n',o);
@@ -294,7 +387,7 @@ void bpp_asm_compile_unit(FILE *o,const BLIRModule *m,BPPTarget target,const cha
     fputs(".L_bpp_debug_loclists_end:\n",o);dwarf_section(o,target,"debug_info");fputs(".L_bpp_debug_cu_begin:\n",o);
     size_t local_count=0,local_string_bytes=0;for(size_t f=0;f<m->function_count;++f){if(m->functions[f].local_count>SIZE_MAX-local_count)return;local_count+=m->functions[f].local_count;for(size_t l=0;l<m->functions[f].local_count;++l){const char *local=m->functions[f].locals[l]?m->functions[f].locals[l]:"<local>";if(strlen(local)+1>SIZE_MAX-local_string_bytes)return;local_string_bytes+=strlen(local)+1;}}
     (void)local_string_bytes;
-    size_t macho_cu_length=8+29+2;
+    size_t macho_cu_length=8+33+2;
     if(macho){
         for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];size_t bytes=dwarf_function_die_size(fn);
             if(bytes>SIZE_MAX-macho_cu_length)return;
@@ -313,6 +406,7 @@ void bpp_asm_compile_unit(FILE *o,const BLIRModule *m,BPPTarget target,const cha
     fprintf(o,"    .quad %s\n    .quad %s\n    .long %s\n",low_label,high_label,macho?"0":".debug_line");
     dwarf_str_offset(o,macho,0);
     dwarf_str_offset(o,macho,name_bytes);
+    fprintf(o,"    .long %s\n",macho?"8":".L_bpp_debug_addr_entries");
     size_t function_name_offset=name_bytes+comp_dir_bytes;
     size_t local_name_offset=function_name_offset+function_string_bytes;
     for(size_t f=0;f<m->function_count;++f){
@@ -322,11 +416,10 @@ void bpp_asm_compile_unit(FILE *o,const BLIRModule *m,BPPTarget target,const cha
         snprintf(low,sizeof low,"%s%zu",proc_low_prefix,f);
         snprintf(high,sizeof high,"%s%zu%s",proc_high_prefix,f,proc_high_suffix);
         fputs("    .byte 2\n",o);dwarf_str_offset(o,macho,function_name_offset);
-        fprintf(o,"    .quad %s\n    .quad %s\n    .byte %zu\n    .long %d\n",low,high,fn->source_file==BL_IR_NONE?0:fn->source_file+1,fn->source_line);
+        fprintf(o,"    .quad %s\n    .quad %s\n    .long %zu\n    .long %d\n",low,high,fn->source_file==BL_IR_NONE?0:fn->source_file+1,fn->source_line);
         function_name_offset+=strlen(fn_name)+1;
         for(size_t l=0;l<fn->param_count;++l){
             const char *local=m->functions[f].locals[l]?m->functions[f].locals[l]:"<local>";
-            size_t type_index=0;for(size_t pf=0;pf<f;++pf)type_index+=m->functions[pf].local_count;type_index+=l;
             fputs("    .byte 3\n",o);dwarf_str_offset(o,macho,local_name_offset);
             dwarf_type_ref(o,macho,m,f,l);dwarf_loclist_offset(o,macho,f,l);
             local_name_offset+=strlen(local)+1;
@@ -334,12 +427,11 @@ void bpp_asm_compile_unit(FILE *o,const BLIRModule *m,BPPTarget target,const cha
         fprintf(o,"    .byte 7\n    .quad %s\n    .quad %s\n",low,high);
         for(size_t l=fn->param_count;l<fn->local_count;++l){
             const char *local=fn->locals[l]?fn->locals[l]:"<local>";
-            size_t type_index=0;for(size_t pf=0;pf<f;++pf)type_index+=m->functions[pf].local_count;type_index+=l;
             size_t source_file=fn->source_file,line=fn->source_line;
             for(size_t b=0;b<fn->block_count;++b)for(size_t k=0;k<fn->blocks[b].count;++k){const BLIRInst *inst=&fn->blocks[b].insts[k];if(inst->op==BL_IR_INIT_LOCAL&&inst->a==l){source_file=inst->source_file;line=inst->source_line;goto found_decl;}}
 found_decl:
             fputs("    .byte 4\n",o);dwarf_str_offset(o,macho,local_name_offset);
-            dwarf_type_ref(o,macho,m,f,l);fprintf(o,"    .byte %zu\n    .long %zu\n",source_file==BL_IR_NONE?0:source_file+1,line);dwarf_loclist_offset(o,macho,f,l);
+            dwarf_type_ref(o,macho,m,f,l);fprintf(o,"    .long %zu\n    .long %zu\n",source_file==BL_IR_NONE?0:source_file+1,line);dwarf_loclist_offset(o,macho,f,l);
             local_name_offset+=strlen(local)+1;
         }
         fputs("    .byte 0\n",o);
@@ -352,9 +444,9 @@ found_decl:
         size_t type_index=0;for(size_t pf=0;pf<f;++pf)type_index+=m->functions[pf].local_count;type_index+=l;
         const char *source_type=m->functions[f].local_types?m->functions[f].local_types[l]:NULL;
         const char *type_name=source_type?source_type:"B++ value (parameter type unspecified)";
-        if(!strcmp(type_name,"byte")){fprintf(o,".L_bpp_type_%zu:\n    .byte 5\n",type_index);dwarf_str_offset(o,macho,type_string_offset);fputs("    .byte 1, 8\n",o);}
-        else if(!strcmp(type_name,"ptr")||!strcmp(type_name,"pointer")){fprintf(o,".L_bpp_type_%zu:\n    .byte 5\n",type_index);dwarf_str_offset(o,macho,type_string_offset);fputs("    .byte 8, 1\n",o);}
-        else {fprintf(o,".L_bpp_type_%zu:\n    .byte 6\n",type_index);dwarf_str_offset(o,macho,type_string_offset);}
+        if(!strcmp(type_name,"byte")){fprintf(o,".L_bpp_type_%zu:\n    .byte 5\n",type_index);dwarf_str_offset(o,macho,type_string_offset);fputs("    .byte 8, 5\n",o);}
+        else if(!strcmp(type_name,"ptr")||!strcmp(type_name,"pointer")){fprintf(o,".L_bpp_type_%zu:\n    .byte 8\n",type_index);dwarf_str_offset(o,macho,type_string_offset);fputs("    .byte 8\n",o);}
+        else {fprintf(o,".L_bpp_type_%zu:\n    .byte 5\n",type_index);dwarf_str_offset(o,macho,type_string_offset);fputs("    .byte 8, 5\n",o);}
         type_string_offset+=strlen(type)+1;
     }
     fputs("    .byte 0\n    .byte 0\n.L_bpp_debug_cu_end:\n",o);

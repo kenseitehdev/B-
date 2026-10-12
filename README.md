@@ -1,7 +1,8 @@
 # B++ native codegen: four targets
 
 B++ lowers its hand-rolled register IR directly to ARM64 or x86-64 assembly.
-Native is now the default backend. The C backend remains available for comparison.
+Native is the only executable backend as of 1.0.15. `--backend c` and
+`--emit-c` have been removed.
 The compiler and object runtime are written in C; native B++ programs do not pass
 through generated C. A host compiler driver still assembles and links the emitted
 assembly with the runtime. The custom assembler and linker remain later stages.
@@ -83,7 +84,7 @@ fixture are documented in [`docs/static-abi.md`](docs/static-abi.md).
 ./bin/release/bpp --target linux-arm64 --emit-asm -o demo-linux.s tests/demo.bpp
 ./bin/release/bpp --target windows-x86_64 --emit-asm -o demo-win.s tests/demo.bpp
 ./bin/release/bpp --emit-ir --no-opt -o demo.ir tests/demo.bpp
-./bin/release/bpp --backend c --print-result -o reference tests/demo.bpp
+./bin/release/bpp --no-opt --print-result -o baseline tests/demo.bpp
 ./bin/release/bpp --alloc-profile hot-blocks.txt --emit-map -o demo.json tests/demo.bpp
 make BUILD_MODE=release check-targets    # requires a Clang cross-assembler
 make BUILD_MODE=release check-msabi     # Windows calling convention on Linux x64
@@ -239,21 +240,28 @@ Debug and TSAN builds save `<output>.bpp-source` and emit assembler line directi
 On macOS, native debug builds also create `<output>.dSYM` so LLDB can resolve the
 assembler line table after linking. Use `--debug-info` to enable this in release
 too. Preserve the snapshot next to its executable for source stepping.
-`--emit-map -o demo.json` records the selected
-target's local offsets relative to x19 or r12. It is an inspection manifest,
-not DWARF local-variable DIEs or a standalone debugger.
+`--emit-map -o demo.json` records canonical source-variable frame ranges.
+DWARF5 exposes procedure, parameter and local records on Mach-O/ELF;
+Windows CodeView exposes source names, types and local ranges, and debug
+linking writes `<output>.pdb` with LLD. See
+[debug metadata](docs/debug-metadata.md) for verification and remaining native gates.
 
-ASAN hooks cover native global fast paths. Explicit signed-overflow guards provide
-integer safety; C runtime helpers cover strings, arrays, buffers and bounds.
-Native stack redzones, complete per-instruction instrumentation, use-after-return
-tracking, and native local-variable debug records are still unfinished.
-Sanitizer runtime availability varies by platform. No threading syntax is added;
-TSAN does not make the reference-counted object runtime thread-safe.
-MSAN validates the compiler and C runtime path for uninitialized-memory use and
-includes a runtime self-check. Hand-emitted assembly is not yet shadow-memory
-instrumented, so MSAN is not evidence of complete native-instruction coverage.
+Sanitized raw-native output checks word/byte accesses, pointer offsets,
+allocation lifetime, undefined heap bytes and leaks through a portable checked
+boundary. Frames have guarded storage and return-lifetime checks. Release output
+contains no native sanitizer hooks unless `--native-sanitizers` is explicitly
+requested. This opt-in also works without host sanitizer runtimes. The helper-free `--strict-native-runtime`
+profile excludes this instrumentation. See [native sanitizers](docs/native-sanitizers.md)
+for the contract, TSAN/MSAN limits and platform evidence. Run
+`make BUILD_MODE=debug check-native-sanitizer`,
+`make BUILD_MODE=release check-native-checks`, and
+`make check-sanitizer-availability` to verify the configured toolchain.
 
 ## Verification in this snapshot
+
+The 1.0.15 native suites use fixed expected results and an independent seeded
+test evaluator. Earlier Linux C/native suite results below are historical
+evidence; the C output backend is retired.
 
 | Check | Result |
 |---|---|
@@ -261,13 +269,13 @@ instrumented, so MSAN is not evidence of complete native-instruction coverage.
 | Linux x86-64 ASAN/UBSAN | Unit tests and 53 cases per backend pass; leak scanning disabled |
 | Linux x86-64 TSAN | Unit tests and 53 cases per backend pass |
 | Linux x86-64 MSAN | Clang 18: 53 C/native cases, 64 differential seeds, 5,000-update stress case, and intentional-fault self-check pass |
-| Seeded differential execution | 64 seeds, optimized and baseline native outputs match C |
+| Seeded differential execution | 64 seeds, optimized and baseline native outputs independently match the test evaluator |
 | Windows x64 calling-convention bridge | 53 cases pass on Linux x64; Windows OS behavior is not emulated |
 | ARM64 instruction model | 43 execution/error cases pass; not ARM64 hardware execution |
 | Cross-target assembly | Mach-O, both ELF targets and COFF assemble in both optimization modes |
 | Large procedure | 5000 updates execute on Linux x64; large ARM64 output assembles |
 | Allocator scalability | Rejects a preflighted 5,000,000-vreg request; a 4,096-block dependency chain converges through the liveness worklist |
-| Debug/unwind metadata | ELF line table and COFF unwind sections inspected |
+| Debug/unwind metadata | macOS LLDB values/stepping/recursion and dSYM verification pass; COFF source symbols and SEH inspected |
 | macOS ARM64 debug/native test | Passed locally on Apple Silicon with `ASAN_OPTIONS=detect_leaks=0`; leak scanning was disabled for this run |
 | Linux ARM64 and Windows native execution | Pending this updated snapshot's native CI runs |
 

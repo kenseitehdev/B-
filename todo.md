@@ -10,6 +10,8 @@ code exists. “Cross-assembled” means an object was produced for a foreign ta
 architecture. Those are different gates. Do not mark an OS verified because its
 assembly assembled on another host or because a calling-convention bridge passed.
 
+**1.0.15 backend update:** the C output backend, `--emit-c`, and `--backend c` are removed. Native optimized and baseline fixtures use fixed expectations and an independent seeded evaluator. Earlier C/native suite entries below remain historical evidence.
+
 ## Platform/version matrix
 
 | Platform profile | Target triple | Codegen implementation | Cross-assembly | Native release execution | Native debug/sanitizers |
@@ -38,7 +40,7 @@ assembly assembled on another host or because a calling-convention bridge passed
 ## 1.1 Shared pipeline and invariants
 
 - [x] Keep the hand-rolled front end and IR as the common input to every backend.
-- [x] Make native codegen the default on supported hosts; keep C output as a comparison backend.
+- [x] Use native codegen exclusively on supported hosts; retire C output at the end of 1.0.15.
 - [x] Preserve the `--no-opt` path for differential testing.
 - [x] Keep target selection explicit with `--target` and reject execution of a foreign-target executable on the wrong host.
 - [x] Keep the current procedure/value layout private and revisioned in `include/codegen_abi.h` (private revision 1).
@@ -47,7 +49,7 @@ assembly assembled on another host or because a calling-convention bridge passed
 - [x] Add a verifier for definition/use validity, CFG successors, block terminators, register-map bounds, ownership releases, and call argument counts.
 - [x] Add optional assembly comments that map each emitted instruction group to IR opcode, function, block, source span, virtual register, physical register, and spill cell (`--asm-comments`).
 - [x] Make backend feature/target capabilities queryable rather than duplicating target conditionals across CLI, emitter, tests, and build rules (`--list-targets`, `--target-info`).
-- [x] Establish documented numeric semantics once and keep optimizer, C reference backend, native backends, and tests identical for signed overflow, division, modulo, shifts if added, and conversions (`docs/numeric-semantics.md`).
+- [x] Establish documented numeric semantics once and keep optimizer, runtime helpers, native backends, and tests identical for signed overflow, division, modulo, shifts if added, and conversions (`docs/numeric-semantics.md`).
 - [x] Establish a policy for unsupported IR or target features: compile-time diagnostic, explicit helper call, or target-specific lowering. No silent wrong-code fallback (`docs/backend-feature-policy.md`).
 
 ## 1.2 Register allocation, spills, and frames
@@ -166,7 +168,7 @@ Current implementation: folding and propagation use the same flow-sensitive valu
 - [x] Fold safe unary/binary operations and comparisons for every target consistently. The target-independent IR pass folds `-`, `!`, `+`, `-`, `*`, `/`, `%`, and all integer comparisons through `bpp_integer_fold`; C, ARM64, and x86-64 consume that same optimized IR.
 - [x] Add branch and switch folding once those IR forms exist. The existing truthiness branch folds when the incoming fact is true/false and unreachable CFG arms are removed. Revision 1 has no switch IR opcode; numeric semantics documents that a future switch must add its own exhaustive fold tests.
 - [x] Test INT64_MIN/MAX, multiply overflow, zero division/modulo, minimum/-1, nested branches, loops, and calls that mutate globals. Unit tests cover constant reachable-merge and invariant-loop facts; the 64-case native/reference suite retains the signed boundary, error, nested branch, loop, and global-call regressions.
-- [x] Run every differential fixture with optimization enabled and disabled. `check_differential.sh` now builds both the C reference and native executable in optimized and `--no-opt` modes for every seed, then compares each mode independently.
+- [x] Run every differential fixture with optimization enabled and disabled. `check_differential.sh` builds native executables in optimized and `--no-opt` modes for every seed, then compares each against an independent test evaluator; C emission was retired in 1.0.15.
 
 ### 8. Dead-code elimination
 
@@ -248,42 +250,51 @@ Current implementation: arithmetic, comparisons, core branches, user-procedure c
 
 ### 14. Debug metadata
 
-Current implementation: source/line tables and DWARF5 procedure/type/scope records on Mach-O ARM64 and ELF x86-64 raw-native output. The raw backend emits source-variable location lists for definitely initialized frame slots; optimized backends omit unavailable locations. `--emit-map` exposes allocator transitions for IR values and identifies the assigned value's location at each source-variable write. Named B++ locals currently retain canonical frame homes; Windows emits SEH unwind directives but not CodeView/PDB debug records. Metadata CI installs LLVM inspection tools and GDB on Linux; the local Linux gate passes with `readelf`. Native macOS and Windows debugger runs still require their CI runners.
+**Target release:** 1.0.14. Complete the remaining debug metadata implementation and native debugger/unwind verification gates below for this release.
+
+Current implementation: raw-native DWARF5 procedure, parameter, local, type, address-table and initialized-slot location-list records on Mach-O ARM64 and both ELF targets. Source `byte` locals use their actual signed 64-bit frame representation; pointers use pointer DIEs, and untyped parameters expose raw words under an explicitly unspecified source-type name. Windows x64 emits CodeView signatures, source-type aliases, procedure/parameter/local names, initialized-slot defranges, source files and line tables in COFF debug sections; debug linking uses LLD to produce a PDB. `--emit-map` includes full canonical source-variable ranges. Raw stack probes, CFA rules and Windows nonvolatile save/restore paths are covered by assembly checks. Local macOS ARM64 LLDB stepping, imports/recursion, displayed parameter/local values and dSYM inspection pass; LLVM verifies the dSYM and decodes COFF records. Native Linux GDB and Windows LLDB/PDB runner transcripts remain release gates. See `docs/debug-metadata.md`.
 
 - [x] Preserve original source spans through imports, macros, lowering, folding, DCE and block reordering.
 - [x] Represent source files and include/import stacks instead of mapping all expanded code to one sidecar.
 - [x] Emit DWARF5 procedure, parameter and variable DIE names/types with function scopes and source-file tables on Mach-O ARM64 and ELF x86-64. Parameters use an explicitly unspecified B++ value type because the language has no parameter type syntax; local declarations retain their source type. B++ locals are function-scoped, so there are no nested lexical blocks.
-- [x] Emit DWARF5 location lists for raw-native source locals on Mach-O ARM64 and ELF x86-64, using frame locations only while definitely initialized. [ ] Emit allocator-register locations and Windows CodeView/PDB records.
-- [x] Expose allocator register/spill segments over IR positions in `--emit-map`; the allocator regression suite includes a value that transitions from a register to a spill slot. Source-variable write events identify their assigned IR value and its location at the write. [ ] Track source-variable values across their full live ranges and add DWARF register/spill locations. Named locals are not promoted from their canonical frame homes today, so presenting those IR-value transitions as source-variable locations would be inaccurate.
+- [x] Emit DWARF5 location lists for raw-native source locals on Mach-O ARM64 and ELF x86-64, using frame locations only while definitely initialized.
+- [x] Emit CodeView source-file and line-table records for Windows x64 raw and optimized assembly output; cross-assemble the generated COFF object and inspect its CodeView line subsection when LLVM tools are available.
+- [x] Emit CodeView procedure/parameter/local records with source-level names and types, including raw source-type aliases and definitely initialized register-relative frame ranges.
+- [x] Produce and inspect a linked Windows PDB containing CodeView source-file and line records when `lld-link` and `llvm-pdbutil` are available; the Windows CI job now requires both tools.
+- [x] Expose allocator register/spill segments over IR positions in `--emit-map`; the allocator regression suite includes a value that transitions from a register to a spill slot. Source-variable write events identify their assigned IR value and its location at the write. [x] Track current raw source-variable values across their full initialized ranges in DWARF, CodeView and `--emit-map`. These locals have canonical frame homes, with no source-local register promotion; allocator IR cache segments are not reported as named-local register/spill locations.
 - [x] Leave optimized-backend source-variable location lists empty when no trustworthy location is available, so debuggers report the variable unavailable instead of reading stale frame cells. `--emit-map` labels these locations `unavailable_no_trustworthy_location`; raw-backend map entries identify their exact slot only while initialized. An empty DWARF location description is the standard representation for a variable with no executable location.
 - [x] Emit unwind rules for raw x86-64 and ARM64 frames and Windows x64 SEH prologues; x86-64 CFI includes saved-register transitions through the shared epilogue. ARM64 rules keep CFA anchored to x29 across stack probes and helper calls.
 - [x] Add unwind inspection for ELF procedure FDEs, saved-register restores, and canonical CFA restoration; cross-target assembly tests cover ARM64 CFI and Windows x64 SEH directives. [ ] Validate unwind records through stack probes, veneers, helper calls, and every return/error path with native unwinders on each ABI.
 - [x] Add metadata inspection checks for generated assembly and ELF DWARF info/location/unwind metadata with `readelf`; Mach-O DWARF/dSYM is checked with `dwarfdump` on macOS. CI installs `llvm-dwarfdump` and `llvm-readobj` on Unix/Windows runners and invokes them when present. [ ] Record successful native CI runs for these tools across the supported matrix.
-- [x] Add debugger stepping checks for loops, calls, recursive frames, imports, and runtime faults in the macOS LLDB test and Linux GDB test. [ ] Add Windows debugger stepping after CodeView/PDB records are emitted and validate LLDB/GDB runs on the native CI runners.
+- [x] Add debugger stepping checks for loops, calls, recursive frames, imports, and runtime faults in the macOS LLDB test and Linux GDB test. [x] Add Windows LLDB stepping and parameter/local value inspection with native linked PDBs; CI requires LLDB/LLD/PDB tools. Local macOS LLDB passes. [ ] Validate native Linux GDB and Windows LLDB/PDB runs on matching CI runners.
 
 ### 15. Native sanitizer instrumentation
 
-Current implementation: host compiler sanitizer modes instrument C components/runtime. Native global fast paths call ASAN/TSAN hooks; TSAN procedure entry/exit hooks expose native frames. Linux/Clang `BUILD_MODE=msan` adds MemorySanitizer plus PIE and an intentional uninitialized-load runtime self-check; the local Linux x86-64 suite passes and the matching CI job is queued as a separate evidence gate. Native stack accesses and hand-emitted assembly are not fully shadow-memory instrumented. UBSAN-relevant integer behavior uses explicit language checks.
+**Target release:** 1.0.15. Complete the remaining native sanitizer instrumentation, intentional-fault coverage, and platform/runtime verification gates below for this release.
 
-- [ ] Define which sanitizer checks are language guarantees versus compiler debugging instrumentation.
-- [ ] Specify shadow-memory mapping and runtime hooks independently of Clang/GCC sanitizer ABI where portability requires it.
-- [ ] Instrument native loads/stores, pointer arithmetic, array/buffer bounds, integer overflow, invalid tags, and allocation/free transitions.
-- [ ] Add stack redzones, frame poisoning/unpoisoning, return poisoning and use-after-return detection.
-- [ ] Avoid duplicate or missing reports when native access transitions through C helpers.
-- [ ] Define TSAN memory events, atomic semantics, synchronization operations, and limitations until B++ threads exist.
-- [ ] Define leak tracking across native and runtime allocations, including cycles and global roots.
-- [ ] Verify ASAN, LSAN, UBSAN and TSAN runtime availability for each compiler/OS/architecture combination.
+Current implementation: sanitized raw-native word/byte memory operations, pointer offsets, output ranges and allocation/free transitions use a portable checked C boundary. It tracks per-byte definedness, allocation/frame lifetimes, guarded frame storage, retired-region tombstones and conservative global-root/cycle leak reachability. Host sanitizers instrument the C boundary's actual memory accesses, and TSAN traces native procedure entry/exit. Diagnostics retain original source locations and portable faults exit 86. Default release output and the explicitly helper-free strict bootstrap profile omit the boundary. `--native-sanitizers` opts a release compiler into portable checks without requiring host sanitizer runtimes; Windows CI exercises this profile. macOS ARM64 ASAN/UBSAN and TSAN intentional-fault suites pass locally; all four instrumented targets assemble. Native Linux/MSAN and Windows sanitizer evidence remains pending. See `docs/native-sanitizers.md`.
+
+- [x] Define language guarantees versus debugging instrumentation in `docs/native-sanitizers.md`, including the explicit helper-free bootstrap exception.
+- [x] Specify a portable `native_sanitizer.h` boundary and range/definedness metadata; host shadow mapping and ASAN/TSAN hooks stay inside C.
+- [x] Instrument raw native word/byte reads/writes, pointer offsets, output ranges, integer faults and allocation/free transitions. Compiler-owned frame initialization/argument/result housekeeping stays trusted. Raw source values have no tags, managed arrays or buffers; the transitional tagged backend retains its existing instrumentation.
+- [x] Give sanitized raw frames guarded heap storage with ASAN-poisoned redzones, unpoison backing storage before free, and retire frame regions on every return. Checked stale frame accesses report `stack-use-after-return`; direct runtime tests cover bounds and lifetime faults.
+- [x] Check native application accesses before one actual C load/store; host instrumentation observes that access once. Clang MSAN parameter/return TLS checking is disabled only for the assembly boundary object, whose portable byte-definedness map checks native inputs.
+- [x] Define non-atomic C memory events and native frame tracing, plus the current single-threaded registry/no-thread/no-FFI limitation. Future atomics and synchronization require a separate language and metadata design.
+- [x] Track raw native allocations, scan conservative global roots and initialized aligned words, and report unreachable allocations/cycles at normal completion. Root/cycle/reallocation tests cover the policy; fatal exits do not perform the completion leak scan.
+- [ ] Verify all compiler/OS/architecture combinations. `check-sanitizer-availability` now records build and runtime-smoke results per flavor; native CI retains these with its transcript. Local macOS ARM64/Homebrew Clang 23 ASAN/UBSAN and TSAN native fault suites pass; other matching-toolchain execution remains an evidence gate.
 - [x] Add a Linux/Clang MSAN mode with PIE, an intentional uninitialized-read self-check, and a dedicated Linux x86-64 CI transcript. MSAN is rejected on macOS, Windows, and non-Clang toolchains rather than silently degrading.
-- [ ] Verify the Linux/Clang MSAN runtime on the native CI runner and document it separately from ASAN/LSAN/UBSAN/TSAN. Local Clang 18/compiler-rt execution passes; MSAN currently covers the C compiler/runtime path, not full hand-emitted assembly shadow state.
-- [ ] Add intentional-fault tests for each check and assert source location, category and exit behavior.
-- [ ] Keep production/release code free of sanitizer hooks unless explicitly enabled.
+- [ ] Verify the updated Linux/Clang MSAN native checked boundary on its CI runner. The portable map now checks native byte definedness while host MSAN instruments C accesses; this does not claim arbitrary assembly/FFI shadow propagation. Earlier Clang 18 C-component execution remains historical evidence.
+- [x] Add portable runtime faults for bounds, undefined bytes, growth, invalid/double free, use-after-free/return, frame overflow, negative sizes, arithmetic overflow, leaks and cycles; native fixtures assert source/category/exit 86 in optimized and baseline modes on the host. Cross-assemble instrumented output for all four targets.
+- [x] Verify all four release assemblies contain no `bpp_s_*` hooks; default release raw executables omit the checked boundary object. `--native-sanitizers` explicitly enables portable checks in a release compiler; sanitized builds enable them automatically, except the explicitly requested helper-free strict bootstrap profile.
+
+- [x] Remove the C output backend and capability API, delete the C emitter, reject `--backend c`/`--emit-c`, and use native code generation exclusively. Replace C-reference comparisons with independent seeded expected results for optimized/baseline native execution.
 
 ### 16. Broader verification and release gates
 
 Current implementation: unit/runtime tests, 53-case C/native suites, 64-seed optimized/baseline differential tests, register pressure, mapped-cell ownership, 4096-value reuse, large frames, 5000-update large procedure, ASAN and MSAN self-checks, cross-assembly where a Clang assembler is available, and native CI jobs that retain per-run verification transcripts. Linux/Clang MSAN passes locally and has a separate CI job; matching-host ARM64/Windows results remain pending.
 
 - [ ] Run all tests on every supported native OS/architecture; cross-assembly is a separate gate.
-- [ ] Keep the C backend as a temporary semantic oracle and compare exit status, stdout, stderr category, and returned value.
+- [x] Retire the temporary C backend at 1.0.15. Native modes compare fixed stdout/return expectations and independent seeded results; intentional-fault fixtures compare source location, category and exit behavior in both optimization modes.
 - [ ] Extend deterministic randomized programs across arithmetic, branch, loop, call, recursion, string, buffer, array and error behavior.
 - [ ] Add seed reporting and save the smallest reproducer for every generated failure.
 - [ ] Add deep recursion, stack exhaustion, many parameters, high live-value pressure, many locals, huge block count, large text section, and frame-probe boundary tests.
@@ -304,7 +315,7 @@ Current implementation: a CSV harness compares C, native optimized and native `-
 - [ ] Add warmup, repeated samples, median/dispersion, environment metadata and stable machine identifiers.
 - [ ] Measure code size, read-only data, frame size, maximum stack depth, spill/reload count, helper-call count, and compilation peak memory.
 - [ ] Include integer-heavy, branch-heavy, recursive, call-heavy, object-heavy, string/buffer/array, and large-source programs.
-- [ ] Compare C reference, optimized native, unoptimized native, and later assembler/linker builds.
+- [ ] Compare optimized native, unoptimized native, and later assembler/linker builds; retain older C comparison measurements as historical baselines.
 - [ ] Run on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64 native hosts.
 - [ ] Keep results in versioned CSV/JSON with compiler revision, flags, target triple, CPU/OS and sanitizer mode.
 - [ ] Set performance expectations only after repeatable runs; avoid pass/fail thresholds sensitive to shared CI noise.

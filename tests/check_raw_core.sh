@@ -32,9 +32,9 @@ EOF
 "$work/control_flow" >"$work/control_flow.out"
 grep -Fx '40375' "$work/control_flow.out" >/dev/null
 
-"$bpp" --backend c --print-result tests/raw_core.bpp -o "$work/reference"
-"$work/reference" >"$work/reference.out"
-grep -Fx 'A*42' "$work/reference.out" >/dev/null
+"$bpp" --no-opt --print-result tests/raw_core.bpp -o "$work/baseline"
+"$work/baseline" >"$work/baseline.out"
+grep -Fx 'A*42' "$work/baseline.out" >/dev/null
 
 printf '%s\n' 'define proc main() { new ptr p = realloc 4; return 0; }' > "$work/legacy.bpp"
 if "$bpp" --check "$work/legacy.bpp" >"$work/out" 2>"$work/err"; then
