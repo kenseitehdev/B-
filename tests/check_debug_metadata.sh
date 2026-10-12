@@ -303,10 +303,10 @@ if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v lldb >/dev/null 2>&1; 
     if [ -f "$work/program.exe" ]; then program="$work/program.exe"; fi
     if [ "${BPP_REQUIRE_WINDOWS_DEBUGGER:-0}" = 1 ]; then
         # NativePDB resolves source breakpoints against the primary source.
-        # Enter the imported function by stepping from its call site.
+        # Stop at the call site, then run to the imported procedure and its return line.
         lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file main.bpp --line 4' -o run \
-            -o 'thread step-in' -o 'thread step-over' -o 'thread step-over' \
+            -o 'breakpoint set --name increment' -o continue -o 'thread until 4' \
             -o 'frame variable n local' -o 'thread step-over' -o bt \
             -o 'process kill' -o quit "$program" >"$work/variables.txt" 2>&1
     else
