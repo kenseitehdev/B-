@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     'build/tsan/obj/test_raw_sanitizer'
+relocations:     []
+...
