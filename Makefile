@@ -46,6 +46,13 @@ endif
 ifneq ($(SANITIZERS),)
 MODE_FLAGS += -fsanitize=$(SANITIZERS)
 endif
+# UCRT64's runtime lacks Clang's nonrecovering UBSAN handler exports.
+# Trap instrumentation checks all enabled undefined operations without them.
+ifeq ($(OS),Windows_NT)
+ifneq ($(findstring undefined,$(SANITIZERS)),)
+MODE_FLAGS += -fsanitize-trap=undefined
+endif
+endif
 CPPFLAGS += -Iinclude
 CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic
 LDFLAGS ?=

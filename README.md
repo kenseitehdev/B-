@@ -57,7 +57,7 @@ toolchains instead of silently producing a partially instrumented build.
 On Windows run `make CC=clang BUILD_MODE=release test check-differential` in an
 MSYS2 UCRT64 shell with make and mingw-w64-ucrt-x86_64-clang installed. The compiler
 path there is `bin/release/bpp.exe`. Windows sanitizer modes require the requested runtime. CI executes the
-available UBSAN profile with `BUILD_MODE=debug DEBUG_SANITIZERS=undefined`;
+available UBSAN trap profile with `BUILD_MODE=debug DEBUG_SANITIZERS=undefined`;
 unavailable ASAN/LSAN/TSAN runtimes are recorded explicitly.
 
 `test` runs unit, native execution, signed-state/bitwise oracle, strict-profile

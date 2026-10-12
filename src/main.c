@@ -176,6 +176,7 @@ static int native_compile(const char *temp, const char *output, BPPTarget target
     if(!macho_debug)command[n++] = BPP_OPTIMIZATION;
     if (BPP_SANITIZERS[0]) {
         command[n++] = sanitizer_flag; command[n++] = "-g";
+        if(cap&&cap->format==BPP_FORMAT_COFF&&strstr(BPP_SANITIZERS,"undefined"))command[n++]="-fsanitize-trap=undefined";
     }
     if(debug&&!BPP_SANITIZERS[0])command[n++]="-g";
     if (cap && cap->format==BPP_FORMAT_MACHO && cap->isa==BPP_ISA_ARM64) { command[n++] = "-arch"; command[n++] = "arm64"; }
