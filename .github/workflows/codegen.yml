@@ -172,6 +172,15 @@ jobs:
         run: |
           set -o pipefail
           python3 tests/run_bounded.py 600 make CC=clang BUILD_MODE=release -j2 test check-native-checks check-debug-metadata check-static-abi check-differential check-stress check-fuzz check-verification check-reproducible 2>&1 | tee -a verification-windows-2022-release.log
+      - name: Windows supported UBSAN native execution
+        env:
+          BPP_REQUIRED_SANITIZERS: undefined
+          BPP_REQUIRE_WINDOWS_DEBUGGER: 1
+        run: |
+          set -o pipefail
+          make CC=clang check-sanitizer-availability 2>&1 | tee -a verification-windows-2022-release.log
+          make CC=clang BUILD_MODE=debug DEBUG_SANITIZERS=undefined CFLAGS='-std=c11 -Wall -Wextra -Wpedantic -Werror' -j2 all 2>&1 | tee -a verification-windows-2022-release.log
+          python3 tests/run_bounded.py 600 make CC=clang BUILD_MODE=debug DEBUG_SANITIZERS=undefined -j2 test check-static-abi check-differential check-fuzz check-verification check-reproducible 2>&1 | tee -a verification-windows-2022-release.log
       - name: Windows source stepping and variable inspection
         run: |
           set -o pipefail
@@ -198,23 +207,30 @@ jobs:
             build/verification-failures
           if-no-files-found: ignore
   msan:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Discard checked-in build artifacts
         shell: bash
         run: rm -rf build bin
-      - name: Verify Linux x86-64 MSAN runner
+      - name: Verify Linux MSAN runner
         run: |
           test "$(uname -s)" = Linux
-          test "$(uname -m)" = x86_64
+          case "${{ matrix.os }}" in
+            ubuntu-24.04) test "$(uname -m)" = x86_64 ;;
+            ubuntu-24.04-arm) test "$(uname -m)" = aarch64 ;;
+          esac
       - name: Record MSAN toolchain
         run: |
-          log=verification-ubuntu-24.04-msan.log
+          log=verification-${{ matrix.os }}-msan.log
           {
             echo "revision=$GITHUB_SHA"
-            echo 'runner=ubuntu-24.04 x86_64'
+            echo "runner=${{ matrix.os }} $(uname -m)"
             echo 'mode=msan'
             echo "uname=$(uname -a)"
             clang --version
@@ -223,20 +239,20 @@ jobs:
       - name: MemorySanitizer native execution
         run: |
           set -o pipefail
-          python3 tests/run_bounded.py 600 make CC=clang BUILD_MODE=msan -j2 test check-static-abi check-fuzz check-verification check-reproducible 2>&1 | tee -a verification-ubuntu-24.04-msan.log
+          python3 tests/run_bounded.py 600 make CC=clang BUILD_MODE=msan -j2 test check-static-abi check-fuzz check-verification check-reproducible 2>&1 | tee -a verification-${{ matrix.os }}-msan.log
       - name: MemorySanitizer differential execution
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=msan check-differential 2>&1 | tee -a verification-ubuntu-24.04-msan.log
+          make CC=clang BUILD_MODE=msan check-differential 2>&1 | tee -a verification-${{ matrix.os }}-msan.log
       - name: MemorySanitizer large procedure
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=msan check-stress 2>&1 | tee -a verification-ubuntu-24.04-msan.log
+          make CC=clang BUILD_MODE=msan check-stress 2>&1 | tee -a verification-${{ matrix.os }}-msan.log
       - name: Upload MSAN verification transcript
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: verification-ubuntu-24.04-msan
-          path: verification-ubuntu-24.04-msan.log
+          name: verification-${{ matrix.os }}-msan
+          path: verification-${{ matrix.os }}-msan.log
           if-no-files-found: warn
           retention-days: 30
