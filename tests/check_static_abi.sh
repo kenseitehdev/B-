@@ -72,6 +72,28 @@ printf '%s\n' '#include "bpp_abi.h"' \
 case "$(uname -s)" in Linux) link_flags=-no-pie ;; *) link_flags= ;; esac
 "$cc" -std=c11 -Iinclude $link_flags ${BPP_ABI_FLAGS:-} "$task_dir/consumer.c" "$runtime" "$value" "$native_runtime" "$abi_runtime" "$truth_runtime" "$task_dir/libprovider.bpp.a" -o "$task_dir/consumer"
 "$task_dir/consumer"
+# Manifest integer parsing must use the ABI's 32-bit arity bound on LP64/LLP64.
+cp "$task_dir/libprovider.bppabi" "$task_dir/provider-good.bppabi"
+for bad_arity in -1 4294967296 18446744073709551616 1junk; do
+    sed "s/^export increment 1$/export increment $bad_arity/" "$task_dir/provider-good.bppabi" > "$task_dir/libprovider.bppabi"
+    if "$compiler" -L "$task_dir" --check "$task_dir/bpp-consumer.bpp" >"$task_dir/manifest-reject.out" 2>&1; then
+        echo "FAIL static ABI: invalid manifest arity $bad_arity compiled" >&2;exit 1
+    fi
+    grep -F "expected 'export identifier arity'" "$task_dir/manifest-reject.out" >/dev/null
+done
+for rewrite in 's/^abi 2.0$/abi 1.0/' 's/^runtime 3$/runtime 2/'; do
+    sed "$rewrite" "$task_dir/provider-good.bppabi" > "$task_dir/libprovider.bppabi"
+    if "$compiler" -L "$task_dir" --check "$task_dir/bpp-consumer.bpp" >"$task_dir/manifest-reject.out" 2>&1; then
+        echo 'FAIL static ABI: incompatible manifest compiled' >&2;exit 1
+    fi
+    grep -F 'ABI 2.0, runtime 3' "$task_dir/manifest-reject.out" >/dev/null
+done
+cp "$task_dir/provider-good.bppabi" "$task_dir/libprovider.bppabi"
+if grep -F 'archive windows-x86_64 ' "$task_dir/libprovider.bppabi" >/dev/null; then foreign_target=linux-x86_64;else foreign_target=windows-x86_64;fi
+if "$compiler" --target "$foreign_target" -L "$task_dir" --check "$task_dir/bpp-consumer.bpp" >"$task_dir/manifest-reject.out" 2>&1; then
+    echo 'FAIL static ABI: target-mismatched archive compiled' >&2;exit 1
+fi
+grep -F 'an archive for this target' "$task_dir/manifest-reject.out" >/dev/null
 printf x >> "$task_dir/libprovider.bpp.a"
 if "$compiler" -L "$task_dir" --check "$task_dir/bpp-consumer.bpp" >"$task_dir/stale-archive.out" 2>&1; then
     echo 'FAIL static ABI: stale archive matched its manifest' >&2; exit 1

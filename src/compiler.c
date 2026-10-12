@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <errno.h>
 #ifdef _WIN32
 #include <direct.h>
 #define getcwd _getcwd
@@ -542,7 +543,7 @@ static int bl_import_static_manifest(BLImportState *state, const char *manifest,
             if (fields != 2 || !bl_identifier(first) || name) ok = bl_static_manifest_error(state, manifest, line_number, "invalid or duplicate library name");
             else name = bl_strdup_local(first);
         } else if (!strcmp(key, "abi")) {
-            if (fields != 2 || sscanf(first, "%u.%u", &abi_major, &abi_minor) != 2) ok = bl_static_manifest_error(state, manifest, line_number, "expected ABI version such as 'abi 1.0'");
+            if (fields != 2 || sscanf(first, "%u.%u", &abi_major, &abi_minor) != 2) ok = bl_static_manifest_error(state, manifest, line_number, "expected ABI version such as 'abi 2.0'");
         } else if (!strcmp(key, "runtime")) {
             if (fields != 2 || sscanf(first, "%u", &runtime_revision) != 1) ok = bl_static_manifest_error(state, manifest, line_number, "expected runtime revision");
         } else if (!strcmp(key, "archive")) {
@@ -557,8 +558,10 @@ static int bl_import_static_manifest(BLImportState *state, const char *manifest,
                 else { archive = bl_strdup_local(second); expected_archive_size = (size_t)byte_count; expected_archive_fingerprint = fingerprint; archive_selected = 1; }
             }
         } else if (!strcmp(key, "export")) {
-            unsigned long arity = 0; char extra = 0;
-            if (fields != 3 || !bl_identifier(first) || sscanf(second, "%lu%c", &arity, &extra) != 1 || arity > SIZE_MAX) ok = bl_static_manifest_error(state, manifest, line_number, "expected 'export identifier arity'");
+            char *end=NULL;errno=0;
+            unsigned long long arity=strtoull(second,&end,10);
+            if (fields != 3 || !bl_identifier(first) || !isdigit((unsigned char)second[0]) ||
+                end==second || *end || errno==ERANGE || arity>UINT32_MAX) ok = bl_static_manifest_error(state, manifest, line_number, "expected 'export identifier arity'");
             else {
                 for (size_t i = 0; i < export_count; ++i) if (!strcmp(exports[i].name, first)) ok = bl_static_manifest_error(state, manifest, line_number, "duplicate exported procedure");
                 if (!ok) break;
@@ -577,7 +580,7 @@ static int bl_import_static_manifest(BLImportState *state, const char *manifest,
         } else ok = bl_static_manifest_error(state, manifest, line_number, "unknown manifest directive");
     }
     if (ok && (!header || !name || !archive_selected || abi_major != 2 || abi_minor != 0 || runtime_revision != 3))
-        ok = bl_static_manifest_error(state, manifest, line_number ? line_number : 1, "manifest must declare bppabi 1, name, ABI 1.0, runtime 1, and an archive for this target");
+        ok = bl_static_manifest_error(state, manifest, line_number ? line_number : 1, "manifest must declare bppabi 1, name, ABI 2.0, runtime 3, and an archive for this target");
     if (ok && requested_name && strcmp(name, requested_name)) ok = bl_static_manifest_error(state, manifest, 1, "manifest name does not match requested library");
     char *archive_path = NULL;
     size_t actual_archive_size = 0; unsigned long long actual_archive_fingerprint = 0;
