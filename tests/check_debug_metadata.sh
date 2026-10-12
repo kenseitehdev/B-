@@ -163,6 +163,7 @@ if [ "$have_elf_dwarf" = 1 ] && command -v llvm-dwarfdump >/dev/null 2>&1; then
         "$bpp" --debug-info --emit-asm -o "$work/native-dwarf.s" "$work/main.bpp"
         clang -g -c -x assembler "$work/native-dwarf.s" -o "$work/native-dwarf.o"
         timeout 60 llvm-dwarfdump --verify "$work/native-dwarf.o" >"$work/verify.txt"
+        dwarf_input="$work/native-dwarf.o"
     else
         llvm-dwarfdump --verify "$dwarf_input" >"$work/verify.txt"
     fi
@@ -186,6 +187,8 @@ if command -v llvm-readobj >/dev/null 2>&1 && command -v clang >/dev/null 2>&1; 
     grep -F '.debug$S' "$work/windows-sections.txt" >/dev/null
     llvm-readobj --codeview "$work/raw-windows.o" >"$work/windows-codeview.txt"
     grep -F 'S_GPROC32' "$work/windows-codeview.txt" >/dev/null
+    grep -F 'S_COMPILE3' "$work/windows-codeview.txt" >/dev/null
+    grep -F 'S_BUILDINFO' "$work/windows-codeview.txt" >/dev/null
     grep -F 'S_LOCAL' "$work/windows-codeview.txt" >/dev/null
     grep -F 'S_DEFRANGE_REGISTER_REL' "$work/windows-codeview.txt" >/dev/null
     grep -F 'VarName: memory' "$work/windows-codeview.txt" >/dev/null
@@ -298,10 +301,20 @@ esac
 if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v lldb >/dev/null 2>&1; then
     program="$work/program"
     if [ -f "$work/program.exe" ]; then program="$work/program.exe"; fi
+    if [ "${BPP_REQUIRE_WINDOWS_DEBUGGER:-0}" = 1 ]; then
+        # NativePDB resolves source breakpoints against the primary source.
+        # Enter the imported function by stepping from its call site.
+        lldb --batch -o 'settings set use-color false' \
+            -o 'breakpoint set --file main.bpp --line 4' -o run \
+            -o 'thread step-in' -o 'thread step-over' -o 'thread step-over' \
+            -o 'frame variable n local' -o 'thread step-over' -o bt \
+            -o 'process kill' -o quit "$program" >"$work/variables.txt" 2>&1
+    else
     lldb --batch -o 'settings set use-color false' \
         -o 'breakpoint set --file library.bpp --line 4' -o run \
         -o 'frame variable n local' -o 'thread step-over' -o bt \
         -o 'process kill' -o quit "$program" >"$work/variables.txt" 2>&1
+    fi
     grep -E 'n = 41' "$work/variables.txt" >/dev/null
     grep -E 'local = 42' "$work/variables.txt" >/dev/null
     grep -F 'increment' "$work/variables.txt" >/dev/null

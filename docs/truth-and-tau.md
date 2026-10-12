@@ -35,13 +35,19 @@ to measure path activity or perform hierarchical predictive propagation.
 
 The signed truth model applies to all Boolean results and conditions. Conditions
 use a configurable threshold on transition velocity, not on the destination
-state. The program supplies explicit start/end/dt operands. Threshold units,
-configuration syntax and the comparison rule are awaiting confirmation. Fractional state representation
-and source syntax must preserve ordinary signed 64-bit integer values.
+state. The accepted condition form is `if (velocity(start, end, dt) >= threshold)`.
+The program supplies explicit start/end/dt and threshold operands. Velocity is
+(end-start)/dt and dt must be positive; its units follow the supplied time unit.
+The same explicit comparison can be used in a while condition. Validation
+(`υ`) and the propagation threshold (`φ`) are distinct from the derived
+construction (`κ`) that supplies state change and velocity. The interval
+helper does not implement the entire abstract κ reconstruction/validation
+pipeline. A distinct `state` value uses 64-bit floating-point storage; ordinary signed
+64-bit integer values and bitwise operations retain their integer representation.
+State creation syntax remains to be implemented.
 
-Runtime errors enter uncertainty propagation. The implementation must define
-which uncertain state is produced and retain enough provenance to reason about
-the error. Failed accesses must not perform invalid memory operations. This
+Runtime errors enter uncertainty propagation. When no valid computed state exists, an error produces U=0 and retains the
+error context and transition inputs so propagation can reason about the failure. Failed accesses must not perform invalid memory operations. This
 changes the externally visible error contract and therefore requires deliberate
 static-ABI versioning rather than silently changing existing libraries.
 

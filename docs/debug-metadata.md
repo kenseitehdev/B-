@@ -45,3 +45,10 @@ COFF assemblies pass cross-assembly and COFF records decode with LLVM.
 Remaining Linux GDB, Windows LLDB/PDB and final-matrix verification fixes
 are assigned to 1.0.16 in `todo.md`; no matching native execution is inferred
 from cross-assembly.
+
+CodeView compile/build records identify the native compiler and primary source
+file. The Windows LLDB test breaks at the primary-file call site, steps into the
+imported procedure, then checks source locals. NativePDB resolves source
+breakpoints against the primary compilation-unit file; imported-file line
+records still support stepping. See [LLVM NativePDB source](https://lldb.llvm.org/cpp_reference/SymbolFileNativePDB_8cpp_source.html)
+and [primary source reconstruction](https://lldb.llvm.org/cpp_reference/CompileUnitIndex_8cpp_source.html).

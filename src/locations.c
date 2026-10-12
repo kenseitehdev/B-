@@ -271,7 +271,28 @@ void bpp_asm_codeview_symbols(FILE *o,const BLIRModule *m,int raw){
         for(size_t p=0;p<fn->param_count;++p)fprintf(o,"    .long %u\n",raw?0x13u:0u);
         fprintf(o,"    .short 14\n    .short 0x1008\n    .long 0x13\n    .byte 0, 0\n    .short %zu\n    .long %zu\n",fn->param_count,procedure_type+f*2);
     }
-    fputs(".section .debug$S,\"dr\"\n.p2align 2\n    .long 4\n",o);
+    /* NativePDB determines the primary source from LF_BUILDINFO/S_BUILDINFO.
+     * Without it the compile unit has an empty filename, so source breakpoints
+     * cannot resolve even when DEBUG_S_LINES survives linking. */
+    char cwd[4096];if(!bpp_getcwd(cwd,sizeof cwd))cwd[0]=0;
+    const char *primary=m->source_file_count?m->source_files[0].path:m->path;
+    const char *build_strings[]={cwd,"bpp",primary,"",""};
+    size_t build_base=procedure_type+m->function_count*2;
+    for(size_t n=0;n<5;++n){
+        fprintf(o,"    .short L_cv_build_string_end_%zu - L_cv_build_string_%zu\nL_cv_build_string_%zu:\n    .short 0x1605\n    .long 0\n    .asciz ",n,n,n);
+        quote(o,build_strings[n]);fprintf(o,"\n.p2align 2, 0\nL_cv_build_string_end_%zu:\n",n);
+    }
+    fputs("    .short 26\n    .short 0x1603\n    .short 5\n",o);
+    for(size_t n=0;n<5;++n)fprintf(o,"    .long %zu\n",build_base+n);
+    fputs("    .short 0\n",o);
+    fputs(".section .debug$S,\"dr\"\n.p2align 2\n    .long 4\n"
+          "    .long 241\n    .long L_cv_compile_end - L_cv_compile_begin\nL_cv_compile_begin:\n"
+          "    .short L_cv_compile_record_end - L_cv_compile_record\nL_cv_compile_record:\n"
+          "    .short 0x113c\n    .long 1\n    .short 0xd0\n"
+          "    .short 1,0,16,0,1,0,16,0\n    .asciz \"B++ native compiler\"\n"
+          ".p2align 2, 0\nL_cv_compile_record_end:\n"
+          "    .short 6\n    .short 0x114c\n",o);
+    fprintf(o,"    .long %zu\nL_cv_compile_end:\n.p2align 2, 0\n",build_base+5);
     if(raw){
         static const char *const types[]={"byte","ptr","pointer","B++ word (parameter type unspecified)"};
         fputs("    .long 241\n    .long L_cv_typedefs_end - L_cv_typedefs\nL_cv_typedefs:\n",o);
