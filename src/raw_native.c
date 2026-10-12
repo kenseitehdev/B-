@@ -128,7 +128,9 @@ static void xcall(const Raw *raw, const char *name) {
  * from the checked frame. Eight pushes preserve 16-byte call alignment. */
 static const char *const xscratch[]={"%rax","%rcx","%rdx","%r8","%r9","%r10","%r11"};
 static void xsave(const Raw *raw){
-    fputs("    pushfq\n",raw->out);
+    /* A debugger may single-step this sequence with TF set. Restoring that
+     * bit after the helper call would keep trapping inside unrelated C code. */
+    fputs("    pushfq\n    andq $-257, (%rsp)\n",raw->out);
     for(size_t s=0;s<7;++s)fprintf(raw->out,"    pushq %s\n",xscratch[s]);
     if(raw->windows)fputs("    subq $32, %rsp\n",raw->out);
 }

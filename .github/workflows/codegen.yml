@@ -1,5 +1,12 @@
 name: Native codegen
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [main, "1.0.14"]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: native-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -18,6 +25,7 @@ jobs:
           - {os: ubuntu-24.04-arm, mode: debug, compiler: gcc}
           - {os: ubuntu-24.04-arm, mode: tsan, compiler: gcc}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Discard checked-in build artifacts
@@ -102,6 +110,7 @@ jobs:
           retention-days: 30
   windows:
     runs-on: windows-2022
+    timeout-minutes: 15
     defaults:
       run:
         shell: msys2 {0}
@@ -167,6 +176,7 @@ jobs:
           retention-days: 30
   msan:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Discard checked-in build artifacts
