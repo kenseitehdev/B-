@@ -1,8 +1,12 @@
 # Truth states and TAU: 1.0.16 language contract
 
 This records the user-supplied rules. The fractional truth model and TAU are
-pending implementation; the current compiler still uses its previous Boolean
-behavior. Passing bitwise tests does not certify these logical operations.
+pending language integration; the current compiler still uses its previous
+Boolean behavior. The internal semantic kernel in `src/truth.c` implements
+the accepted state gates, direction, interval velocity and error context.
+`make check-truth` checks all 125 reference transitions, the accepted XOR
+table, velocity thresholds and invalid-input/error propagation. These kernel
+tests do not certify parsing, native lowering, control flow or ABI integration. Passing bitwise tests does not certify these logical operations.
 
 Truth is a signed state in [-1, 1]. False is -1, true is +1, and uncertainty
 occupies the open interval between them. The five reference states are F=-1,

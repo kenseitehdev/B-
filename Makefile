@@ -136,7 +136,7 @@ check-asan-hook: $(OBJDIR)/test_native_sanitizer$(EXE)
 	sh tests/check_asan_hook.sh ./$(OBJDIR)/test_native_sanitizer$(EXE)
 check-msan: $(OBJDIR)/test_msan$(EXE)
 	sh tests/check_msan.sh ./$(OBJDIR)/test_msan$(EXE)
-test: check check-native check-strict-native-runtime check-native-sanitizer check-gates
+test: check check-native check-strict-native-runtime check-native-sanitizer check-gates check-truth
 ifeq ($(BUILD_MODE),msan)
 test: check-msan
 endif
@@ -205,3 +205,10 @@ $(OBJDIR)/fuzz_compiler$(EXE): tests/fuzz_compiler.c $(filter-out $(OBJDIR)/src/
 .PHONY: check-gates
 check-gates: $(BIN)
 	$(PYTHON) tests/check_gates.py ./$(BIN)
+
+.PHONY: check-truth
+check-truth: $(OBJDIR)/test_truth$(EXE)
+	./$(OBJDIR)/test_truth$(EXE)
+$(OBJDIR)/test_truth$(EXE): tests/test_truth.c src/truth.c include/truth.h
+	mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_truth.c src/truth.c -o "$@"
