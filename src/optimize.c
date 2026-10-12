@@ -532,8 +532,8 @@ int bpp_ir_optimize(BLIRModule *m) {
     for(size_t f=0;f<m->function_count;++f){BLIRFunction fn=m->functions[f];
         if(!reachable[f]){
             for(size_t b=0;b<fn.block_count;++b){for(size_t k=0;k<fn.blocks[b].count;++k){free(fn.blocks[b].insts[k].text);free(fn.blocks[b].insts[k].args);}free(fn.blocks[b].insts);}
-            for(size_t j=0;j<fn.local_count;++j)free(fn.locals[j]);
-            free(fn.name);free(fn.locals);free(fn.blocks);continue;
+            for(size_t j=0;j<fn.local_count;++j){free(fn.locals[j]);if(fn.local_types)free(fn.local_types[j]);}
+            free(fn.local_types);free(fn.name);free(fn.locals);free(fn.blocks);continue;
         }
         for(size_t b=0;b<fn.block_count;++b)for(size_t k=0;k<fn.blocks[b].count;++k){BLIRInst *i=&fn.blocks[b].insts[k];if(i->op==BL_IR_CALL&&i->a!=BL_IR_NONE)i->a=map[i->a];}
         m->functions[dest++]=fn;

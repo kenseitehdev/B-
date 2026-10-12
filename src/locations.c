@@ -387,7 +387,7 @@ void bpp_asm_compile_unit(FILE *o,const BLIRModule *m,BPPTarget target,const cha
     fputs(".L_bpp_debug_loclists_end:\n",o);dwarf_section(o,target,"debug_info");fputs(".L_bpp_debug_cu_begin:\n",o);
     size_t local_count=0,local_string_bytes=0;for(size_t f=0;f<m->function_count;++f){if(m->functions[f].local_count>SIZE_MAX-local_count)return;local_count+=m->functions[f].local_count;for(size_t l=0;l<m->functions[f].local_count;++l){const char *local=m->functions[f].locals[l]?m->functions[f].locals[l]:"<local>";if(strlen(local)+1>SIZE_MAX-local_string_bytes)return;local_string_bytes+=strlen(local)+1;}}
     (void)local_string_bytes;
-    size_t macho_cu_length=8+33+2;
+    size_t macho_cu_length=8+33+1;
     if(macho){
         for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];size_t bytes=dwarf_function_die_size(fn);
             if(bytes>SIZE_MAX-macho_cu_length)return;
@@ -449,7 +449,7 @@ found_decl:
         else {fprintf(o,".L_bpp_type_%zu:\n    .byte 5\n",type_index);dwarf_str_offset(o,macho,type_string_offset);fputs("    .byte 8, 5\n",o);}
         type_string_offset+=strlen(type)+1;
     }
-    fputs("    .byte 0\n    .byte 0\n.L_bpp_debug_cu_end:\n",o);
+    fputs("    .byte 0\n.L_bpp_debug_cu_end:\n",o);
 }
 static const char *phys_name(BPPTarget t,unsigned p){
     static char x64[32];const BPPBackendCapabilities *c=bpp_target_capabilities(t);const BPPRegisterInfo *r=bpp_target_register(t,p);if(!c||!p)return "spill";if(!r)return "?";
