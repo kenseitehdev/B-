@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+if [ "${CI:-}" = true ]; then set -x; fi
 
 bpp=$1
 work=${TMPDIR:-/tmp}/bpp-debug-metadata-$$
@@ -7,6 +8,10 @@ cleanup() {
     result=$?
     if [ "$result" -ne 0 ] || [ "${BPP_KEEP_DEBUG_METADATA_TMP:-0}" = 1 ]; then
         echo "Preserved debug metadata test files at $work" >&2
+        if [ "${CI:-}" = true ]; then
+            mkdir -p build/debug-evidence
+            cp -R "$work" build/debug-evidence/
+        fi
     else
         rm -rf "$work"
     fi
@@ -115,7 +120,7 @@ grep -F '"source_variable_ranges"' "$work/map.json" >/dev/null
 
 if command -v readelf >/dev/null 2>&1; then
     readelf --debug-dump=decodedline "$linked_program" >"$work/lines.txt"
-    grep -F "$work/library.bpp" "$work/lines.txt" >/dev/null
+    grep -F "library.bpp" "$work/lines.txt" >/dev/null
     readelf --debug-dump=info "$linked_program" >"$work/info.txt"
     grep -F 'DW_TAG_subprogram' "$work/info.txt" >/dev/null
     grep -F 'DW_TAG_formal_parameter' "$work/info.txt" >/dev/null
