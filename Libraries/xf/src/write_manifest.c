@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
     const char *base = strrchr(argv[2], '/'); base = base ? base + 1 : argv[2];
     FILE *out = fopen(argv[3], "w"); if (!out) { perror(argv[3]); return 1; }
     fprintf(out, "# XF bridge for B++ static ABI v1\n"
-                 "bppabi 1\nname xf\nabi 1.0\nruntime 1\n"
+                 "bppabi 1\nname xf\nabi 2.0\nruntime 3\n"
                  "archive %s %s %zu %016llx\n", argv[1], base, size, hash);
     if (!strcmp(argv[1], "linux-x86_64") || !strcmp(argv[1], "linux-arm64"))
         fputs("link linux-x86_64 m\nlink linux-x86_64 pthread\nlink linux-arm64 m\nlink linux-arm64 pthread\n", out);

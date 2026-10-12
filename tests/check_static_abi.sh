@@ -5,6 +5,7 @@ runtime=$2
 value=$3
 native_runtime=$4
 abi_runtime=$5
+truth_runtime=$6
 cc=${BPP_ABI_CC:-cc}
 ar_tool=${AR:-ar}
 task_dir=$(mktemp -d)
@@ -15,10 +16,10 @@ for target in macos-arm64 linux-x86_64 linux-arm64 windows-x86_64; do
     "$compiler" --emit-library --library-name provider --emit-asm --target "$target" -o "$task_dir/$target.s" "$task_dir/provider.bpp"
     case "$target" in
         macos-arm64)
-            grep -F '_bpp_v1_increment:' "$task_dir/$target.s" >/dev/null
-            awk '/^\.section __DATA,__data/{in_data=1} in_data && /^_bpp_v1_library_provider:/{found=1} END{exit !found}' "$task_dir/$target.s"
+            grep -F '_bpp_v2_increment:' "$task_dir/$target.s" >/dev/null
+            awk '/^\.section __DATA,__data/{in_data=1} in_data && /^_bpp_v2_library_provider:/{found=1} END{exit !found}' "$task_dir/$target.s"
             ;;
-        *) grep -F 'bpp_v1_increment:' "$task_dir/$target.s" >/dev/null ;;
+        *) grep -F 'bpp_v2_increment:' "$task_dir/$target.s" >/dev/null ;;
     esac
     if grep -E '\.globl (_)?main' "$task_dir/$target.s" >/dev/null; then
         echo "FAIL static ABI: $target library output retained main" >&2; exit 1
@@ -39,7 +40,7 @@ test "$("$task_dir/bpp-consumer")" = 42
 "$compiler" -L "$task_dir" --emit-link-map -o "$task_dir/consumer.link-map" "$task_dir/bpp-consumer.bpp"
 grep -Fx 'bpp-link-map 1' "$task_dir/consumer.link-map" >/dev/null
 grep -F 'name=provider' "$task_dir/consumer.link-map" >/dev/null
-grep -F 'symbol=bpp_v1_increment arity=1' "$task_dir/consumer.link-map" >/dev/null
+grep -F 'symbol=bpp_v2_increment arity=1' "$task_dir/consumer.link-map" >/dev/null
 printf '%s\n' 'import library "provider";' 'return increment();' > "$task_dir/bad-arity.bpp"
 if "$compiler" -L "$task_dir" --check "$task_dir/bad-arity.bpp" >"$task_dir/bad-arity.out" 2>&1; then
     echo 'FAIL static ABI: bad imported procedure arity compiled' >&2; exit 1
@@ -59,13 +60,13 @@ printf '%s\n' 'import library "bridge";' 'return twice(40);' > "$task_dir/bpp-tr
 test "$("$task_dir/bpp-transitive-consumer")" = 42
 printf '%s\n' '#include "bpp_abi.h"' \
  '#include <stddef.h>' \
- 'extern const BPPStaticLibrary bpp_v1_library_provider;' \
+ 'extern const BPPStaticLibrary bpp_v2_library_provider;' \
  'int main(void){' \
  'char e[128];BLRuntime vm={"consumer",0};BLValue a=bl_value_int(41),o=bl_value_null();' \
- 'if(!bpp_static_library_validate(&bpp_v1_library_provider,e,sizeof e)||bpp_v1_library_provider.procedure_count!=1||bpp_static_invoke(&bpp_v1_library_provider.procedures[0],&vm,0,0,&a,1,&o)!=BPP_STATIC_OK||o.tag!=BLV_INT||o.as.i!=42)return 1;' \
+ 'if(!bpp_static_library_validate(&bpp_v2_library_provider,e,sizeof e)||bpp_v2_library_provider.procedure_count!=1||bpp_static_invoke(&bpp_v2_library_provider.procedures[0],&vm,0,0,&a,1,&o)!=BPP_STATIC_OK||o.tag!=BLV_INT||o.as.i!=42)return 1;' \
  'bl_value_release(o);return 0;}' > "$task_dir/consumer.c"
 case "$(uname -s)" in Linux) link_flags=-no-pie ;; *) link_flags= ;; esac
-"$cc" -std=c11 -Iinclude $link_flags "$task_dir/consumer.c" "$runtime" "$value" "$native_runtime" "$abi_runtime" "$task_dir/libprovider.bpp.a" -o "$task_dir/consumer"
+"$cc" -std=c11 -Iinclude $link_flags "$task_dir/consumer.c" "$runtime" "$value" "$native_runtime" "$abi_runtime" "$truth_runtime" "$task_dir/libprovider.bpp.a" -o "$task_dir/consumer"
 "$task_dir/consumer"
 printf x >> "$task_dir/libprovider.bpp.a"
 if "$compiler" -L "$task_dir" --check "$task_dir/bpp-consumer.bpp" >"$task_dir/stale-archive.out" 2>&1; then

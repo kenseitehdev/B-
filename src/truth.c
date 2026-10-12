@@ -24,7 +24,7 @@ BPPStateValue bpp_truth_error(BPPStateContext context) {
 }
 
 BPPStateValue bpp_truth_not(BPPStateValue a) {
-    a.value = -a.value;
+    a.value = a.value==0.0?0.0:-a.value;
     return a;
 }
 

@@ -9,7 +9,7 @@
 enum { BPP_VALUE_FACTS_MAX_BYTES = 128 * 1024 * 1024 };
 
 static BPPValueFact unknown_fact(void) {
-    BPPValueFact f = { BPP_VALUE_UNKNOWN, BPP_TRUTH_UNKNOWN, 0, 0 };
+    BPPValueFact f = { BPP_VALUE_UNKNOWN, BPP_TRUTH_UNKNOWN, 0, 0, 0 };
     return f;
 }
 
@@ -26,7 +26,7 @@ static BPPValueFact integer_fact(long long value, int known) {
     BPPValueFact f = kind_fact(BPP_VALUE_INT);
     f.integer_known = (unsigned char)known;
     f.integer = value;
-    if (known) f.truth = value ? BPP_TRUTH_TRUE : BPP_TRUTH_FALSE;
+    if (known) f.truth = value > 0 ? BPP_TRUTH_TRUE : BPP_TRUTH_FALSE;
     return f;
 }
 
@@ -48,12 +48,12 @@ int bpp_integer_fold(BLIROp op, long long a, long long b, long long *out) {
     case BL_IR_DIV: case BL_IR_MOD:
         if (!b || (a == LLONG_MIN && b == -1)) return 0;
         value = op == BL_IR_DIV ? a / b : a % b; break;
-    case BL_IR_EQ: value = a == b; break;
-    case BL_IR_NE: value = a != b; break;
-    case BL_IR_LT: value = a < b; break;
-    case BL_IR_LE: value = a <= b; break;
-    case BL_IR_GT: value = a > b; break;
-    case BL_IR_GE: value = a >= b; break;
+    case BL_IR_EQ: value = (a == b) ? 1 : -1; break;
+    case BL_IR_NE: value = (a != b) ? 1 : -1; break;
+    case BL_IR_LT: value = (a < b) ? 1 : -1; break;
+    case BL_IR_LE: value = (a <= b) ? 1 : -1; break;
+    case BL_IR_GT: value = (a > b) ? 1 : -1; break;
+    case BL_IR_GE: value = (a >= b) ? 1 : -1; break;
     default: return 0;
     }
     if (out) *out = value;
@@ -72,6 +72,7 @@ static BPPValueFact merge_fact(BPPValueFact a, BPPValueFact b) {
     else if (a.kind >= BPP_VALUE_STRING && a.kind <= BPP_VALUE_OBJECT &&
              b.kind >= BPP_VALUE_STRING && b.kind <= BPP_VALUE_OBJECT) r.kind = BPP_VALUE_OBJECT;
     if (a.truth == b.truth) r.truth = a.truth;
+    if(a.initialized==b.initialized)r.initialized=a.initialized;
     if (r.kind == BPP_VALUE_INT && a.integer_known && b.integer_known && a.integer == b.integer) {
         r.integer_known = 1;
         r.integer = a.integer;
@@ -81,7 +82,7 @@ static BPPValueFact merge_fact(BPPValueFact a, BPPValueFact b) {
 
 static int same_fact(BPPValueFact a, BPPValueFact b) {
     return a.kind == b.kind && a.truth == b.truth &&
-           a.integer_known == b.integer_known &&
+           a.initialized==b.initialized && a.integer_known == b.integer_known &&
            (!a.integer_known || a.integer == b.integer);
 }
 
@@ -125,20 +126,20 @@ void bpp_value_facts_transfer(const BPPValueFacts *facts, const BLIRInst *i,
     case BL_IR_INT: out = integer_fact(i->integer, 1); break;
     case BL_IR_STRING: out = kind_fact(BPP_VALUE_STRING); break;
     case BL_IR_LOAD_LOCAL:
-        out = id_ok(i->a, facts->local_count) ? l[i->a] : unknown_fact(); break;
+        out = id_ok(i->a, facts->local_count)&&l[i->a].initialized==1 ? l[i->a] : unknown_fact(); break;
     case BL_IR_LOAD_GLOBAL:
-        out = id_ok(i->a, facts->global_count) ? g[i->a] : unknown_fact(); break;
+        out = id_ok(i->a, facts->global_count)&&g[i->a].initialized==1 ? g[i->a] : unknown_fact(); break;
     case BL_IR_STORE_LOCAL: case BL_IR_INIT_LOCAL:
-        if (id_ok(i->a, facts->local_count)) l[i->a] = b;
+        if (id_ok(i->a, facts->local_count)){if(i->op==BL_IR_INIT_LOCAL||l[i->a].initialized==1){l[i->a]=b;l[i->a].initialized=1;}else if(l[i->a].initialized!=2)l[i->a]=unknown_fact();}
         return;
     case BL_IR_STORE_GLOBAL: case BL_IR_INIT_GLOBAL:
-        if (id_ok(i->a, facts->global_count)) g[i->a] = b;
+        if (id_ok(i->a, facts->global_count)){if(i->op==BL_IR_INIT_GLOBAL||g[i->a].initialized==1){g[i->a]=b;g[i->a].initialized=1;}else if(g[i->a].initialized!=2)g[i->a]=unknown_fact();}
         return;
     case BL_IR_DELETE_LOCAL:
-        if (id_ok(i->a, facts->local_count)) l[i->a] = kind_fact(BPP_VALUE_NULL);
+        if (id_ok(i->a, facts->local_count)) {l[i->a] = kind_fact(BPP_VALUE_NULL);l[i->a].initialized=2;}
         return;
     case BL_IR_DELETE_GLOBAL:
-        if (id_ok(i->a, facts->global_count)) g[i->a] = kind_fact(BPP_VALUE_NULL);
+        if (id_ok(i->a, facts->global_count)) {g[i->a] = kind_fact(BPP_VALUE_NULL);g[i->a].initialized=2;}
         return;
     case BL_IR_FREE_LOCAL:
         if (id_ok(i->a, facts->local_count) &&
@@ -154,8 +155,7 @@ void bpp_value_facts_transfer(const BPPValueFacts *facts, const BLIRInst *i,
         if (id_ok(i->a, facts->register_count)) r[i->a] = unknown_fact();
         return;
     case BL_IR_NOT:
-        out = integer_fact(a.truth == BPP_TRUTH_TRUE ? 0 : 1,
-                           a.truth != BPP_TRUTH_UNKNOWN); break;
+        out=integer_fact(a.integer>0?-1:a.integer<0?1:0,a.kind==BPP_VALUE_INT&&a.integer_known); break;
     case BL_IR_BIT_NOT:
         out=integer_fact(a.integer_known?bpp_word_bitop(i->op,a.integer,0):0,a.integer_known);break;
     case BL_IR_NEG:
@@ -193,6 +193,7 @@ void bpp_value_facts_transfer(const BPPValueFacts *facts, const BLIRInst *i,
         break;
     default: return;
     }
+    if((facts->module->truth_states||facts->module->emit_library||facts->module->static_library_count)&&out.kind==BPP_VALUE_INT&&!out.integer_known)out=unknown_fact();
     set_dst(facts, i, r, out);
 }
 
@@ -248,6 +249,8 @@ int bpp_value_facts_create(const BLIRModule *m, size_t fi, BPPValueFacts *facts)
     if (!r || !l || !g) { free(r); free(l); free(g); bpp_value_facts_destroy(facts); return 1; }
     unsigned char *seen = calloc(facts->block_count ? facts->block_count : 1, 1);
     if (!seen) { free(r); free(l); free(g); bpp_value_facts_destroy(facts); return 1; }
+    for(size_t j=0;j<facts->local_count;++j)facts->local_in[j].initialized=j<facts->function->param_count?1:2;
+    if(fi==0)for(size_t j=0;j<facts->global_count;++j)facts->global_in[j].initialized=2;
     seen[0] = 1;
     int changed = 1;
     while (changed) {

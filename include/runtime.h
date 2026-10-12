@@ -2,8 +2,13 @@
 #define BPP_RUNTIME_H
 #include "value.h"
 #include "ir.h"
-typedef struct { int line, column; } BLSite;
+typedef struct { int line, column; unsigned source_file; } BLSite;
 typedef struct { const char *path; char *error; } BLRuntime;
+unsigned long long bl_rt_error_serial(BLRuntime *vm);
+BLValue bl_rt_latest_error(BLRuntime *vm);
+void bl_rt_bridge_error(BLRuntime *vm,const char *message);
+void bl_rt_truth_enable(BLRuntime *vm,int reset);
+BLValue bl_rt_native_memory(BLRuntime *,BLSite *,BLIROp,BLValue,BLValue,BLValue);
 BLValue bl_rt_builtin(BLRuntime *vm, BLSite *site, const char *name, BLValue *args, size_t argc);
 BLValue bl_rt_to_buffer(BLValue value);
 BLValue bl_rt_binary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a, BLValue b);

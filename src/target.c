@@ -57,7 +57,7 @@ int bpp_emit_native(BLIRModule *m,FILE *out,int print,BPPTarget t){
  /* Ordinary programs now use the raw-word backend.  Archive ABI v1 remains
   * a separately quarantined compatibility path until its BLValue boundary is
   * replaced by the raw static ABI revision. */
- if(!m->emit_library&&!m->static_library_count&&!m->static_procedure_count)
+ if(!m->truth_states&&!m->emit_library&&!m->static_library_count&&!m->static_procedure_count)
   return bpp_emit_raw_native(m,out,print,t);
  if(m->strict_native_runtime)return bpp_emit_strict_native_runtime(m,out,print,t);
  if(c->isa==BPP_ISA_X86_64)return bpp_emit_x64(m,out,print,c->format==BPP_FORMAT_COFF);

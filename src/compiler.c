@@ -200,11 +200,11 @@ static void bl_static_push_procedure(BLIRModule *ir, const char *name, size_t ar
         if (!items) { perror("realloc"); exit(1); }
         ir->static_procedures = items; ir->static_procedure_capacity = cap;
     }
-    size_t symbol_size = strlen("bpp_v1_") + strlen(name) + 1;
+    size_t symbol_size = strlen("bpp_v2_") + strlen(name) + 1;
     BPPStaticProcedureImport *item = &ir->static_procedures[ir->static_procedure_count++];
     item->name = bl_strdup_local(name); item->symbol = calloc(symbol_size, 1);
     if (!item->symbol) { perror("calloc"); exit(1); }
-    snprintf(item->symbol, symbol_size, "bpp_v1_%s", name);
+    snprintf(item->symbol, symbol_size, "bpp_v2_%s", name);
     item->arity = arity; item->library_index = library_index;
 }
 
@@ -576,7 +576,7 @@ static int bl_import_static_manifest(BLImportState *state, const char *manifest,
                 bl_static_push_link_flag(state->ir, second);
         } else ok = bl_static_manifest_error(state, manifest, line_number, "unknown manifest directive");
     }
-    if (ok && (!header || !name || !archive_selected || abi_major != 1 || abi_minor > 1 || runtime_revision < 1 || runtime_revision > 2))
+    if (ok && (!header || !name || !archive_selected || abi_major != 2 || abi_minor != 0 || runtime_revision != 3))
         ok = bl_static_manifest_error(state, manifest, line_number ? line_number : 1, "manifest must declare bppabi 1, name, ABI 1.0, runtime 1, and an archive for this target");
     if (ok && requested_name && strcmp(name, requested_name)) ok = bl_static_manifest_error(state, manifest, 1, "manifest name does not match requested library");
     char *archive_path = NULL;
@@ -597,6 +597,7 @@ static int bl_import_static_manifest(BLImportState *state, const char *manifest,
         else { ok = bl_import_static_manifest(state, dependency_manifest, dependencies.items[i]); free(dependency_manifest); }
     }
     if (ok && !bl_static_has_library(state->ir, manifest)) {
+        state->ir->truth_states=1;
         size_t library_index = state->ir->static_library_count;
         for (size_t i = 0; i < export_count; ++i) if (bl_static_has_procedure(state->ir, exports[i].name)) { char detail[512]; snprintf(detail, sizeof detail, "exported procedure '%s' conflicts with another imported static library", exports[i].name); ok = bl_static_manifest_error(state, manifest, line_number, detail); break; }
         if (ok && bl_static_has_library_name(state->ir, name)) ok = bl_static_manifest_error(state, manifest, line_number, "library name conflicts with another imported manifest");

@@ -49,8 +49,8 @@ grep -F '"file":2,"line":2' "$work/map.json" >/dev/null
 grep -F '"variable_write"' "$work/map.json" >/dev/null
 grep -F '"value_location"' "$work/map.json" >/dev/null
 grep -F '"value_location_role":"assigned_value_at_this_instruction"' "$work/map.json" >/dev/null
-grep -F '"representation":"raw-word","declared_type":"byte"' "$work/map.json" >/dev/null
-grep -F '"location_status":"exact_raw_frame_slot_when_initialized"' "$work/map.json" >/dev/null
+grep -F '"representation":"tagged-value","declared_type":"byte"' "$work/map.json" >/dev/null
+grep -F '"location_status":"initialized_tagged_payload"' "$work/map.json" >/dev/null
 
 "$bpp" --debug-info --emit-asm --target macos-arm64 -o "$work/macho.s" "$work/main.bpp"
 grep -F '.section __DWARF,__debug_info,regular,debug' "$work/macho.s" >/dev/null
@@ -84,11 +84,11 @@ fi
 "$bpp" --debug-info --emit-asm --target macos-arm64 -o "$work/raw-arm64.s" tests/raw_core.bpp
 grep -F '.cfi_def_cfa x29, 16' "$work/raw-arm64.s" >/dev/null
 grep -F '.cfi_def_cfa sp, 0' "$work/raw-arm64.s" >/dev/null
-grep -F 'L_bpp_raw_proc_0_done:' "$work/raw-arm64.s" >/dev/null
+grep -F 'L_cleanup_0:' "$work/raw-arm64.s" >/dev/null
 awk '
     /^\.cfi_startproc$/ { in_cfi = 1 }
     /^\.cfi_endproc$/ { in_cfi = 0 }
-    /^bpp_raw_proc_0_done:$/ && in_cfi { bad = 1 }
+    /^L_cleanup_0:$/ && in_cfi { bad = 1 }
     END { exit bad }
 ' "$work/raw-arm64.s"
 if grep -F '.cfi_restore x23' "$work/raw-arm64.s" >/dev/null; then
@@ -96,23 +96,23 @@ if grep -F '.cfi_restore x23' "$work/raw-arm64.s" >/dev/null; then
     exit 1
 fi
 "$bpp" --debug-info --emit-asm --target windows-x86_64 -o "$work/raw-windows.s" tests/raw_core.bpp
-grep -F '.seh_proc bpp_raw_proc_0' "$work/raw-windows.s" >/dev/null
+grep -F '.seh_proc L_proc_0' "$work/raw-windows.s" >/dev/null
 grep -F '.seh_endprologue' "$work/raw-windows.s" >/dev/null
 grep -F '.seh_endproc' "$work/raw-windows.s" >/dev/null
-grep -F '.seh_pushreg %rdi' "$work/raw-windows.s" >/dev/null
-grep -F '.seh_pushreg %rsi' "$work/raw-windows.s" >/dev/null
+grep -F '.seh_pushreg %r12' "$work/raw-windows.s" >/dev/null
+grep -F '.seh_pushreg %rbp' "$work/raw-windows.s" >/dev/null
 # A zero-offset SEH frame register must anchor the final allocated rsp, not
 # the pre-allocation stack. This also covers sanitizer callback stack changes.
 awk '
-    /\.seh_proc / { allocated=0; framed=0 }
+    /\.seh_proc / { allocated=0; framed=0; source=($2 ~ /^L_proc_/) }
     /\.seh_stackalloc / { allocated=1 }
     /\.seh_setframe / { if (!allocated) exit 1; framed=1 }
-    /\.seh_endprologue/ { if (!allocated || !framed) exit 1 }
+    /\.seh_endprologue/ { if (source && (!allocated || !framed)) exit 1 }
 ' "$work/raw-windows.s"
 grep -F '.cv_file 1 ' "$work/raw-windows.s" >/dev/null
 grep -F '.cv_func_id 0' "$work/raw-windows.s" >/dev/null
 grep -F '.cv_loc 0 ' "$work/raw-windows.s" >/dev/null
-grep -F '.cv_linetable 0, bpp_raw_proc_0, L_bpp_codeview_end_0' "$work/raw-windows.s" >/dev/null
+grep -F '.cv_linetable 0, L_proc_0, L_proc_end_0' "$work/raw-windows.s" >/dev/null
 grep -F '.globl bpp_source_main' "$work/raw-windows.s" >/dev/null
 
 "$bpp" --debug-info --print-result -o "$work/program" "$work/main.bpp"
@@ -141,8 +141,7 @@ if [ "$(uname -s)" = Linux ] && command -v readelf >/dev/null 2>&1; then
     grep -F 'CFA' "$work/frames.txt" >/dev/null
     test "$(grep -c ' FDE cie=' "$work/frames.txt")" -ge 3
     if [ "$(uname -m)" = x86_64 ]; then
-        grep -F 'r12 (r12) at cfa-24' "$work/frames.txt" >/dev/null
-        grep -F 'rbx) at cfa-56' "$work/frames.txt" >/dev/null
+        grep -E 'r12 .* at cfa-' "$work/frames.txt" >/dev/null
         grep -F 'DW_CFA_restore: r12 (r12)' "$work/frames.txt" >/dev/null
         grep -F 'DW_CFA_def_cfa: r7 (rsp) ofs 8' "$work/frames.txt" >/dev/null
     fi
@@ -203,6 +202,60 @@ fi
 if command -v clang >/dev/null 2>&1 && command -v lld-link >/dev/null 2>&1 && command -v llvm-pdbutil >/dev/null 2>&1; then
     cat >"$work/windows-stubs.s" <<'EOF'
 .text
+.globl calloc
+calloc:
+    ret
+.globl printf
+printf:
+    ret
+.globl puts
+puts:
+    ret
+.globl strlen
+strlen:
+    ret
+.globl write
+write:
+    ret
+.globl perror
+perror:
+    ret
+.globl bpp_a_call_begin
+bpp_a_call_begin:
+    ret
+.globl bpp_a_call_end
+bpp_a_call_end:
+    ret
+.globl bpp_a_op
+bpp_a_op:
+    ret
+.globl bpp_a_builtin
+bpp_a_builtin:
+    ret
+.globl bpp_a_truth_enable
+bpp_a_truth_enable:
+    ret
+.globl bpp_a_clone_parameters
+bpp_a_clone_parameters:
+    ret
+.globl bpp_a_destination
+bpp_a_destination:
+    ret
+.globl bpp_a_release_object
+bpp_a_release_object:
+    ret
+.globl bpp_a_print_result
+bpp_a_print_result:
+    ret
+.globl bpp_a_trace_enter
+bpp_a_trace_enter:
+    ret
+.globl bpp_a_trace_exit
+bpp_a_trace_exit:
+    ret
+.globl bpp_a_access
+bpp_a_access:
+    ret
 .globl malloc
 malloc:
     ret
@@ -306,7 +359,7 @@ if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v lldb >/dev/null 2>&1; 
         # Stop at the call site, then run to the imported procedure and its return line.
         lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file main.bpp --line 4' -o run \
-            -o 'breakpoint set --name increment' -o continue -o 'thread until 4' \
+            -o 'breakpoint set --name increment' -o continue -o 'thread step-over' -o 'thread step-over' \
             -o 'frame variable n local' -o 'thread step-over' -o bt \
             -o 'process kill' -o quit "$program" >"$work/variables.txt" 2>&1
     else

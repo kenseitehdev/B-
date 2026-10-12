@@ -33,17 +33,14 @@ BPPStaticStatus bpp_static_invoke(const BPPStaticProcedure *procedure,BLRuntime 
     if(argc!=procedure->arity)return BPP_STATIC_ARITY;
     if(argc&&!args)return BPP_STATIC_BAD_PROCEDURE;
     if(runtime->error)return BPP_STATIC_RUNTIME_ERROR;
+    bl_rt_truth_enable(runtime,1);
     *out=bl_value_null();
+    unsigned long long serial=bl_rt_error_serial(runtime);
     procedure->entry(runtime,globals,initialized,args,out);
+    if(out->tag==BLV_NULL&&serial!=bl_rt_error_serial(runtime))*out=bl_rt_latest_error(runtime);
     return runtime->error?BPP_STATIC_RUNTIME_ERROR:BPP_STATIC_OK;
 }
 
 void bpp_static_runtime_error(BLRuntime *runtime,const char *detail) {
-    if (!runtime || runtime->error) return;
-    const char *path = runtime->path ? runtime->path : "<input>";
-    const char *message = detail ? detail : "static library failure";
-    size_t bytes = strlen(path) + strlen(message) + 8;
-    runtime->error = calloc(bytes, 1);
-    if (!runtime->error) { perror("calloc"); exit(1); }
-    snprintf(runtime->error, bytes, "%s: %s", path, message);
+    if(runtime)bl_rt_bridge_error(runtime,detail);
 }

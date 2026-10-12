@@ -20,6 +20,12 @@ static BLObject *bl_object_alloc(size_t size, BLObjectKind kind) {
     return object;
 }
 
+BLValue bl_value_state(BPPStateValue state,const char *diagnostic){
+    BLState *object=(BLState*)bl_object_alloc(sizeof *object,BLO_STATE);object->state=state;
+    if(diagnostic)snprintf(object->diagnostic,sizeof object->diagnostic,"%s",diagnostic);
+    BLValue value={BLV_OBJECT,{.obj=&object->base}};return value;
+}
+BLState *bl_value_as_state(BLValue value){return value.tag==BLV_OBJECT&&value.as.obj&&value.as.obj->kind==BLO_STATE?(BLState*)value.as.obj:NULL;}
 BLValue bl_value_null(void) {
     BLValue value;
     value.tag = BLV_NULL;
@@ -117,9 +123,8 @@ int bl_value_is_truthy(BLValue value) {
         case BLV_NULL:
             return 0;
         case BLV_INT:
-            return value.as.i != 0;
-        case BLV_OBJECT:
-            return 1;
+            return value.as.i > 0;
+        case BLV_OBJECT: {BLState *state=bl_value_as_state(value);return state?state->state.value>0:1;}
     }
     return 0;
 }
@@ -133,6 +138,7 @@ void bl_value_retain(BLValue value) {
 static void bl_object_free(BLObject *object) {
     if (!object) return;
     switch (object->kind) {
+        case BLO_STATE: free(object); break;
         case BLO_STRING: {
             BLString *string = (BLString *)object;
             free(string->data);
@@ -141,6 +147,8 @@ static void bl_object_free(BLObject *object) {
         }
         case BLO_BUFFER: {
             BLBuffer *buffer = (BLBuffer *)object;
+            if(buffer->owner){BLValue owner={BLV_OBJECT,{.obj=&buffer->owner->base}};bl_value_release(owner);}
+            free(buffer->defined);
             if (buffer->owned) free(buffer->data);
             free(buffer);
             break;
@@ -241,6 +249,7 @@ const unsigned char *bl_value_cstring_bytes(BLValue value, size_t *length, int *
 }
 
 char *bl_value_to_cstring(BLValue value) {
+    BLState *state=bl_value_as_state(value);if(state){char text[64];snprintf(text,sizeof text,"%.17g",state->state.value);size_t n=strlen(text)+1;char *copy=malloc(n);if(!copy){perror("malloc");exit(1);}memcpy(copy,text,n);return copy;}
     int ok = 0;
     size_t length = 0;
     const unsigned char *bytes = bl_value_cstring_bytes(value, &length, &ok);

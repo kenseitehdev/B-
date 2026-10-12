@@ -78,13 +78,13 @@ BPP_HOSTCALL void bpp_a_clone_parameters(BPPNativeFrame *, const BLValue *, size
 BPP_HOSTCALL void bpp_a_access(BPPNativeFrame *, size_t, size_t);
 BPP_HOSTCALL void bpp_a_trace_enter(const void *);
 BPP_HOSTCALL void bpp_a_trace_exit(void);
-BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *, size_t, size_t, size_t, size_t, size_t, int, int);
+BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *, size_t, size_t, size_t, size_t, size_t, uint64_t, int);
 BPP_HOSTCALL void bpp_a_string(BPPNativeFrame *, size_t, const char *);
 BPP_HOSTCALL void bpp_a_integer(BPPNativeFrame *, size_t, long long);
 BPP_HOSTCALL void bpp_a_arg(BPPNativeFrame *, size_t, size_t);
 BPP_HOSTCALL BLValue *bpp_a_args(BPPNativeFrame *);
 BPP_HOSTCALL BLValue *bpp_a_destination(BPPNativeFrame *, size_t);
-BPP_HOSTCALL void bpp_a_builtin(BPPNativeFrame *, size_t, const char *, size_t, int, int);
+BPP_HOSTCALL void bpp_a_builtin(BPPNativeFrame *, size_t, const char *, size_t, uint64_t, int);
 BPP_HOSTCALL int bpp_a_failed(BPPNativeFrame *);
 BPP_HOSTCALL void bpp_a_cleanup_frame(BPPNativeFrame *);
 BPP_HOSTCALL void bpp_a_release_object(BLObject *);

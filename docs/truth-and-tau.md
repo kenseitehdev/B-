@@ -1,12 +1,10 @@
 # Truth states and TAU: 1.0.16 language contract
 
-This records the user-supplied rules. The fractional truth model and TAU are
-pending language integration; the current compiler still uses its previous
-Boolean behavior. The internal semantic kernel in `src/truth.c` implements
-the accepted state gates, direction, interval velocity and error context.
-`make check-truth` checks all 125 reference transitions, the accepted XOR
-table, velocity thresholds and invalid-input/error propagation. These kernel
-tests do not certify parsing, native lowering, control flow or ABI integration. Passing bitwise tests does not certify these logical operations.
+The native compiler implements these user-supplied rules. `make check-truth`
+checks the semantic kernel; `make check-native-truth` executes the independent
+125-row reference table, fractional gates, velocity conditions, recoverable
+errors and checked memory accesses in optimized and unoptimized native programs.
+Static libraries use ABI 2.0/runtime revision 3 for the changed error contract.
 
 Truth is a signed state in [-1, 1]. False is -1, true is +1, and uncertainty
 occupies the open interval between them. The five reference states are F=-1,
@@ -48,7 +46,10 @@ construction (`κ`) that supplies state change and velocity. The interval
 helper does not implement the entire abstract κ reconstruction/validation
 pipeline. A distinct `state` value uses 64-bit floating-point storage; ordinary signed
 64-bit integer values and bitwise operations retain their integer representation.
-State creation syntax remains to be implemented.
+Create a state with `state(0.5)` or `new state current = 0.5;`.
+Decimal/exponent literals use binary64 values. Velocity results may exceed the
+truth range; `state(...)` validates a truth value against [-1,1]. Declarations
+retain the existing language's dynamic assignment behavior.
 
 Runtime errors enter uncertainty propagation. When no valid computed state exists, an error produces U=0 and retains the
 error context and transition inputs so propagation can reason about the failure. Failed accesses must not perform invalid memory operations. This
@@ -57,5 +58,16 @@ static-ABI versioning rather than silently changing existing libraries.
 
 Integer bitwise `&`, `|`, `^` and `~` act independently on all 64 bits. In
 particular, bitwise complement is distinct from logical state negation:
-`~1` is -2, whereas logical negation of true is -1. Source spellings for state
-AND/OR/XOR and state creation remain to be finalized.
+`~1` is -2, whereas logical negation of true is -1. State gates are `AND(a,b)`, `OR(a,b)`, `XOR(a,b)`, `NOT(a)` and
+`IMPLIES(a,b)`; infix `a AND b`, `a OR b`, and `a XOR b` are also accepted.
+`!a` performs signed logical negation. Word operators keep their existing
+precedence; state AND/XOR/OR follow them in that order, and `=>` is lower
+precedence and right associative. Parentheses make compound transitions clear.
+
+Recoverable errors carry a fault mask and source location. `faults(value)`,
+`error_line(value)` and `error_file(value)` expose that context; `err` carries
+the most recent error. Native buffer operations validate bounds, lifetime and
+byte definedness before accessing memory. Structural compiler failures remain
+compilation errors. The explicit `--native-sanitizers` diagnostic profile and
+strict bootstrap profile retain their separate fail-fast execution contracts;
+state programs require the default native value runtime.

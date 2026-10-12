@@ -47,6 +47,7 @@ typedef enum {
     BL_IR_OPCODE_COUNT
 } BLIROp;
 const char *bl_ir_op_name(BLIROp op);
+int bpp_truth_intrinsic_arity(const char *name);
 
 typedef struct {
     BLIROp op;
@@ -75,6 +76,7 @@ typedef struct {
     int source_line, source_column;
     char **local_types;        /* NULL for untyped parameters; source type names for declarations */
     size_t local_type_capacity;
+    int preserve_source_homes;
 } BLIRFunction;
 
 typedef struct {
@@ -98,7 +100,7 @@ typedef struct {
 
 typedef struct {
     char *name;               /* B++ source identifier */
-    char *symbol;             /* bpp_v1_<name>, target decorated by emitter */
+    char *symbol;             /* bpp_v2_<name>, target decorated by emitter */
     size_t arity;
     size_t library_index;
 } BPPStaticProcedureImport;
@@ -118,6 +120,7 @@ typedef struct {
     /* Assembly-only static-library output: omit the program entry point and
      * expose named procedures through the B++ static ABI. */
     int emit_library;
+    int truth_states; /* Native tagged state/rate values and uncertainty context. */
     const char *library_name; /* validated CLI identifier; not owned */
     char *expanded_source, *debug_path;
     BPPSourceFile *source_files;

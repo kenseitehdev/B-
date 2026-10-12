@@ -1,4 +1,4 @@
-# B++ static-library ABI v1
+# B++ static-library ABI v2
 
 This is the B++-to-B++ static-library ABI. It is deliberately small: there is
 no dynamic loading, general foreign-function interface, callbacks, variadics,
@@ -21,9 +21,9 @@ ar rcs libmath.bpp.a math.o
 `--emit-library` omits `main`, retains every named procedure as an external
 root, and emits:
 
-- `bpp_v1_<procedure>` — exported procedure symbol;
-- `bpp_v1_library_<library>` — `BPPStaticLibrary` descriptor;
-- `bpp_v1_procedures_<library>` — descriptor procedure table.
+- `bpp_v2_<procedure>` — exported procedure symbol;
+- `bpp_v2_library_<library>` — `BPPStaticLibrary` descriptor;
+- `bpp_v2_procedures_<library>` — descriptor procedure table.
 
 On Mach-O the assembler spelling has the normal leading underscore; the object
 symbol seen by the linker still has the names above. Library names and source
@@ -43,17 +43,19 @@ runtime's minor revision. Changing the value layout, calling convention,
 ownership rules, or externally visible error contract requires a new major
 revision and symbol prefix, not a silent replacement.
 
-Revision 1.1 requires runtime revision 2 for the appended bitwise IR operations.
-Existing opcode numbers and the value/call layout are preserved. This runtime
-accepts revision 1.0 libraries using runtime revision 1; older consumers reject
-new manifests before linking.
+Revision 2.0 requires runtime revision 3. The 16-byte tagged value boundary
+is retained, with a new owned state object carrying a binary64 payload and
+error provenance. Signed Boolean results and recoverable runtime errors change
+the public semantics, so v1 archives and manifests are rejected. Recompile
+producers and consumers together; a symbol-prefix change prevents accidental
+linking against the old contract.
 
 ## Calling convention
 
 Every exported procedure has this target-C-ABI signature:
 
 ```c
-void bpp_v1_name(BLRuntime *runtime,
+void bpp_v2_name(BLRuntime *runtime,
                  BLValue *globals,
                  unsigned char *global_initialized,
                  const BLValue *borrowed_arguments,
@@ -74,16 +76,17 @@ entry convention. No variadic or aggregate classification exists in v1.
 ## Values, ownership, and errors
 
 All B++ arguments and results are the one 16-byte tagged `BLValue` class:
-null, signed 64-bit integer, or reference-counted object (string/buffer/array).
-There are no aggregate, floating-point, vector, or multiple-return ABI classes.
+null, signed 64-bit integer, or reference-counted object (string/buffer/array/state).
+Binary64 states travel as owned tagged objects, rather than a separate platform
+floating-point calling class. There are no vector or multiple-return classes.
 
 - Argument values are borrowed by the caller. The generated procedure clones
   each parameter into its local frame before it can retain, replace, or release
   it.
 - `owned_result` is null on entry and receives one owned value on successful
   return. The caller releases it exactly once.
-- Runtime failures are recorded in `runtime->error`; `bpp_static_invoke`
-  returns `BPP_STATIC_RUNTIME_ERROR` and the result must not be consumed.
+- Recoverable language failures return owned U=0 states with retained fault
+  context. Structural descriptor/arity failures still return an ABI error status.
 - Arity is checked by the descriptor before the generated procedure is entered.
 
 The ABI may be exercised through `bpp_static_invoke`; this is an ABI validator
@@ -113,7 +116,7 @@ export add 2
 `archive` may occur once for each supported target. Its final two fields are
 the archive byte count and a 64-bit FNV-1a identity fingerprint, generated
 after `ar` creates the archive. `export` carries the source name and exact
-arity. The manifest must use ABI 1.0 and runtime revision 1; unknown
+arity. The manifest must use ABI 2.0 and runtime revision 3; unknown
 directives, duplicate exports, a missing selected target archive, target
 mismatch, stale/substituted archive identity, manifest-name mismatch,
 dependency cycle, or ambiguous imported export is a compile-time diagnostic.
@@ -127,7 +130,7 @@ return add(20, 22);
 
 The source directory is searched first, then every `-L directory`, then
 `~/.bytelang/lib`. The compiler resolves transitive `dependency` records,
-checks call arity while lowering, emits direct `bpp_v1_<procedure>` calls, and
+checks call arity while lowering, emits direct `bpp_v2_<procedure>` calls, and
 adds archives to the host-link command in dependant-before-dependency order.
 It preserves ordinary textual `import "file.bpp";` and global
 `import {name};` imports unchanged. Static imports follow native code generation and the validated archive link

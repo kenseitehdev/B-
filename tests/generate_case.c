@@ -35,7 +35,7 @@ static long long evaluate(size_t id,const long long arguments[8]){
     if(e->op==6)return left/e->factor;
     if(e->op==7)return left%e->factor;
     long long right=evaluate(e->right,arguments);
-    return e->op==4?left==right:e->op==5?left<right:e->op==1?left-right:left+right;
+    return e->op==4?(left==right?1:-1):e->op==5?(left<right?1:-1):e->op==1?left-right:left+right;
 }
 int main(int argc,char **argv){
     if(argc==3&&!strcmp(argv[1],"--stress")){

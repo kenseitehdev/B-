@@ -209,14 +209,14 @@ static int eliminate_redundant_accesses(BLIRModule *m, BLIRFunction *fn) {
                     drop[k] = 1;
                     ++m->redundant_access_metrics.eliminated_slot_stores;
                 }
-                slot_initialized[slot] = 1; slot_known[slot] = (unsigned char)source_known;
+                if(init||slot_initialized[slot]){slot_initialized[slot]=1;slot_known[slot]=(unsigned char)source_known;}else slot_known[slot]=0;
                 if (source_known) slot_values[slot] = value;
             }
             if (i->op == BL_IR_DELETE_LOCAL || i->op == BL_IR_DELETE_GLOBAL ||
                 i->op == BL_IR_FREE_LOCAL || i->op == BL_IR_FREE_GLOBAL) {
                 const int global = i->op == BL_IR_DELETE_GLOBAL || i->op == BL_IR_FREE_GLOBAL;
                 size_t slot = i->a + (global ? fn->local_count : 0);
-                slot_initialized[slot] = 1; slot_known[slot] = 0;
+                if(i->op==BL_IR_DELETE_LOCAL||i->op==BL_IR_DELETE_GLOBAL)slot_initialized[slot]=0; slot_known[slot] = 0;
             }
             if (i->dst != BL_IR_NONE) {
                 BLIRId previous = number_lookup_or_add(numbers, cap, generation, i);
@@ -455,7 +455,7 @@ int bpp_ir_optimize(BLIRModule *m) {
                     if(bpp_value_fact_integer(slot,&v))constant=1;
                 } else if(i->op==BL_IR_NEG&&i->a<n&&bpp_value_fact_integer(&registers[i->a],&a)&&a!=LLONG_MIN){v=-a;constant=1;}
                 else if(i->op==BL_IR_BIT_NOT&&i->a<n&&bpp_value_fact_integer(&registers[i->a],&a)){constant=bpp_integer_fold(i->op,a,0,&v);}
-                else if(i->op==BL_IR_NOT&&i->a<n&&registers[i->a].truth!=BPP_TRUTH_UNKNOWN){v=registers[i->a].truth==BPP_TRUTH_TRUE?0:1;constant=1;}
+                else if(i->op==BL_IR_NOT&&i->a<n&&bpp_value_fact_integer(&registers[i->a],&a)){v=a>0?-1:a<0?1:0;constant=1;}
                 else if(((i->op>=BL_IR_ADD&&i->op<=BL_IR_GE)||i->op==BL_IR_BIT_AND||i->op==BL_IR_BIT_OR||i->op==BL_IR_BIT_XOR)&&i->a<n&&i->b<n&&bpp_value_fact_integer(&registers[i->a],&a)&&bpp_value_fact_integer(&registers[i->b],&c))constant=bpp_integer_fold(i->op,a,c,&v);
                 if(constant){i->op=BL_IR_INT;i->integer=v;i->a=i->b=i->c=BL_IR_NONE;}
                 if(i->op==BL_IR_BRANCH&&i->a<n&&registers[i->a].truth!=BPP_TRUTH_UNKNOWN){i->a=registers[i->a].truth==BPP_TRUTH_TRUE?i->b:i->c;i->op=BL_IR_JUMP;i->b=i->c=BL_IR_NONE;}

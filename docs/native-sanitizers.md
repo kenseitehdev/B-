@@ -1,25 +1,24 @@
-# Native sanitizer contract (1.0.15)
+# Native sanitizer contract (1.0.16)
 
 The C output backend and CLI routes are retired at the end of 1.0.15. All
 executable output uses native code generation. Seeded regressions evaluate
 expected results independently of compiler IR and compare both native
 optimization modes; the evaluator is test tooling, not a compiler backend.
 
-The current source language has 64-bit raw words, byte-addressed memory,
-`malloc`, `remalloc`, `free`, globals, procedures and direct calls. It has no
-runtime tags, arrays, managed buffers, objects, threads, atomics or public FFI.
-Checks for those retired or future representations are not claimed by the raw
-backend. The transitional ABI-v1 tagged backend retains its existing hooks.
+The default 1.0.16 native value runtime supports signed integers, binary64
+states and owned memory handles. It checks bounds, byte definedness and lifetime
+before C memory accesses, returning U=0 with source/error context on recoverable
+failures. Native assembly supplies control flow, calls and integer fast paths;
+C value leaves do not interpret the IR. ABI 2 exposes the same value semantics.
 
-Signed overflow, invalid division and uninitialized-variable checks are language
-guarantees in normal native code. Memory bounds, definedness, allocation
-lifetime and leak checks are compiler debugging instrumentation. `debug`,
-`tsan` and `msan` builds enable them; `release` emits no `bpp_s_*` calls and
-links no native sanitizer object unless explicitly requested with
-`--native-sanitizers`. This flag enables the portable checks with a release
-compiler even when host ASAN/TSAN/MSAN runtimes are unavailable. The explicitly requested
-`--strict-native-runtime` bootstrap profile keeps its helper-free contract and
-does not emit these checks, even when the compiler itself is sanitized.
+The explicit `--native-sanitizers` diagnostic profile uses raw words and the
+portable fail-fast instrumentation described below. Its deliberate fault
+fixtures validate diagnostics and exit behavior separately from the default
+recoverable state tests. Strict bootstrap output retains its helper-free profile.
+Debug/TSAN/MSAN host builds instrument C components; assembly is not claimed to
+have arbitrary host shadow propagation. MSAN trusts validated compiler-owned
+frame cells, while application buffer bytes remain checked for definedness and
+C memory accesses retain host instrumentation.
 
 The compiler-private boundary is in `include/native_sanitizer.h`. Generated
 assembly does not contain a Clang/GCC shadow-memory mapping. The portable C

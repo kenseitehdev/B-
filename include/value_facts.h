@@ -26,6 +26,7 @@ typedef struct {
     unsigned char kind;
     unsigned char truth;
     unsigned char integer_known;
+    unsigned char initialized; /* 0 unknown, 1 initialized, 2 deleted/uninitialized */
     long long integer;
 } BPPValueFact;
 

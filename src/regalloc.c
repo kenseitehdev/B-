@@ -59,7 +59,7 @@ static int safe_integer_result(const BLIRInst *i,long long a,long long b,long lo
  switch(i->op){
  case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:case BL_IR_BIT_NOT:*out=bpp_word_bitop(i->op,a,b);return 1;
  case BL_IR_NEG:if(a==LLONG_MIN)return 0;*out=-a;return 1;
- case BL_IR_NOT:*out=!a;return 1;
+ case BL_IR_NOT:*out=a>0?-1:a<0?1:0;return 1;
  case BL_IR_ADD:
   if((b>0&&a>LLONG_MAX-b)||(b<0&&a<LLONG_MIN-b))return 0;
   *out=a+b;return 1;
@@ -73,12 +73,12 @@ static int safe_integer_result(const BLIRInst *i,long long a,long long b,long lo
  case BL_IR_DIV:case BL_IR_MOD:
   if(!b||(a==LLONG_MIN&&b==-1))return 0;
   *out=i->op==BL_IR_DIV?a/b:a%b;return 1;
- case BL_IR_EQ:*out=a==b;return 1;
- case BL_IR_NE:*out=a!=b;return 1;
- case BL_IR_LT:*out=a<b;return 1;
- case BL_IR_LE:*out=a<=b;return 1;
- case BL_IR_GT:*out=a>b;return 1;
- case BL_IR_GE:*out=a>=b;return 1;
+ case BL_IR_EQ:*out=(a==b)?1:-1;return 1;
+ case BL_IR_NE:*out=(a!=b)?1:-1;return 1;
+ case BL_IR_LT:*out=(a<b)?1:-1;return 1;
+ case BL_IR_LE:*out=(a<=b)?1:-1;return 1;
+ case BL_IR_GT:*out=(a>b)?1:-1;return 1;
+ case BL_IR_GE:*out=(a>=b)?1:-1;return 1;
  default:return 0;
  }
 }
@@ -338,7 +338,7 @@ static int plan_local_slots(const BLIRFunction *fn,BPPRegPlan *p){
  if(!p->local_map||!p->local_slot_shared)return 0;
  p->local_slot_count=n;
  for(size_t l=0;l<n;++l)p->local_map[l]=l;
- if(!n)return 1;
+ if(!n||fn->preserve_source_homes)return 1;
  if(n>SIZE_MAX-63)return 0;
  size_t blocks=fn->block_count,words=(n+63)/64;
  if(blocks>SIZE_MAX/(words?words:1))return 0;

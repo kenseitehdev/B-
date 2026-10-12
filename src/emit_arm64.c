@@ -9,7 +9,7 @@
 #include <string.h>
 
 typedef struct { size_t locals, flags, args, bytes, maxargs, local_slots; } Layout;
-typedef struct { FILE *out; size_t f,b,k; BPPTarget target; const BLIRFunction *fn; Layout layout; const BPPRegPlan *plan; BPPValueFacts facts; BPPValueFact *fact_regs,*fact_locals,*fact_globals; unsigned char *dirty, *before, *kind, *constant;unsigned *loaded_phys;long long *value;size_t near,emitted_spills,emitted_reloads,emitted_rematerializations;int asm_comments,instrument_native,native_release;unsigned *dirty_phys; } Emitter;
+typedef struct { FILE *out; size_t f,b,k; BPPTarget target; const BLIRFunction *fn; Layout layout; const BPPRegPlan *plan; BPPValueFacts facts; BPPValueFact *fact_regs,*fact_locals,*fact_globals; unsigned char *dirty, *before, *kind, *constant;unsigned *loaded_phys;long long *value;size_t near,emitted_spills,emitted_reloads,emitted_rematerializations;int asm_comments,instrument_native,native_release,truth_states;unsigned *dirty_phys; } Emitter;
 static void sync_known(Emitter *e){for(size_t r=0;r<e->fn->register_count;++r){BPPValueFact f=e->fact_regs[r];e->kind[r]=f.kind==BPP_VALUE_INT?BPP_KIND_INT:f.kind==BPP_VALUE_NULL?BPP_KIND_NULL:f.kind>=BPP_VALUE_STRING?BPP_KIND_OBJECT:BPP_KIND_UNKNOWN;e->constant[r]=f.integer_known;e->value[r]=f.integer;}}
 static void imm(FILE *out, unsigned reg, uint64_t n) {
     fprintf(out,"    movz x%u, #%u\n",reg,(unsigned)(n&65535));
@@ -195,7 +195,7 @@ static int branch_fallthrough(Emitter *e,const BLIRInst *i) {
     if(e->b+1>=e->fn->block_count||(i->b!=e->b+1&&i->c!=e->b+1))return 0;
     edge_flush_pair(e,i->b,i->c);regaddr(e,12,i->a);fputs("    ldr w9, [x12]\n",e->out);
     branch_block(e,"cbz w9,",i->c);fputs("    cmp w9, #1\n",e->out);branch_block(e,"b.ne",i->b);payload(e,9,i->a);
-    if(i->b==e->b+1)branch_block(e,"cbz x9,",i->c);else branch_block(e,"cbnz x9,",i->b);
+    fputs("    cmp x9, #0\n",e->out);if(i->b==e->b+1)branch_block(e,"b.le",i->c);else branch_block(e,"b.gt",i->b);
     if(e->asm_comments)fputs("    // B++ branch-layout inverted conditional; selected successor falls through\n",e->out);
     return 1;
 }
@@ -262,6 +262,7 @@ static void slotaddr(Emitter *e,unsigned dst,int global,size_t slot) {if(global)
 static void flagaddr(Emitter *e,unsigned dst,int global,size_t slot) {if(global)fputs("    ldr x12, [x19, #40]\n",e->out);else slot=local_slot(e,slot);offset(e,dst,global?12:19,(global?0:e->layout.flags)+slot);}
 static int fast(Emitter *e,const BLIRInst *i) {
     FILE *o=e->out;
+    if(e->truth_states&&(i->op==BL_IR_MALLOC||i->op==BL_IR_REMALLOC||i->op==BL_IR_MFREE_LOCAL||i->op==BL_IR_MFREE_GLOBAL||i->op==BL_IR_BYTE_LOAD||i->op==BL_IR_BYTE_STORE||i->op==BL_IR_PRINT_BYTE||i->op==BL_IR_PRINT_RANGE))return 0;
     switch(i->op) {
     case BL_IR_NULL: imm(o,26,0);result(e,i->dst,0);return 1;
     case BL_IR_INT: imm(o,26,(uint64_t)i->integer);result(e,i->dst,1);return 1;
@@ -302,11 +303,7 @@ static int fast(Emitter *e,const BLIRInst *i) {
     case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:
         intguard(e,i->a);intguard(e,i->b);payload(e,9,i->a);payload(e,10,i->b);
         fprintf(o,"    %s x26, x9, x10\n",i->op==BL_IR_BIT_AND?"and":i->op==BL_IR_BIT_OR?"orr":"eor");result(e,i->dst,1);return 1;
-    case BL_IR_NOT:
-        if(e->fact_regs[i->a].truth!=BPP_TRUTH_UNKNOWN){imm(o,26,e->fact_regs[i->a].truth==BPP_TRUTH_TRUE?0:1);if(e->asm_comments)fprintf(o,"    // B++ truthiness-elided vreg=v%zu truth=%s\n",i->a,bpp_truth_name((BPPTruth)e->fact_regs[i->a].truth));result(e,i->dst,1);return 1;}
-        regaddr(e,12,i->a);fputs("    ldr w9, [x12]\n",o);branch(e,"cbz w9,","not_null");
-        fputs("    cmp w9, #1\n",o);branch(e,"b.ne","not_object");payload(e,9,i->a);fputs("    cmp x9, #0\n    cset x26, eq\n",o);branch(e,"b","not_ready");
-        define(e,"not_null");imm(o,26,1);branch(e,"b","not_ready");define(e,"not_object");imm(o,26,0);define(e,"not_ready");result(e,i->dst,1);return 1;
+    case BL_IR_NOT:return 0;
     case BL_IR_NEG:
         intguard(e,i->a);payload(e,9,i->a);fputs("    negs x26, x9\n",o);branch(e,"b.vs","slow");result(e,i->dst,1);return 1;
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
@@ -324,7 +321,7 @@ static int fast(Emitter *e,const BLIRInst *i) {
             uint64_t mag=selection.immediate<0?(uint64_t)(-(selection.immediate+1))+1:(uint64_t)selection.immediate;
             fprintf(o,"    %s x9, #%llu%s\n",selection.immediate<0?"cmn":"cmp",(unsigned long long)(mag>>selection.immediate_shift),selection.immediate_shift?", lsl #12":"");
             const char *condition=i->op==BL_IR_EQ?"eq":i->op==BL_IR_NE?"ne":i->op==BL_IR_LT?"lt":i->op==BL_IR_LE?"le":i->op==BL_IR_GT?"gt":"ge";
-            fprintf(o,"    cset x26, %s\n",condition);result(e,i->dst,1);return 1;
+            fprintf(o,"    cset x26, %s\n    lsl x26, x26, #1\n    sub x26, x26, #1\n",condition);result(e,i->dst,1);return 1;
         }
         payload(e,10,i->b);
         switch(i->op) {
@@ -337,7 +334,7 @@ static int fast(Emitter *e,const BLIRInst *i) {
             fputs("    sdiv x26, x9, x10\n",o);if(i->op==BL_IR_MOD)fputs("    msub x26, x26, x10, x9\n",o);break;
         default: {
             const char *condition=i->op==BL_IR_EQ?"eq":i->op==BL_IR_NE?"ne":i->op==BL_IR_LT?"lt":i->op==BL_IR_LE?"le":i->op==BL_IR_GT?"gt":"ge";
-            fprintf(o,"    cmp x9, x10\n    cset x26, %s\n",condition);break;
+            fprintf(o,"    cmp x9, x10\n    cset x26, %s\n    lsl x26, x26, #1\n    sub x26, x26, #1\n",condition);break;
         }
         }
         result(e,i->dst,1);return 1;}
@@ -351,13 +348,13 @@ static void slow(Emitter *e,const BLIRInst *i,int conditional) {
     else if(i->op==BL_IR_CALL) {
         for(size_t j=0;j<i->arg_count;++j)copy_arg(e,j,i->args[j]);
         fputs("    mov x0, x19\n",o);
-        if(i->a==BL_IR_NONE&&i->c==BL_IR_NONE){imm(o,1,i->dst);char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu",e->f,e->b,e->k);addr(o,2,s);imm(o,3,i->arg_count);imm(o,4,(uint64_t)i->line);imm(o,5,(uint64_t)i->column);fputs("    bl _bpp_a_builtin\n",o);}
-        else{if(e->native_release)native_destination(e,i->dst);else{imm(o,1,i->dst);fputs("    bl _bpp_a_destination\n",o);fprintf(o,"    str x0, [x19, #%u]\n",BPP_CG_CALL_OUTPUT_OFFSET);}fprintf(o,"    ldr x3, [x19, #%u]\n    ldr x0, [x19, #%u]\n    ldr x1, [x19, #%u]\n    ldr x2, [x19, #%u]\n",BPP_CG_FRAME_ARGS_OFFSET,BPP_CG_FRAME_VM_OFFSET,BPP_CG_FRAME_GLOBALS_OFFSET,BPP_CG_FRAME_GLOBAL_INITIALIZED_OFFSET);fprintf(o,"    ldr x4, [x19, #%u]\n",BPP_CG_CALL_OUTPUT_OFFSET);
+        if(i->a==BL_IR_NONE&&i->c==BL_IR_NONE){imm(o,1,i->dst);char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu",e->f,e->b,e->k);addr(o,2,s);imm(o,3,i->arg_count);imm(o,4,((uint64_t)(i->source_file==BL_IR_NONE?0:i->source_file+1)<<32)|(uint32_t)(i->source_line>0?i->source_line:i->line));imm(o,5,(uint64_t)(i->source_column>0?i->source_column:i->column));fputs("    bl _bpp_a_builtin\n",o);}
+        else{if(e->truth_states){fputs("    mov x0, x19\n    bl _bpp_a_call_begin\n    mov x0, x19\n",o);}if(e->native_release)native_destination(e,i->dst);else{imm(o,1,i->dst);fputs("    bl _bpp_a_destination\n",o);fprintf(o,"    str x0, [x19, #%u]\n",BPP_CG_CALL_OUTPUT_OFFSET);}fprintf(o,"    ldr x3, [x19, #%u]\n    ldr x0, [x19, #%u]\n    ldr x1, [x19, #%u]\n    ldr x2, [x19, #%u]\n",BPP_CG_FRAME_ARGS_OFFSET,BPP_CG_FRAME_VM_OFFSET,BPP_CG_FRAME_GLOBALS_OFFSET,BPP_CG_FRAME_GLOBAL_INITIALIZED_OFFSET);fprintf(o,"    ldr x4, [x19, #%u]\n",BPP_CG_CALL_OUTPUT_OFFSET);
             char target[128];
             if(i->c!=BL_IR_NONE)snprintf(target,sizeof target,e->target==BPP_MACOS_ARM64?"_%s":"%s",i->text);
             else snprintf(target,sizeof target,"L_proc_%zu",i->a);
-            farjump(o,target,1);}
-    } else{imm(o,1,i->op);imm(o,2,i->dst);imm(o,3,i->a);imm(o,4,i->b);imm(o,5,i->c);imm(o,6,(uint64_t)i->line);imm(o,7,(uint64_t)i->column);fputs("    bl _bpp_a_op\n",o);}
+            farjump(o,target,1);if(e->truth_states){fputs("    mov x0, x19\n",o);imm(o,1,i->dst);fputs("    bl _bpp_a_call_end\n",o);}}
+    } else{imm(o,1,i->op);imm(o,2,i->dst);imm(o,3,i->a);imm(o,4,i->b);imm(o,5,i->c);imm(o,6,((uint64_t)(i->source_file==BL_IR_NONE?0:i->source_file+1)<<32)|(uint32_t)(i->source_line>0?i->source_line:i->line));imm(o,7,(uint64_t)(i->source_column>0?i->source_column:i->column));fputs("    bl _bpp_a_op\n",o);}
     fprintf(o,"    ldr x12, [x19, #%u]\n    ldr x12, [x12, #%u]\n",BPP_CG_FRAME_VM_OFFSET,BPP_CG_RUNTIME_ERROR_OFFSET);branch(e,"cbz x12,","post_call");char failed[64];snprintf(failed,sizeof failed,"L_fail_%zu",e->f);farjump(o,failed,0);
     define(e,"post_call");
     restore_live_after(e);
@@ -378,7 +375,7 @@ static void emit_native_platform_leaves(FILE *out,BPPTarget target){
     fprintf(out,".p2align 2\n.globl _bpp_n_allocation_failed\n_bpp_n_allocation_failed:\n    mov w0, #1\n    b %sexit\n",prefix);
     /* BLString is { header, data@8, size@16 }; buffer/array add owned@24.
      * Keep this leaf in lockstep with the private facts in codegen_abi.h. */
-    fputs(".p2align 2\n.globl _bpp_n_release_object\n_bpp_n_release_object:\n    cbz x0, L_native_release_ret\n    stp x29, x30, [sp, #-16]!\n    mov x29, sp\n    stp x19, x20, [sp, #-16]!\n    stp x21, x22, [sp, #-16]!\n    mov x19, x0\n    ldr w9, [x19, #4]\n    subs w9, w9, #1\n    str w9, [x19, #4]\n    b.ne L_native_release_done\n    ldr w9, [x19]\n    cmp w9, #1\n    b.eq L_native_release_string\n    cmp w9, #2\n    b.eq L_native_release_buffer\n    cmp w9, #3\n    b.eq L_native_release_array\n    b L_native_release_done\nL_native_release_string:\n    ldr x0, [x19, #8]\n    cbz x0, L_native_release_object\n    bl _bpp_n_free_memory\nL_native_release_object:\n    mov x0, x19\n    bl _bpp_n_free_memory\n    b L_native_release_done\nL_native_release_buffer:\n    ldr w9, [x19, #24]\n    cbz w9, L_native_release_object\n    ldr x0, [x19, #8]\n    cbz x0, L_native_release_object\n    bl _bpp_n_free_memory\n    b L_native_release_object\nL_native_release_array:\n    ldr w9, [x19, #24]\n    cbz w9, L_native_release_object\n    ldr x20, [x19, #8]\n    cbz x20, L_native_release_object\n    ldr x21, [x19, #16]\n    lsl x21, x21, #4\n    add x21, x20, x21\nL_native_release_array_loop:\n    cmp x20, x21\n    b.eq L_native_release_array_items\n    ldr w9, [x20]\n    cmp w9, #2\n    b.ne L_native_release_array_next\n    ldr x0, [x20, #8]\n    cbz x0, L_native_release_array_next\n    bl _bpp_n_release_object\nL_native_release_array_next:\n    add x20, x20, #16\n    b L_native_release_array_loop\nL_native_release_array_items:\n    ldr x0, [x19, #8]\n    bl _bpp_n_free_memory\n    b L_native_release_object\nL_native_release_done:\n    ldp x21, x22, [sp], #16\n    ldp x19, x20, [sp], #16\n    ldp x29, x30, [sp], #16\nL_native_release_ret:\n    ret\n",out);
+    fputs(".p2align 2\n.globl _bpp_n_release_object\n_bpp_n_release_object:\n    cbz x0, L_native_release_ret\n    stp x29, x30, [sp, #-16]!\n    mov x29, sp\n    stp x19, x20, [sp, #-16]!\n    stp x21, x22, [sp, #-16]!\n    mov x19, x0\n    ldr w9, [x19, #4]\n    subs w9, w9, #1\n    str w9, [x19, #4]\n    b.ne L_native_release_done\n    ldr w9, [x19]\n    cmp w9, #1\n    b.eq L_native_release_string\n    cmp w9, #2\n    b.eq L_native_release_buffer\n    cmp w9, #4\n    b.eq L_native_release_object\n    cmp w9, #3\n    b.eq L_native_release_array\n    b L_native_release_done\nL_native_release_string:\n    ldr x0, [x19, #8]\n    cbz x0, L_native_release_object\n    bl _bpp_n_free_memory\nL_native_release_object:\n    mov x0, x19\n    bl _bpp_n_free_memory\n    b L_native_release_done\nL_native_release_buffer:\n    ldr w9, [x19, #24]\n    cbz w9, L_native_release_object\n    ldr x0, [x19, #8]\n    cbz x0, L_native_release_object\n    bl _bpp_n_free_memory\n    b L_native_release_object\nL_native_release_array:\n    ldr w9, [x19, #24]\n    cbz w9, L_native_release_object\n    ldr x20, [x19, #8]\n    cbz x20, L_native_release_object\n    ldr x21, [x19, #16]\n    lsl x21, x21, #4\n    add x21, x20, x21\nL_native_release_array_loop:\n    cmp x20, x21\n    b.eq L_native_release_array_items\n    ldr w9, [x20]\n    cmp w9, #2\n    b.ne L_native_release_array_next\n    ldr x0, [x20, #8]\n    cbz x0, L_native_release_array_next\n    bl _bpp_n_release_object\nL_native_release_array_next:\n    add x20, x20, #16\n    b L_native_release_array_loop\nL_native_release_array_items:\n    ldr x0, [x19, #8]\n    bl _bpp_n_free_memory\n    b L_native_release_object\nL_native_release_done:\n    ldp x21, x22, [sp], #16\n    ldp x19, x20, [sp], #16\n    ldp x29, x30, [sp], #16\nL_native_release_ret:\n    ret\n",out);
     /* Darwin AArch64 puts variadic arguments in a different ABI area, so an
      * otherwise innocent printf("%lld", value) is not portable here. Format
      * integer results directly and use the non-variadic write ABI. Objects
@@ -392,7 +389,7 @@ static void main_release_value(Emitter *e,int global,size_t index){
     main_state(e,9);
     if(global){fputs("    ldr x10, [x9, #16]\n",e->out);if(index)offset(e,10,10,index*BPP_CG_VALUE_BYTES);}
     else fputs("    add x10, x9, #32\n",e->out);
-    fprintf(e->out,"    ldr w11, [x10]\n    cmp w11, #2\n    b.ne L_main_%s_skip_%zu\n    ldr x0, [x10, #8]\n    cbz x0, L_main_%s_skip_%zu\n    bl _bpp_n_release_object\nL_main_%s_skip_%zu:\n",area,index,area,index,area,index);
+    fprintf(e->out,"    ldr w11, [x10]\n    cmp w11, #2\n    b.ne L_main_%s_skip_%zu\n    ldr x0, [x10, #8]\n    cbz x0, L_main_%s_skip_%zu\n    bl _bpp_%s_release_object\nL_main_%s_skip_%zu:\n",area,index,area,index,e->truth_states?"a":"n",area,index);
     main_state(e,9);
     if(global){fputs("    ldr x10, [x9, #16]\n",e->out);if(index)offset(e,10,10,index*BPP_CG_VALUE_BYTES);}
     else fputs("    add x10, x9, #32\n",e->out);
@@ -406,7 +403,7 @@ static void emit_native_main(Emitter *e,size_t global_count,int print){
     imm(e->out,0,globals);imm(e->out,1,1);fputs("    bl _bpp_n_allocate_zero\n    cbz x0, L_main_alloc_fail\n",e->out);main_state(e,9);fputs("    str x0, [x9, #24]\n",e->out);
     main_state(e,0);fputs("    ldr x1, [x0, #16]\n    ldr x2, [x0, #24]\n    mov x3, xzr\n    add x4, x0, #32\n",e->out);farjump(e->out,"L_proc_0",1);
     main_state(e,9);fputs("    ldr x0, [x9, #8]\n    cbnz x0, L_main_error\n",e->out);
-    if(print){main_state(e,0);fputs("    add x0, x0, #32\n    bl _bpp_n_print_result\n",e->out);}
+    if(print){main_state(e,0);fputs("    add x0, x0, #32\n",e->out);fputs(e->truth_states?"    bl _bpp_a_print_result\n":"    bl _bpp_n_print_result\n",e->out);}
     fputs("    b L_main_cleanup\nL_main_error:\n    bl _bpp_n_report_error\n    mov w10, #1\n",e->out);main_state(e,9);fputs("    str w10, [x9, #48]\n    b L_main_cleanup\nL_main_alloc_fail:\n    bl _bpp_n_allocation_failed\n    mov w10, #1\n",e->out);main_state(e,9);fputs("    str w10, [x9, #48]\nL_main_cleanup:\n",e->out);
     main_release_value(e,0,0);
     for(size_t global=0;global<global_count;++global)main_release_value(e,1,global);
@@ -446,25 +443,31 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
     bpp_asm_source(o,m);
     fputs("// B++ native codegen; static ABI revision 1 / private frame revision 2\n.section __TEXT,__text,regular,pure_instructions\n.p2align 2\n",o);
     if(m->debug_path&&target==BPP_MACOS_ARM64)fputs("L_bpp_debug_start:\n",o);
-    if(!m->emit_library){Emitter launcher={0};launcher.out=o;launcher.target=target;launcher.native_release=1;emit_native_platform_leaves(o,target);emit_native_main(&launcher,m->global_count,print_result);}
-    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];Emitter e={0};e.out=o;e.f=f;e.target=target;e.fn=fn;e.layout=layouts[f];e.plan=&plans[f];e.dirty=dirty;e.before=before;e.kind=kind;e.constant=constant;e.loaded_phys=loaded_phys;e.value=value;e.asm_comments=m->emit_asm_comments;e.instrument_native=m->instrument_native;e.native_release=!m->emit_library;e.dirty_phys=dirty_phys;
+    if(!m->emit_library){Emitter launcher={0};launcher.out=o;launcher.target=target;launcher.native_release=1;launcher.truth_states=m->truth_states;emit_native_platform_leaves(o,target);emit_native_main(&launcher,m->global_count,print_result);}
+    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];Emitter e={0};e.out=o;e.f=f;e.target=target;e.fn=fn;e.layout=layouts[f];e.plan=&plans[f];e.dirty=dirty;e.before=before;e.kind=kind;e.constant=constant;e.loaded_phys=loaded_phys;e.value=value;e.asm_comments=m->emit_asm_comments;e.instrument_native=m->instrument_native;e.native_release=!m->emit_library&&!m->truth_states&&!m->static_library_count;e.truth_states=m->truth_states||m->emit_library||m->static_library_count;e.dirty_phys=dirty_phys;
         if(!bpp_value_facts_create(m,f,&e.facts)){for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return 0;}
         e.fact_regs=calloc(fn->register_count?fn->register_count:1,sizeof *e.fact_regs);e.fact_locals=calloc(fn->local_count?fn->local_count:1,sizeof *e.fact_locals);e.fact_globals=calloc(m->global_count?m->global_count:1,sizeof *e.fact_globals);
         if(!e.fact_regs||!e.fact_locals||!e.fact_globals){bpp_value_facts_destroy(&e.facts);free(e.fact_regs);free(e.fact_locals);free(e.fact_globals);for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return 0;}
         memset(dirty,0,fn->register_count);memset(dirty_phys,0,fn->register_count*sizeof *dirty_phys);
         fprintf(o,"// payload registers: %zu of %zu IR values cached in x20/x21/x22/x23/x24/x25/x27/x28\n",plans[f].cached_count,fn->register_count);
-        if(m->emit_library&&f)fprintf(o,".globl _bpp_v1_%s\n_bpp_v1_%s:\n",fn->name,fn->name);
+        if(m->emit_library&&f)fprintf(o,".globl _bpp_v2_%s\n_bpp_v2_%s:\n",fn->name,fn->name);
+        if(!m->emit_library&&f)fprintf(o,".p2align 2\n.globl _bpp_source_%s\n_bpp_source_%s:\n",fn->name,fn->name);
         fprintf(o,".p2align 2\nL_proc_%zu:\n    .cfi_startproc\n",f);
         arm_save_prologue(o,&plans[f]);
         fputs("    mov x20, x0\n    mov x21, x1\n    mov x22, x2\n    mov x24, x4\n",o);
         imm(o,9,e.layout.bytes);fprintf(o,"L_probe_%zu:\n    cmp x9, #4096\n    b.lo L_probe_tail_%zu\n    sub sp, sp, #4096\n    str xzr, [sp]\n    sub x9, x9, #4096\n    b L_probe_%zu\nL_probe_tail_%zu:\n    sub sp, sp, x9\n    mov x19, sp\n",f,f,f,f);
-        frame_init(&e);if(m->instrument_native)fputs("    ldr x0, [x29, #8]\n    bl _bpp_a_trace_enter\n",o);fprintf(o,"    b L_f%zu_b0\n",f);
+        frame_init(&e);if(m->truth_states){fputs("    mov x0, x19\n",o);imm(o,1,f==0?1:0);fputs("    bl _bpp_a_truth_enable\n",o);}if(m->instrument_native)fputs("    ldr x0, [x29, #8]\n    bl _bpp_a_trace_enter\n",o);fprintf(o,"    b L_f%zu_b0\n",f);
             for(size_t b=0;b<fn->block_count;++b){e.b=b;bpp_value_facts_begin_block(&e.facts,b,e.fact_regs,e.fact_locals,e.fact_globals);sync_known(&e);memset(dirty,0,fn->register_count);memset(dirty_phys,0,fn->register_count*sizeof *dirty_phys);memset(loaded_phys,0,fn->register_count*sizeof *loaded_phys);if(!m->instrument_native)for(size_t r=0;r<fn->register_count;++r){unsigned p=bpp_reg_dirty_entry(&plans[f],b,r);if(p){dirty[r]=1;dirty_phys[r]=p;loaded_phys[r]=p;}}fprintf(o,"L_f%zu_b%zu:\n",f,b);if(m->debug_path)fputs("    .cfi_def_cfa x29, 16\n",o);
-            for(size_t k=0;k<fn->blocks[b].count;++k){e.k=k;const BLIRInst *i=&fn->blocks[b].insts[k];if(i->dst!=BL_IR_NONE&&e.plan->begin[i->dst]==SIZE_MAX)continue;if(m->debug_path){fputs("    .cfi_def_cfa x29, 16\n",o);bpp_asm_location(o,m,i);}if(m->emit_asm_comments)bpp_asm_instruction_comment(o,fn,f,b,k,e.plan,target,0);
+            for(size_t k=0;k<fn->blocks[b].count;++k){e.k=k;const BLIRInst *i=&fn->blocks[b].insts[k];if(m->debug_path)fprintf(o,"L_bpp_pc_f%zu_b%zu_i%zu_begin:\n",f,b,k);if(i->dst!=BL_IR_NONE&&e.plan->begin[i->dst]==SIZE_MAX){if(m->debug_path)fprintf(o,"L_bpp_pc_f%zu_b%zu_i%zu_end:\n",f,b,k);continue;}if(m->debug_path){fputs("    .cfi_def_cfa x29, 16\n",o);bpp_asm_location(o,m,i);}if(m->emit_asm_comments)bpp_asm_instruction_comment(o,fn,f,b,k,e.plan,target,0);
                 if(m->instrument_native&&(i->op==BL_IR_LOAD_GLOBAL||i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL)){flush(&e,e.dirty,1);fputs("    mov x0, x19\n",o);imm(o,1,i->op);imm(o,2,i->a);fputs("    bl _bpp_a_access\n",o);}
-                if(i->op==BL_IR_JUMP){edge_flush(&e,i->a);if(i->a!=b+1){char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->a);farjump(o,target,0);}else if(e.asm_comments)fputs("    // B++ CFG fallthrough jump omitted\n",o);memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);continue;}
-                if(i->op==BL_IR_RETURN){flush(&e,e.dirty,1);regaddr(&e,12,i->a);fprintf(o,"    str x12, [x19, #%u]\n",BPP_CG_CALL_OUTPUT_OFFSET);char target[64];snprintf(target,sizeof target,"L_cleanup_%zu",f);farjump(o,target,0);continue;}
-                if(i->op==BL_IR_BRANCH){BPPTruth truth=(BPPTruth)e.fact_regs[i->a].truth;if(truth!=BPP_TRUTH_UNKNOWN){size_t to=truth==BPP_TRUTH_TRUE?i->b:i->c;if(e.asm_comments)fprintf(o,"    // B++ truthiness-elided vreg=v%zu truth=%s\n",i->a,bpp_truth_name(truth));edge_flush(&e,to);if(to!=b+1){char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,to);farjump(o,target,0);}memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);continue;}if(branch_fallthrough(&e,i)){memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);continue;}regaddr(&e,12,i->a);fputs("    ldr w9, [x12]\n",o);branch(&e,"cbz w9,","false");fputs("    cmp w9, #1\n",o);branch(&e,"b.ne","true");payload(&e,9,i->a);branch(&e,"cbnz x9,","true");define(&e,"false");edge_flush(&e,i->c);{char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->c);farjump(o,target,0);}define(&e,"true");edge_flush(&e,i->b);{char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->b);farjump(o,target,0);}memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);continue;}
+                if(i->op==BL_IR_JUMP){edge_flush(&e,i->a);if(i->a!=b+1){char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->a);farjump(o,target,0);}else if(e.asm_comments)fputs("    // B++ CFG fallthrough jump omitted\n",o);memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);{if(m->debug_path)fprintf(o,"L_bpp_pc_f%zu_b%zu_i%zu_end:\n",f,b,k);continue;}}
+                if(i->op==BL_IR_RETURN){flush(&e,e.dirty,1);regaddr(&e,12,i->a);fprintf(o,"    str x12, [x19, #%u]\n",BPP_CG_CALL_OUTPUT_OFFSET);char target[64];snprintf(target,sizeof target,"L_cleanup_%zu",f);farjump(o,target,0);{if(m->debug_path)fprintf(o,"L_bpp_pc_f%zu_b%zu_i%zu_end:\n",f,b,k);continue;}}
+                if(i->op==BL_IR_BRANCH&&m->truth_states){
+                    edge_flush_pair(&e,i->b,i->c);regaddr(&e,12,i->a);
+                    fprintf(o,"    ldr w9, [x12]\n    cbz w9, L_state_false_%zu_%zu_%zu\n    cmp w9, #1\n    b.eq L_state_integer_%zu_%zu_%zu\n    ldr x9, [x12, #8]\n    cbz x9, L_state_false_%zu_%zu_%zu\n    ldr w10, [x9]\n    cmp w10, #4\n    b.ne L_state_true_%zu_%zu_%zu\n    ldr d0, [x9, #8]\n    fcmp d0, #0.0\n    b.gt L_state_true_%zu_%zu_%zu\n    b L_state_false_%zu_%zu_%zu\nL_state_integer_%zu_%zu_%zu:\n    ldr x9, [x12, #8]\n    cmp x9, #0\n    b.le L_state_false_%zu_%zu_%zu\nL_state_true_%zu_%zu_%zu:\n",f,b,k,f,b,k,f,b,k,f,b,k,f,b,k,f,b,k,f,b,k,f,b,k,f,b,k);
+                    char to[64];snprintf(to,sizeof to,"L_f%zu_b%zu",f,i->b);farjump(o,to,0);fprintf(o,"L_state_false_%zu_%zu_%zu:\n",f,b,k);snprintf(to,sizeof to,"L_f%zu_b%zu",f,i->c);farjump(o,to,0);
+                    memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);{if(m->debug_path)fprintf(o,"L_bpp_pc_f%zu_b%zu_i%zu_end:\n",f,b,k);continue;}}
+                if(i->op==BL_IR_BRANCH){BPPTruth truth=(BPPTruth)e.fact_regs[i->a].truth;if(truth!=BPP_TRUTH_UNKNOWN){size_t to=truth==BPP_TRUTH_TRUE?i->b:i->c;if(e.asm_comments)fprintf(o,"    // B++ truthiness-elided vreg=v%zu truth=%s\n",i->a,bpp_truth_name(truth));edge_flush(&e,to);if(to!=b+1){char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,to);farjump(o,target,0);}memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);{if(m->debug_path)fprintf(o,"L_bpp_pc_f%zu_b%zu_i%zu_end:\n",f,b,k);continue;}}if(branch_fallthrough(&e,i)){memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);{if(m->debug_path)fprintf(o,"L_bpp_pc_f%zu_b%zu_i%zu_end:\n",f,b,k);continue;}}regaddr(&e,12,i->a);fputs("    ldr w9, [x12]\n",o);branch(&e,"cbz w9,","false");fputs("    cmp w9, #1\n",o);branch(&e,"b.ne","true");payload(&e,9,i->a);fputs("    cmp x9, #0\n",o);branch(&e,"b.gt","true");define(&e,"false");edge_flush(&e,i->c);{char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->c);farjump(o,target,0);}define(&e,"true");edge_flush(&e,i->b);{char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->b);farjump(o,target,0);}memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);{if(m->debug_path)fprintf(o,"L_bpp_pc_f%zu_b%zu_i%zu_end:\n",f,b,k);continue;}}
                 /* Every ordinary IR operation has a possible slow helper or
                  * error arm.  Make live homes canonical before the split so
                  * transition reloads can happen lazily after the join. */
@@ -472,7 +475,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
                 memcpy(e.before,e.dirty,fn->register_count);
                 int conditional=fast(&e,i);
                 if(conditional) define(&e,"slow");
-                slow(&e,i,conditional); define(&e,"done");bpp_value_facts_transfer(&e.facts,i,e.fact_regs,e.fact_locals,e.fact_globals);sync_known(&e);
+                slow(&e,i,conditional); define(&e,"done");bpp_value_facts_transfer(&e.facts,i,e.fact_regs,e.fact_locals,e.fact_globals);sync_known(&e);if(m->debug_path)fprintf(o,"L_bpp_pc_f%zu_b%zu_i%zu_end:\n",f,b,k);
             }
         }
         if(m->debug_path)fputs("    .cfi_def_cfa x29, 16\n",o);
@@ -500,8 +503,8 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
          * layouts above in __const, but emit ABI metadata in relocatable
          * data. */
         fputs(".section __DATA,__data\n.p2align 3\n",o);
-        fprintf(o,".globl _bpp_v1_library_%s\n_bpp_v1_library_%s:\n    .long 0x42505031,1,1,7\n    .long 16,0,8,0\n    .quad %zu\n    .quad _bpp_v1_procedures_%s\n_bpp_v1_procedures_%s:\n",name,name,count,name,name);
-        for(size_t f=1;f<m->function_count;++f)fprintf(o,"    .quad L_abi_name_%zu\n    .long %zu,1\n    .quad _bpp_v1_%s\n",f,m->functions[f].param_count,m->functions[f].name);
+        fprintf(o,".globl _bpp_v2_library_%s\n_bpp_v2_library_%s:\n    .long 0x42505031,2,0,7\n    .long 16,0,8,0\n    .quad %zu\n    .quad _bpp_v2_procedures_%s\n_bpp_v2_procedures_%s:\n",name,name,count,name,name);
+        for(size_t f=1;f<m->function_count;++f)fprintf(o,"    .quad L_abi_name_%zu\n    .long %zu,1\n    .quad _bpp_v2_%s\n",f,m->functions[f].param_count,m->functions[f].name);
     }
     fputs(".subsections_via_symbols\n",o);
     if(m->debug_path&&target==BPP_MACOS_ARM64)bpp_asm_compile_unit(o,m,target,"L_bpp_debug_start","L_bpp_debug_end",

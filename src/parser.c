@@ -182,6 +182,7 @@ static BLNode *bl_parse_block(BLParser *parser) {
 static BLNode *bl_parse_primary(BLParser *parser) {
     BLToken token = parser->current;
     if(token.kind==TOK_INVALID){bl_parser_set_error(parser,token.line,token.column,"integer literal is outside the signed 64-bit range");return NULL;}
+    if (bl_match(parser, TOK_REAL)) {BLNode *node=bl_new_node(parser,AST_REAL,token.line,token.column);node->as.real.value=token.real;return node;}
     if (bl_match(parser, TOK_NUMBER)) {
         BLNode *node = bl_new_node(parser, AST_NUMBER, token.line, token.column);
         node->as.number.value = token.number;
@@ -286,8 +287,10 @@ static BLNode *bl_parse_postfix(BLParser *parser) {
     return expr;
 }
 
+static int token_word(BLToken token,const char *word){return token.kind==TOK_IDENT&&token.length==strlen(word)&&!memcmp(token.start,word,token.length);}
 static BLNode *bl_parse_unary(BLParser *parser) {
     BLToken token = parser->current;
+    if(token_word(token,"NOT")){bl_advance(parser);BLNode *node=bl_new_node(parser,AST_UNARY,token.line,token.column);node->as.unary.op=TOK_LOG_NOT;node->as.unary.expr=bl_parse_unary(parser);return node;}
     if (bl_match(parser, TOK_MINUS) || bl_match(parser, TOK_BANG) || bl_match(parser, TOK_TILDE)) {
         BLNode *node = bl_new_node(parser, AST_UNARY, token.line, token.column);
         node->as.unary.op = token.kind;
@@ -361,7 +364,10 @@ static BLNode *bl_parse_equality(BLParser *parser) {
  * All three are left-associative and evaluate both operands. */
 static BLNode *bl_parse_bits(BLParser *parser,BLNode *(*operand)(BLParser *),BLTokenKind kind){
     BLNode *expr=operand(parser);
-    while(!parser->error&&parser->current.kind==kind){
+    while(!parser->error&&(parser->current.kind==kind||
+        (kind==TOK_LOG_AND&&token_word(parser->current,"AND"))||
+        (kind==TOK_LOG_OR&&token_word(parser->current,"OR"))||
+        (kind==TOK_LOG_XOR&&token_word(parser->current,"XOR")))){
         BLToken op=parser->current;bl_advance(parser);
         BLNode *right=operand(parser),*node=bl_new_node(parser,AST_BINARY,op.line,op.column);
         node->as.binary.op=kind;node->as.binary.left=expr;node->as.binary.right=right;expr=node;
@@ -372,8 +378,17 @@ static BLNode *bl_parse_bit_and(BLParser *p){return bl_parse_bits(p,bl_parse_equ
 static BLNode *bl_parse_bit_xor(BLParser *p){return bl_parse_bits(p,bl_parse_bit_and,TOK_CARET);}
 static BLNode *bl_parse_bit_or(BLParser *p){return bl_parse_bits(p,bl_parse_bit_xor,TOK_PIPE);}
 
+static BLNode *bl_parse_logic_and(BLParser *p){return bl_parse_bits(p,bl_parse_bit_or,TOK_LOG_AND);}
+static BLNode *bl_parse_logic_xor(BLParser *p){return bl_parse_bits(p,bl_parse_logic_and,TOK_LOG_XOR);}
+static BLNode *bl_parse_logic_or(BLParser *p){return bl_parse_bits(p,bl_parse_logic_xor,TOK_LOG_OR);}
+static BLNode *bl_parse_tau(BLParser *parser){
+    BLNode *left=bl_parse_logic_or(parser);
+    if(bl_match(parser,TOK_TAU)){BLToken token=parser->previous;BLNode *node=bl_new_node(parser,AST_BINARY,token.line,token.column);node->as.binary.op=TOK_TAU;node->as.binary.left=left;node->as.binary.right=bl_parse_tau(parser);return node;}
+    return left;
+}
+
 static BLNode *bl_parse_assignment(BLParser *parser) {
-    BLNode *expr = bl_parse_bit_or(parser);
+    BLNode *expr = bl_parse_tau(parser);
     if (parser->error) return NULL;
     if (bl_match(parser, TOK_EQUAL)) {
         BLToken eq = parser->previous;
