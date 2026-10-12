@@ -59,6 +59,7 @@ static int target_query(int argc,char **argv){
     if(argc==3&&!strcmp(argv[1],"--target-info")){BPPTarget t;if(!bpp_target_parse(argv[2],&t))return -1;const BPPBackendCapabilities *c=bpp_target_capabilities(t);size_t count=0,range_count=0;const BPPRegisterInfo *regs=bpp_target_register_inventory(t,&count);const BPPRangeLimit *ranges=bpp_target_range_limits(t,&range_count);printf("target=%s\ntriple=%s\nformat=%s\nisa=%s\npointer_bits=%u\ninteger_bits=%u\nallocatable_payload_registers=%u\nregister_inventory_count=%zu\nrange_limit_count=%zu\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->integer_bits,c->allocatable_payload_registers,count,range_count);for(size_t r=0;r<count;++r)printf("register.%s=id:%u,class:%u,width:%u,flags:%u,save_cost:%u,call_clobbers:%u\n",regs[r].name,regs[r].id,regs[r].class_mask,regs[r].width_bits,regs[r].flags,regs[r].save_cost,regs[r].call_clobbers);for(size_t r=0;r<range_count;++r)printf("range.%s=relocation:%s,min:%lld,max:%lld\n",ranges[r].name,ranges[r].relocation,ranges[r].minimum,ranges[r].maximum);for(int op=0;op<BL_IR_OPCODE_COUNT;++op)printf("ir.%s=%s\n",bl_ir_op_name((BLIROp)op),bpp_lowering_name(bpp_target_ir_lowering(t,(BLIROp)op)));return 1;}return 0;
 }
 static int run_command(char *const *command) {
+    if(getenv("BPP_VERIFICATION_TRACE")){fprintf(stderr,"B++ verification: host tool %s\n",command[0]);fflush(stderr);}
 #ifdef _WIN32
     /* The Windows CRT joins spawn arguments without preserving boundaries. */
     size_t count=0; while(command[count])++count;
@@ -137,6 +138,7 @@ static char *library_archive_path(const char *manifest_output, const char *name)
 #define BPP_DEFAULT_OUTPUT "a.out"
 #endif
 static int native_compile(const char *temp, const char *output, BPPTarget target, int object, int debug, const BLIRModule *module) {
+    if(getenv("BPP_VERIFICATION_TRACE")){fputs("B++ verification: native assembly ready, invoking host driver\n",stderr);fflush(stderr);}
     const char *cc = getenv("BPP_CC"); if (!cc || !*cc) cc = BPP_HOST_CC;
     char runtime_path[] = BPP_RUNTIME_OBJECT;
     char value_path[] = BPP_VALUE_OBJECT;
@@ -323,7 +325,9 @@ int main(int argc, char **argv) {
     ir.preserve_access_observability=debug_info;
     for(size_t f=0;f<ir.function_count;++f)ir.functions[f].preserve_source_homes=debug_info;
     if(ok&&native_checks)ok=bpp_raw_native_eligible(&ir);
+    if(ok&&getenv("BPP_VERIFICATION_TRACE")){fputs("B++ verification: optimize IR\n",stderr);fflush(stderr);}
     if(ok&&optimize)ok=bpp_ir_optimize(&ir);
+    if(ok&&getenv("BPP_VERIFICATION_TRACE")){fputs("B++ verification: IR ready\n",stderr);fflush(stderr);}
     if(ok&&debug_info&&ir.expanded_source&&(mode==4||mode==5||(!mode))){
         const char *base=output?output:(!mode?BPP_DEFAULT_OUTPUT:NULL);
         if(base){size_t size=strlen(base)+32;ir.debug_path=calloc(size,1);

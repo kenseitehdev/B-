@@ -81,6 +81,8 @@ jobs:
           set -o pipefail
           python3 tests/run_bounded.py 600 make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} -j2 test check-static-abi 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Bounded fuzz, stress and reproducibility
+        env:
+          BPP_VERIFICATION_TRACE: ${{ matrix.os == 'ubuntu-24.04-arm' && matrix.compiler == 'gcc' && matrix.mode == 'debug' && '1' || '' }}
         run: |
           set -o pipefail
           python3 tests/run_bounded.py 600 make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} -j2 check-fuzz check-verification check-reproducible 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"

@@ -84,9 +84,17 @@ def stress(compiler, work):
     path = work / "stress.bpp"
     path.write_text(source)
     expected = sum(range(64)) + 300 + 512 * 2 + sum(range(512)) + sum(range(256))
+    if os.environ.get("BPP_VERIFICATION_TRACE"):
+        for stage,flags in (("validate",["--check"]),("emit",["--emit-asm","-o",work/"stress-trace.s"])):
+            print(f"Stress diagnostic phase: {stage}",flush=True)
+            probe=run([compiler,*flags,path],timeout=180,cpu=120)
+            print(probe.stderr.decode(errors="replace"),flush=True)
+            if probe.returncode:failure(work,"stress-"+stage,probe,source.encode())
     for mode in ([], ["--no-opt"]):
         output = work / "stress.exe"
         result = run([compiler, *mode, "--print-result", "-o", output, path], timeout=180, cpu=120)
+        if os.environ.get("BPP_VERIFICATION_TRACE"):
+            print(result.stderr.decode(errors="replace"),flush=True)
         if result.returncode:
             failure(work, "stress-compile", result, source.encode())
         result = run([output])
