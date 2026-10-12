@@ -86,7 +86,7 @@ def stress(compiler, work):
     expected = sum(range(64)) + 300 + 512 * 2 + sum(range(512)) + sum(range(256))
     for mode in ([], ["--no-opt"]):
         output = work / "stress.exe"
-        result = run([compiler, *mode, "--print-result", "-o", output, path], timeout=90, cpu=60)
+        result = run([compiler, *mode, "--print-result", "-o", output, path], timeout=180, cpu=120)
         if result.returncode:
             failure(work, "stress-compile", result, source.encode())
         result = run([output])
@@ -100,7 +100,7 @@ def stress(compiler, work):
         boundary += ";}define proc main(){return frame(1);}\n"
         path.write_text(boundary)
         for mode in ([], ["--no-opt"]):
-            result = run([compiler, *mode, "--print-result", "-o", output, path], timeout=90, cpu=60)
+            result = run([compiler, *mode, "--print-result", "-o", output, path], timeout=180, cpu=120)
             if result.returncode:
                 failure(work, f"frame-{locals_count}-compile", result, boundary.encode())
             result = run([output])

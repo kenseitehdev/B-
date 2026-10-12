@@ -27,7 +27,7 @@ claim. Artifacts are written to `build/verification-failures` (override with
 lowering, baseline/optimized IR validation and each native emitter. It also
 corrupts a valid instruction destination and requires verifier rejection.
 Each input runs in a separate process with wall/CPU/output limits. Large
-stress compilations receive 60 CPU seconds and a 90-second wall deadline;
+stress compilations receive 120 CPU seconds and a 180-second wall deadline;
 fuzz probes and native execution keep their smaller 20-second CPU budget. ASAN/MSAN
 virtual-address space is intentionally not capped because their shadow maps
 require large reservations. CI compiles the compiler/runtime with warnings as

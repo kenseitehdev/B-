@@ -145,7 +145,7 @@ static void pred_destroy(PredIndex *p){free(p->offsets);free(p->blocks);memset(p
 /* Stable incoming-edge lists avoid scanning every block for each predecessor.
  * The order is the same ascending source-block order used by the old scans. */
 static int pred_create(const BLIRFunction *fn,PredIndex *p){
- size_t blocks=fn->block_count;if(blocks>SIZE_MAX/2)return 0;
+ size_t blocks=fn->block_count;if(blocks>BPP_REGALLOC_MAX_WORKSPACE/(4*sizeof(size_t)))return 0;
  memset(p,0,sizeof *p);p->offsets=array(blocks+1,sizeof *p->offsets);
  size_t *cursor=array(blocks,sizeof *cursor);
  if(!p->offsets||!cursor){free(cursor);pred_destroy(p);return 0;}

@@ -49,6 +49,9 @@ endif
 # UCRT64's runtime lacks Clang's nonrecovering UBSAN handler exports.
 # Trap instrumentation checks all enabled undefined operations without them.
 ifeq ($(OS),Windows_NT)
+ifneq ($(BUILD_MODE),release)
+MODE_FLAGS += -gcodeview
+endif
 ifneq ($(findstring undefined,$(SANITIZERS)),)
 MODE_FLAGS += -fsanitize-trap=undefined
 endif
