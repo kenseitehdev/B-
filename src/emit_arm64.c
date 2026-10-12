@@ -442,7 +442,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
     }
     bpp_asm_source(o,m);
     fputs("// B++ native codegen; static ABI revision 1 / private frame revision 2\n.section __TEXT,__text,regular,pure_instructions\n.p2align 2\n",o);
-    if(m->debug_path&&target==BPP_MACOS_ARM64)fputs("L_bpp_debug_start:\n",o);
+    if(m->debug_path)fputs("L_bpp_debug_start:\n",o);
     if(!m->emit_library){Emitter launcher={0};launcher.out=o;launcher.target=target;launcher.native_release=1;launcher.truth_states=m->truth_states;emit_native_platform_leaves(o,target);emit_native_main(&launcher,m->global_count,print_result);}
     for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];Emitter e={0};e.out=o;e.f=f;e.target=target;e.fn=fn;e.layout=layouts[f];e.plan=&plans[f];e.dirty=dirty;e.before=before;e.kind=kind;e.constant=constant;e.loaded_phys=loaded_phys;e.value=value;e.asm_comments=m->emit_asm_comments;e.instrument_native=m->instrument_native;e.native_release=!m->emit_library&&!m->truth_states&&!m->static_library_count;e.truth_states=m->truth_states||m->emit_library||m->static_library_count;e.dirty_phys=dirty_phys;
         if(!bpp_value_facts_create(m,f,&e.facts)){for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return 0;}
@@ -481,9 +481,9 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
         if(m->debug_path)fputs("    .cfi_def_cfa x29, 16\n",o);
         fprintf(o,"L_fail_%zu:\n    str xzr, [x19, #%u]\nL_cleanup_%zu:\n    ldr x2, [x19, #%u]\n    ldr x1, [x19, #%u]\n    cbz x1, L_cleanup_null_%zu\n    ldr w9, [x1]\n    ldr x10, [x1, #8]\n    str w9, [x2]\n    str x10, [x2, #8]\n    str wzr, [x1]\n    str xzr, [x1, #8]\n    b L_cleanup_release_%zu\nL_cleanup_null_%zu:\n    str wzr, [x2]\n    str xzr, [x2, #8]\nL_cleanup_release_%zu:\n",f,BPP_CG_CALL_OUTPUT_OFFSET,f,BPP_CG_FRAME_OUTPUT_OFFSET,BPP_CG_CALL_OUTPUT_OFFSET,f,f,f,f);cleanup_frame(&e);
         if(m->instrument_native)fputs("    bl _bpp_a_trace_exit\n",o);
-        arm_save_epilogue(o,&plans[f]);if(m->emit_asm_comments){fprintf(o,"    // B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",fn->name,e.emitted_spills,e.emitted_reloads,e.emitted_rematerializations);access_traffic(o,fn);}bpp_value_facts_destroy(&e.facts);free(e.fact_regs);free(e.fact_locals);free(e.fact_globals);
+        arm_save_epilogue(o,&plans[f]);if(m->debug_path)fprintf(o,"L_proc_end_%zu:\n",f);if(m->emit_asm_comments){fprintf(o,"    // B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",fn->name,e.emitted_spills,e.emitted_reloads,e.emitted_rematerializations);access_traffic(o,fn);}bpp_value_facts_destroy(&e.facts);free(e.fact_regs);free(e.fact_locals);free(e.fact_globals);
     }
-    if(m->debug_path&&target==BPP_MACOS_ARM64)fputs("L_bpp_debug_end:\n",o);
+    if(m->debug_path)fputs("L_bpp_debug_end:\n",o);
     fputs(".section __TEXT,__cstring,cstring_literals\n",o);literal(o,"L_path",m->path);
     if(!m->emit_library){literal(o,"L_native_newline","\n");}
     for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];if(i->text){char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu",f,b,k);literal(o,s,i->text);}}
@@ -507,8 +507,8 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
         for(size_t f=1;f<m->function_count;++f)fprintf(o,"    .quad L_abi_name_%zu\n    .long %zu,1\n    .quad _bpp_v2_%s\n",f,m->functions[f].param_count,m->functions[f].name);
     }
     fputs(".subsections_via_symbols\n",o);
-    if(m->debug_path&&target==BPP_MACOS_ARM64)bpp_asm_compile_unit(o,m,target,"L_bpp_debug_start","L_bpp_debug_end",
-                                                                   "L_proc_","L_cleanup_","");
+    if(m->debug_path)bpp_asm_compile_unit(o,m,target,"L_bpp_debug_start","L_bpp_debug_end",
+                                                                   "L_proc_","L_proc_end_","");
     for(size_t f=0;f<m->function_count;++f)bpp_reg_plan_destroy(&plans[f]);
     free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return !ferror(o);
 }

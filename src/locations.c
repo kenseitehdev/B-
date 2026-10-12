@@ -1,6 +1,7 @@
 #include "../include/target.h"
 #include "../include/regalloc.h"
 #include "../include/codegen_abi.h"
+#include "../include/value.h"
 #include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
@@ -284,7 +285,19 @@ void bpp_asm_codeview_symbols(FILE *o,const BLIRModule *m,int raw){
     fputs(".section .debug$T,\"dr\"\n.p2align 2\n    .long 4\n",o);
     /* Match Clang's typedef representation: S_UDT names a primitive storage
      * type. LF_ALIAS is not supported by LLVM's PDB type-record merger. */
-    size_t procedure_type=4096;
+    /* Typed payload slots hold object pointers. Describe their actual header
+     * and payload so NativePDB can inspect current->value / memory->data. */
+    for(size_t shape=0;shape<2;++shape){
+        fprintf(o,"    .short 54\n    .short 0x1203\n"
+                  "    .short 0x150d, 3\n    .long 0x75\n    .short 0\n    .asciz \"kind\"\n    .byte 0xf1\n"
+                  "    .short 0x150d, 3\n    .long 0x74\n    .short 4\n    .asciz \"ref_count\"\n"
+                  "    .short 0x150d, 3\n    .long %u\n    .short 8\n    .asciz ",shape?0x603u:0x41u);
+        quote(o,shape?"data":"value");if(shape)fputs("\n    .byte 0xf1\n",o);else fputc('\n',o);
+        fprintf(o,"    .short L_cv_shape_end_%zu - L_cv_shape_%zu\nL_cv_shape_%zu:\n"
+                  "    .short 0x1505, 3, 0\n    .long %zu, 0, 0\n    .short %zu\n    .asciz ",shape,shape,shape,4096+shape*3,shape?sizeof(BLBuffer):sizeof(BLState));
+        quote(o,shape?"BppBuffer":"BppState");fprintf(o,"\n.p2align 2, 0\nL_cv_shape_end_%zu:\n    .short 10\n    .short 0x1002\n    .long %zu, 0x1000c\n",shape,4097+shape*3);
+    }
+    size_t procedure_type=4102;
     for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];
         fprintf(o,"    .short %zu\n    .short 0x1201\n    .long %zu\n",6+fn->param_count*4,fn->param_count);
         for(size_t p=0;p<fn->param_count;++p)fprintf(o,"    .long %u\n",0x13u);
@@ -334,7 +347,8 @@ void bpp_asm_codeview_symbols(FILE *o,const BLIRModule *m,int raw){
         size_t *offsets=debug_offsets(fn,BPP_WINDOWS_X64,raw);if(!offsets){free(flow);return;}
         for(size_t l=0;l<fn->local_count;++l){
             const char *type=fn->local_types?fn->local_types[l]:NULL;
-            unsigned ti=type&&(!strcmp(type,"ptr")||!strcmp(type,"pointer"))?0x603u:0x13u;
+            unsigned ti=type&&(!strcmp(type,"ptr")||!strcmp(type,"pointer"))?(raw?0x603u:4101u):
+                type&&(!strcmp(type,"state")||!strcmp(type,"rate"))&&!raw?4098u:0x13u;
             fprintf(o,"    .short L_cv_local_end_%zu_%zu - L_cv_local_%zu_%zu\nL_cv_local_%zu_%zu:\n"
                       "    .short 0x113e\n    .long %u\n    .short %u\n    .asciz ",f,l,f,l,f,l,ti,l<fn->param_count?1u:0u);
             quote(o,fn->locals[l]?fn->locals[l]:"<local>");fprintf(o,"\n.p2align 2, 0\nL_cv_local_end_%zu_%zu:\n",f,l);

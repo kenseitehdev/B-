@@ -428,7 +428,8 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     if(ok){
         bpp_asm_source(o,m);
         if(win&&m->debug_path)bpp_asm_codeview_source(o,m);
-        fputs("# B++ native x86-64, static ABI revision 1 / private frame revision 2\n.text\n",o);
+        fputs("# B++ native x86-64, static ABI revision 2 / private frame revision 2\n.text\n",o);
+        if(!win&&m->debug_path)fputs("L_bpp_debug_start:\n",o);
         X *e=&all[0];
         if(!m->emit_library){emit_native_platform_leaves(o,win);emit_native_main(e,m->global_count,print);}
         for(size_t f=0;f<m->function_count;++f){e=&all[f];size_t alloc=e->alloc;
@@ -478,11 +479,12 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     if(!win)fprintf(o,"    .cfi_restore %s\n",name);}
             if(!win)fputs("    .cfi_def_cfa %rsp, 8\n",o);
     fputs("    ret\n",o);
-    if(win&&m->debug_path)fprintf(o,"L_proc_end_%zu:\n",f);
+    if(m->debug_path)fprintf(o,"L_proc_end_%zu:\n",f);
     fputs(win?"    .seh_endproc\n":"    .cfi_endproc\n",o);
 
     if(e->asm_comments){fprintf(o,"    # B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",e->fn->name,e->emitted_spills,e->emitted_reloads,e->emitted_rematerializations);access_traffic(o,e->fn);}
         }
+        if(!win&&m->debug_path)fputs("L_bpp_debug_end:\n",o);
         fputs(win?".section .rdata,\"dr\"\n":".section .rodata\n",o);literal(o,"L_path",m->path);
         if(!m->emit_library){literal(o,"L_native_fmt_int","%lld\n");literal(o,"L_native_fmt_buffer","<buffer size=%zu owned=%d>\n");literal(o,"L_native_fmt_array","<array size=%zu owned=%d>\n");literal(o,"L_native_newline","\n");}
         for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];
@@ -495,6 +497,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
             for(size_t f=1;f<m->function_count;++f)fprintf(o,"    .quad L_abi_name_%zu\n    .long %zu,1\n    .quad bpp_v2_%s\n",f,m->functions[f].param_count,m->functions[f].name);
         }
         if(win)bpp_asm_codeview_symbols(o,m,0);
+        else if(m->debug_path)bpp_asm_compile_unit(o,m,target,"L_bpp_debug_start","L_bpp_debug_end","L_proc_","L_proc_end_","");
         if(!win)fputs(".section .note.GNU-stack,\"\",@progbits\n",o);
     }
             for(size_t f=0;f<m->function_count;++f){bpp_reg_plan_destroy(&all[f].plan);bpp_value_facts_destroy(&all[f].facts);free(all[f].dirty);free(all[f].before);free(all[f].kind);free(all[f].constant);free(all[f].loaded_phys);free(all[f].value);free(all[f].dirty_phys);free(all[f].fact_regs);free(all[f].fact_locals);free(all[f].fact_globals);}free(all);return ok&&!ferror(o);

@@ -341,6 +341,12 @@ BLValue bl_rt_builtin(BLRuntime *vm, BLSite *call_node, const char *name, BLValu
         if(r.context.faults&&!r.context.line){r.context.source_file=call_node?call_node->source_file:0;r.context.line=(unsigned)(call_node?call_node->line:1);r.context.column=(unsigned)(call_node?call_node->column:1);}
         BLValue result=state_result(r,argc?args[0]:bl_value_null(),argc>1?args[1]:bl_value_null());
         if(argc>2&&c.context.faults&&!(a.context.faults|b.context.faults)){BLState *state=bl_value_as_state(args[2]);if(state)snprintf(bl_value_as_state(result)->diagnostic,512,"%s",state->diagnostic);}
+        if(vm==truth_runtime && (r.context.faults & ~(a.context.faults|b.context.faults|c.context.faults))){
+            ++error_serial;recent_context=r.context;
+            snprintf(recent_diagnostic,sizeof recent_diagnostic,"%s",r.context.faults&BPP_TRUTH_INVALID_INTERVAL?"invalid transition interval":"invalid truth state");
+            BLState *result_state=bl_value_as_state(result);
+            if(result_state)snprintf(result_state->diagnostic,sizeof result_state->diagnostic,"%s",recent_diagnostic);
+        }
         return result;
     }
     if (strcmp(name, "string_new") == 0) return bl_builtin_string_new(vm, call_node, args, argc);

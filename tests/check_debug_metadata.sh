@@ -359,7 +359,7 @@ if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v lldb >/dev/null 2>&1; 
         # Stop at the call site, then run to the imported procedure and its return line.
         lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file main.bpp --line 4' -o run \
-            -o 'breakpoint set --name increment' -o continue -o 'thread step-over' -o 'thread step-over' \
+            -o 'breakpoint set --name increment' -o continue -o 'thread step-over' \
             -o 'frame variable n local' -o 'thread step-over' -o bt \
             -o 'process kill' -o quit "$program" >"$work/variables.txt" 2>&1
     else

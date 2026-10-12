@@ -90,6 +90,7 @@ def main():
             if(NOT(u)!=0.0){return 6;}
             new state invalid=velocity(-1.0,1.0,0);
             if(invalid!=0.0){return 7;}if(faults(invalid)!=2){return 8;}
+            if(faults(err)!=2){return 9;}
             return 0;
         }""")
     print("Native truth passed: 125 transitions, signed fractional gates, velocity conditions, loops and error propagation; both optimization modes")

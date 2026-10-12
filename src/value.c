@@ -234,9 +234,22 @@ const unsigned char *bl_value_cstring_bytes(BLValue value, size_t *length, int *
 
     if (bl_value_is_buffer(value)) {
         BLBuffer *buffer = bl_value_as_buffer(value);
+        BLBuffer *root=buffer->owner?buffer->owner:buffer;
+        if(buffer->generation && (!root->owned || buffer->generation!=root->generation ||
+           buffer->offset>root->size || buffer->size>root->size-buffer->offset)){
+            if(length)*length=0;
+            if(ok)*ok=0;
+            return NULL;
+        }
         size_t n = 0;
-        while (n < buffer->size && buffer->data[n] != 0) {
-            n += 1;
+        while(n<buffer->size){
+            if(buffer->generation && (!root->defined || !root->defined[buffer->offset+n])){
+                if(length)*length=0;
+                if(ok)*ok=0;
+                return NULL;
+            }
+            if(buffer->data[n]==0)break;
+            ++n;
         }
         if (length) *length = n;
         if (ok) *ok = 1;

@@ -216,7 +216,8 @@ static int eliminate_redundant_accesses(BLIRModule *m, BLIRFunction *fn) {
                 i->op == BL_IR_FREE_LOCAL || i->op == BL_IR_FREE_GLOBAL) {
                 const int global = i->op == BL_IR_DELETE_GLOBAL || i->op == BL_IR_FREE_GLOBAL;
                 size_t slot = i->a + (global ? fn->local_count : 0);
-                if(i->op==BL_IR_DELETE_LOCAL||i->op==BL_IR_DELETE_GLOBAL)slot_initialized[slot]=0; slot_known[slot] = 0;
+                if(i->op==BL_IR_DELETE_LOCAL||i->op==BL_IR_DELETE_GLOBAL){slot_initialized[slot]=0;}
+                slot_known[slot] = 0;
             }
             if (i->dst != BL_IR_NONE) {
                 BLIRId previous = number_lookup_or_add(numbers, cap, generation, i);
