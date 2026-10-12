@@ -443,7 +443,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
                 if(s==0)fputs("    .cfi_def_cfa_offset 16\n    .cfi_offset %rbp, -16\n    movq %rsp, %rbp\n    .cfi_def_cfa_register %rbp\n",o);
                 else fprintf(o,"    .cfi_offset %s, -%zu\n",name,16+s*8);
             }}
-            if(win){fprintf(o,"    movq $%zu, %%rax\n    call ___chkstk_ms\n    subq %%rax, %%rsp\n    .seh_stackalloc %zu\n    leaq 64(%%rsp), %%r12\n    .seh_setframe %%r12, 64\n    .seh_endprologue\n",alloc,alloc);fprintf(o,"    movq %zu(%%rsp), %%rbp\n",alloc+e->saved_count*8+40);}
+            if(win){fprintf(o,"    movq $%zu, %%rax\n    call ___chkstk_ms\n    movq $%zu, %%rax\n    subq %%rax, %%rsp\n    .seh_stackalloc %zu\n    leaq 64(%%rsp), %%r12\n    .seh_setframe %%r12, 64\n    .seh_endprologue\n",alloc+4096,alloc,alloc);fprintf(o,"    movq %zu(%%rsp), %%rbp\n",alloc+e->saved_count*8+40);}
             else{fprintf(o,"    movq %%r8, -%zu(%%rbp)\n",e->saved_count*8);size_t remaining=alloc;while(remaining>=4096){fputs("    subq $4096, %rsp\n    movb $0, (%rsp)\n",o);remaining-=4096;}if(remaining)fprintf(o,"    subq $%zu, %%rsp\n",remaining);}
             fputs("    leaq 64(%rsp), %r12\n",o);frame_init(e);
             if(m->truth_states){arg(e,0,"%r12",0);number(e,1,f==0?1:0);call(e,"bpp_a_truth_enable");}

@@ -76,7 +76,7 @@ def main():
                 'define proc main(){new state u=fail(0);if(error_line(u)!=1){return 1;}'
                 'if(error_file(u)!=2){return 2;}return 0;}')
         execute(compiler, work, "memory", """define proc main(){
-            new ptr p=malloc 2;p[0]=42;new ptr view=p+1;view[-1]=43;
+            new ptr p=malloc 2;if(!p!=false){return 10;}p[0]=42;new ptr view=p+1;view[-1]=43;
             if(p[0]!=43){return 1;}if(p!=(p+0)){return 2;}
             new byte u=p[1];if(faults(u)!=4){return 3;}
             new state outside=p[2];if(faults(outside)!=4){return 4;}

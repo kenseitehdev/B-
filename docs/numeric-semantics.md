@@ -1,84 +1,65 @@
-# B++ numeric and conversion semantics (revision 1)
+# B++ numeric and conversion semantics (1.0.16)
 
-This is the normative numeric contract for the parser, optimizer, compiler/runtime
-helpers, native backends, and their tests. Language integers are signed 64-bit
-two's-complement values. A decimal integer literal must be in
-`0..9223372036854775807`; larger literal magnitudes are compile-time errors.
-The minimum value is expressible as `-9223372036854775807 - 1`.
+The parser, optimizer and native backends share this contract. Integers are
+signed 64-bit two's-complement words. Integer literal magnitudes must fit in
+0..9223372036854775807; write the minimum as `-9223372036854775807 - 1`.
+Decimal/exponent literals use finite binary64 storage. `state(value)` validates
+a truth value against [-1,1]; interval velocities and other numeric rates may
+exceed that range. See [truth and TAU](truth-and-tau.md).
 
-## Arithmetic
+## Arithmetic and errors
 
-- `+`, `-`, `*`, and unary `-` are checked. A result outside
-  `[-9223372036854775808, 9223372036854775807]` raises `integer overflow` at
-  the source location of the operation. `+` also concatenates values if either
-  operand is not an integer; concatenation uses the runtime's string
-  representation and yields a buffer if either operand is a buffer.
-- `/` and `%` require integer operands. Division truncates toward zero and
-  remainder has the sign of the dividend, matching C's signed quotient/remainder
-  rule. A zero divisor raises `division by zero` or `modulo by zero` as
-  appropriate. `INT64_MIN / -1` and `INT64_MIN % -1` raise `integer overflow`.
-- Ordered comparisons require integers. Equality compares integers by value,
-  null only with null, strings and buffers by byte contents across those two
-  object types, and other objects by identity. Comparisons produce integer 0 or
-  1.
-- Truthiness is false for null and integer zero; all other integers and all
-  objects are true.
+Integer `+`, `-`, `*` and unary `-` check overflow. Integer `/` truncates toward
+zero, and `%` has the dividend's sign. Zero divisors and `INT64_MIN / -1` or
+`INT64_MIN % -1` are errors. Mixed state/integer arithmetic promotes the integer
+to binary64; state arithmetic supports `+`, `-`, `*`, unary `-` and `/`.
+Nonfinite results and invalid operand kinds are errors.
 
-The optimizer may fold an operation only when the result is defined by these
-rules. If folding would cause a language error, it must leave the operation in
-the IR so execution raises the same error at the same source site. Folding
-must not use C signed overflow as its semantics.
+Recoverable language errors produce U=0 with a fault mask, source location and
+diagnostic context. Failed rate arithmetic retains its explicit transition
+inputs. Gates and numeric comparisons retain incoming fault context; a Boolean
+payload alone does not validate a faulted value. Applications can combine
+`faults(rate)==0` with their velocity threshold as an explicit validation rule.
+Structural compiler/ABI errors and process-level failures remain failures.
+Explicit diagnostic and strict bootstrap profiles have their separately
+documented execution contracts.
 
-## Constant folding and propagation
+Native buffer operations validate bounds, lifetime, generation and byte
+definedness before accessing memory. Reallocation preserves defined bytes and
+invalidates older offset views. Native buffer equality compares handle identity,
+generation and offset. Runtime string/array source constructors remain outside
+the supported frontend; curated library bridges use the private owned-value
+boundary and validate their input conversions.
 
-The optimizer uses the same forward value-fact lattice as native lowering:
-unknown, null, integer (optionally an exact signed 64-bit constant), string,
-buffer, array, and other object. At a control-flow join a fact survives only
-when every reachable predecessor agrees; equal integer constants remain exact.
-An unreachable arm of a proven branch does not participate in the merge.
+## Boolean results and conditions
 
-- Safe folds are integer literals; unary `-` except `INT64_MIN`; `!` when
-  truthiness is proven; and integer `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`,
-  `<=`, `>`, and `>=` when all operands are exact and the result is defined.
-- Proven local/global integer values can propagate through reachable CFG edges
-  and loop headers. A loop backedge must agree with the preheader fact; the
-  optimizer never assumes a loop executes or runs only once.
-- Strings, buffers, arrays, object equality, indexing, conversions, calls,
-  allocation, output, ownership operations, and dynamic fallback operations
-  are not folded by this revision. Direct user calls invalidate global facts.
-- A fold replaces only the opcode and operands. It retains the original IR
-  instruction's source line and column, so later diagnostics and maps still
-  identify the source expression.
+Comparisons return +1 for true and -1 for false. Fractional comparisons preserve
+context in owned state values. Logical state negation is `-s`; integer `!`
+returns -1 for positive words, +1 for negative words and 0 for U=0. Non-state
+owned objects remain truthy, with logical negation returning false (-1).
+Null is treated as U=0.
 
-There is no `switch` IR opcode in revision 1. Branch folding applies to the
-existing truthiness branch opcode; any future switch lowering must add its own
-exhaustive constant-folding and diagnostic-preservation tests.
+A branch enters on a positive predicate payload. Propagation decisions use the
+explicit accepted form `if (velocity(start,end,dt) >= threshold)`, with a
+positive finite dt and a program-supplied threshold. Direct scalar conditions
+use their sign and do not infer elapsed time, previous state, or validation.
+Use the explicit velocity predicate for decisions about uncertain transitions.
 
-## Conversions
+State gates use min/max/negation, including
+`XOR(a,b)=max(min(a,-b),min(-a,b))`; TAU returns sign(end-start). Integer
+`&`, `|`, `^` and `~` operate independently on all 64 bits. In particular,
+`~1` is -2, whereas logical `!1` is -1. No shift opcode is implemented.
 
-- The language's `String` declaration conversion (`TO_STRING_BUFFER`) clones a
-  buffer, copies a string's bytes, formats an integer in base 10, and converts
-  null or unsupported values to an empty buffer.
-- The `string_new` builtin has its own documented conversion: strings and
-  buffers become strings with the same bytes; an integer becomes the single
-  byte given by its low eight bits. It is not integer-to-decimal formatting.
-- Runtime `bl_value_to_int` accepts an integer directly or parses the complete
-  decimal text representation of a string/buffer; parsing must fit in signed
-  64-bit range. Other inputs fail conversion.
+## Optimization and conformance
 
-## Shifts and future numeric opcodes
+Only defined integer results may fold. Overflow and invalid division remain
+runtime operations with their original source sites. A value fact survives a
+join only when every reachable predecessor agrees. Deleted or uninitialized
+slots cannot become known values merely through a failed store. Direct calls
+invalidate global facts; dynamic state/ownership/memory operations retain their
+runtime boundary. Debug builds preserve canonical source-variable homes.
 
-Revision 1 has no shift opcode or shift token. If shifts are added, counts must
-be integers in `0..63`; right shift must be arithmetic (sign-extending), and
-left shift must be checked for signed overflow. Implementations must avoid C's
-undefined behavior for oversized shifts and signed left shift. Until an opcode
-and these semantics are implemented and tested, the compiler must diagnose it
-as unsupported instead of emitting an approximation.
-
-## Backend conformance
-
-The C runtime helpers define reference behavior. Native fast paths must match
-the rules above and route dynamic or failing cases to a helper that preserves
-the same source site. Every arithmetic optimization and native opcode change
-must be covered by boundary tests and differential execution in optimized and
-baseline modes. See `ir-backend-contract.md` for ownership and lowering rules.
+Native assembly and C value leaves are verified against independent expected
+results in both optimization modes. The source frontend has no generated C
+backend. See [verification](verification.md), [static ABI](static-abi.md) and
+[IR contract](ir-backend-contract.md).

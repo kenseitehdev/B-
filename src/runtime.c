@@ -422,7 +422,7 @@ void bl_rt_free(BLRuntime *vm, BLSite *site, BLValue value, unsigned char initia
 }
 BLValue bl_rt_unary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a) {
     BLState *state=bl_value_as_state(a);if(state){BPPStateValue r=state->state;if(op==BL_IR_NOT||op==BL_IR_NEG)r=bpp_truth_not(r);else return bl_runtime_error(vm,site,"bitwise operations require integers");return state_result(r,a,bl_value_null());}
-    if (op == BL_IR_NOT) return bl_value_int(a.tag==BLV_INT?(a.as.i>0?-1:a.as.i<0?1:0):0);
+    if (op == BL_IR_NOT) return bl_value_int(a.tag==BLV_INT?(a.as.i>0?-1:a.as.i<0?1:0):a.tag==BLV_OBJECT?-1:0);
     if (a.tag != BLV_INT) return bl_runtime_error(vm, site, "unary operation expects integer");
     if(op==BL_IR_BIT_NOT)return bl_value_int(bpp_word_bitop(op,a.as.i,0));
     if (a.as.i == LLONG_MIN) return bl_runtime_error(vm, site, "integer overflow");
