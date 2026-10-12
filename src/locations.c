@@ -107,34 +107,51 @@ static void dwarf_type_ref(FILE *o,int macho,const BLIRModule *m,size_t function
     else {size_t index=local;for(size_t f=0;f<function;++f)index+=m->functions[f].local_count;
         fprintf(o,"    .long .L_bpp_type_%zu - .L_bpp_debug_cu_begin\n",index);}
 }
+typedef void (*LocalRangeVisitor)(void *,size_t,size_t,size_t);
+/* A canonical home does not change between adjacent initialized instructions.
+ * Coalesce within each block, preserving every initialization/deletion gap. */
+static void local_ranges(const BLIRFunction *fn,size_t local,const uint64_t *in,
+                         size_t words,LocalRangeVisitor visit,void *context){
+    if(!in||!words||local>=fn->local_count)return;
+    for(size_t b=0;b<fn->block_count;++b){
+        int live=(int)((in[b*words+local/64]>>(local%64))&1u);
+        size_t start=SIZE_MAX;
+        for(size_t k=0;k<fn->blocks[b].count;++k){
+            const BLIRInst *i=&fn->blocks[b].insts[k];
+            if(live&&start==SIZE_MAX)start=k;
+            if(!live&&start!=SIZE_MAX){visit(context,b,start,k-1);start=SIZE_MAX;}
+            if(i->a==local&&(local_set_op(i->op)||local_clear_op(i->op)))live=!local_clear_op(i->op);
+        }
+        if(start!=SIZE_MAX)visit(context,b,start,fn->blocks[b].count-1);
+    }
+}
+typedef struct {FILE *out;size_t function,offset;unsigned reg;} DwarfLocalRange;
+static void emit_dwarf_range(void *context,size_t block,size_t first,size_t last){
+    DwarfLocalRange *r=context;unsigned char sleb[10];size_t sn=sleb_bytes((long long)r->offset,sleb);
+    fprintf(r->out,"    .byte 0x07\n    .quad L_bpp_pc_f%zu_b%zu_i%zu_begin\n    .quad L_bpp_pc_f%zu_b%zu_i%zu_end\n    .byte %zu\n    .byte 0x92, %u, ",r->function,block,first,r->function,block,last,(size_t)2+sn,r->reg);
+    emit_sleb(r->out,(long long)r->offset);fputc('\n',r->out);
+}
 static void emit_location_list(FILE *o,const BLIRFunction *fn,size_t fi,size_t local,
                               const uint64_t *in,size_t words,size_t frame_local_offset,
                               unsigned frame_register){
     fprintf(o,".L_bpp_loclist_%zu_%zu:\n",fi,local);
-    uint64_t *state=in&&words?malloc(words*sizeof *state):NULL;
-    if(in&&words&&state){
-        for(size_t b=0;b<fn->block_count;++b){memcpy(state,&in[b*words],words*sizeof *state);for(size_t k=0;k<fn->blocks[b].count;++k){const BLIRInst *inst=&fn->blocks[b].insts[k];int live=local<fn->local_count&&((state[local/64]>>(local%64))&1u);
-                if(live){unsigned char sleb[10];size_t sn=sleb_bytes((long long)(frame_local_offset+local*8),sleb);fprintf(o,"    .byte 0x07\n    .quad L_bpp_pc_f%zu_b%zu_i%zu_begin\n    .quad L_bpp_pc_f%zu_b%zu_i%zu_end\n    .byte %zu\n    .byte 0x92, %u, ",fi,b,k,fi,b,k,(size_t)2+sn,frame_register);emit_sleb(o,(long long)(frame_local_offset+local*8));fputc('\n',o);}
-                if((local_set_op(inst->op)||local_clear_op(inst->op))&&inst->a==local){uint64_t bit=UINT64_C(1)<<(local%64);if(local_clear_op(inst->op))state[local/64]&=~bit;else state[local/64]|=bit;}
-            }}
-    }
-    free(state);fputs("    .byte 0\n",o);
+    DwarfLocalRange range={o,fi,frame_local_offset+local*8,frame_register};
+    local_ranges(fn,local,in,words,emit_dwarf_range,&range);
+    fputs("    .byte 0\n",o);
+}
+typedef struct {size_t bytes,entry;} LocalRangeSize;
+static void count_local_range(void *context,size_t block,size_t first,size_t last){
+    (void)block;(void)first;(void)last;LocalRangeSize *s=context;
+    if(s->bytes>SIZE_MAX-s->entry)s->bytes=SIZE_MAX;else s->bytes+=s->entry;
 }
 static size_t location_list_size(const BLIRFunction *fn,size_t local,const uint64_t *in,size_t words,
                                  size_t frame_local_offset){
-    size_t bytes=1;
-    uint64_t *state=in&&words?malloc(words*sizeof *state):NULL;
-    if(!state)return bytes;
-    for(size_t b=0;b<fn->block_count;++b){memcpy(state,&in[b*words],words*sizeof *state);
-        for(size_t k=0;k<fn->blocks[b].count;++k){const BLIRInst *inst=&fn->blocks[b].insts[k];
-            int live=local<fn->local_count&&((state[local/64]>>(local%64))&1u);
-            if(live){unsigned char sleb[10];size_t sn=sleb_bytes((long long)(frame_local_offset+local*8),sleb);
-                if(sn>SIZE_MAX-bytes-20){free(state);return SIZE_MAX;}bytes+=20+sn;}
-            if((local_set_op(inst->op)||local_clear_op(inst->op))&&inst->a==local){uint64_t bit=UINT64_C(1)<<(local%64);
-                if(local_clear_op(inst->op))state[local/64]&=~bit;else state[local/64]|=bit;}
-        }
-    }
-    free(state);return bytes;
+    unsigned char sleb[10];size_t sn=sleb_bytes((long long)(frame_local_offset+local*8),sleb);
+    LocalRangeSize size={1,20+sn};local_ranges(fn,local,in,words,count_local_range,&size);return size.bytes;
+}
+static void emit_codeview_range(void *context,size_t block,size_t first,size_t last){
+    DwarfLocalRange *r=context;
+    fprintf(r->out,"    .cv_def_range L_bpp_pc_f%zu_b%zu_i%zu_begin L_bpp_pc_f%zu_b%zu_i%zu_end, reg_rel, 340, 0, %zu\n",r->function,block,first,r->function,block,last,r->offset);
 }
 static void clobbers(FILE *o,unsigned flags){
     fputc('[',o);int comma=0;
@@ -280,14 +297,8 @@ void bpp_asm_codeview_symbols(FILE *o,const BLIRModule *m,int raw){
             fprintf(o,"    .short L_cv_local_end_%zu_%zu - L_cv_local_%zu_%zu\nL_cv_local_%zu_%zu:\n"
                       "    .short 0x113e\n    .long %u\n    .short %u\n    .asciz ",f,l,f,l,f,l,ti,l<fn->param_count?1u:0u);
             quote(o,fn->locals[l]?fn->locals[l]:"<local>");fprintf(o,"\n.p2align 2, 0\nL_cv_local_end_%zu_%zu:\n",f,l);
-            uint64_t *state=flow?malloc(words*sizeof *state):NULL;
-            if(state)for(size_t b=0;b<fn->block_count;++b){memcpy(state,flow+b*words,words*sizeof *state);
-                for(size_t k=0;k<fn->blocks[b].count;++k){const BLIRInst *i=&fn->blocks[b].insts[k];
-                    if((state[l/64]>>(l%64))&1u)fprintf(o,"    .cv_def_range L_bpp_pc_f%zu_b%zu_i%zu_begin L_bpp_pc_f%zu_b%zu_i%zu_end, reg_rel, 340, 0, %zu\n",f,b,k,f,b,k,32+fn->register_count*8+l*8);
-                    if((local_set_op(i->op)||local_clear_op(i->op))&&i->a==l){uint64_t bit=UINT64_C(1)<<(l%64);if(local_clear_op(i->op))state[l/64]&=~bit;else state[l/64]|=bit;}
-                }
-            }
-            free(state);
+            DwarfLocalRange range={o,f,32+fn->register_count*8+l*8,340};
+            local_ranges(fn,l,flow,words,emit_codeview_range,&range);
         }
         free(flow);fprintf(o,"    .short 2\n    .short 0x0006\nL_cv_symbols_end_%zu:\n.p2align 2, 0\n",f);
     }

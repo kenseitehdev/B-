@@ -33,7 +33,10 @@ locations, type/procedure records, CFI/SEH, and debugger stepping/backtraces.
 LLVM tooling verifies the dSYM on macOS, reads COFF records across platforms,
 and inspects a linked PDB when LLD/PDB tools are present. Native LLDB checks
 include local/parameter values, loop stepping, recursion and imported faults;
-Linux also runs GDB tests. Windows CI installs LLDB/LLD and requires native PDB
+Linux also runs GDB tests, including displayed parameter/local values. LLVM
+verification on Linux uses the compiler-owned native object; linked DIEs,
+locations and unwind records are checked with readelf and native GDB, avoiding
+known verifier incompatibility with unrelated GCC sanitizer debug units. Windows CI installs LLDB/LLD and requires native PDB
 inspection, stepping and variable-value checks. A cross-assembled COFF object
 does not count as a Windows debugger run.
 

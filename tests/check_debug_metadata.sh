@@ -153,7 +153,13 @@ if [ "$have_elf_dwarf" = 1 ] && command -v llvm-dwarfdump >/dev/null 2>&1; then
     dwarf_input="$work/program"
     if [ "$(uname -s)" = Darwin ]; then dwarf_input="$work/program.dSYM"; fi
     if [ "$(uname -s)" = Linux ]; then
-        timeout 60 llvm-dwarfdump --verify "$dwarf_input" >"$work/verify.txt"
+        # Verify compiler-owned DWARF independently of GCC/compiler-rt units.
+        # LLVM's verifier rejects GCC's inlined sanitizer call-site records
+        # and older LLVM can loop on them. Linked B++ metadata is still checked
+        # with readelf below/above and exercised by the native debugger.
+        "$bpp" --debug-info --emit-asm -o "$work/native-dwarf.s" "$work/main.bpp"
+        clang -g -c -x assembler "$work/native-dwarf.s" -o "$work/native-dwarf.o"
+        timeout 60 llvm-dwarfdump --verify "$work/native-dwarf.o" >"$work/verify.txt"
     else
         llvm-dwarfdump --verify "$dwarf_input" >"$work/verify.txt"
     fi
@@ -303,6 +309,12 @@ fi
 # supplied by the host C compiler. The second fixture verifies imported source
 # files and distinct recursive frames before stopping at an imported fault.
 if [ "$(uname -s)" = Linux ] && [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v gdb >/dev/null 2>&1; then
+    gdb --batch -ex 'set pagination off' -ex 'set confirm off' \
+        -ex 'break library.bpp:4' -ex run -ex 'print n' -ex 'print local' \
+        -ex next -ex bt -ex quit "$linked_program" >"$work/gdb-variables.txt" 2>&1
+    grep -E '= 41$' "$work/gdb-variables.txt" >/dev/null
+    grep -E '= 42$' "$work/gdb-variables.txt" >/dev/null
+    grep -F 'increment' "$work/gdb-variables.txt" >/dev/null
     "$bpp" --debug-info -o "$work/gdb-runtime-error" tests/lldb_runtime_error.bpp
     gdb --batch \
         -ex 'set pagination off' \

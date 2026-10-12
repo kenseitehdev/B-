@@ -7,6 +7,7 @@ ifneq ($(wildcard $(LLVM_PREFIX)/clang),)
 CC := $(LLVM_PREFIX)/clang
 endif
 endif
+PYTHON ?= python3
 BUILD_MODE ?= debug
 ifeq ($(UNAME_S),Darwin)
 DEBUG_SANITIZERS ?= address,undefined
@@ -61,7 +62,7 @@ BIN := bin/$(BUILD_MODE)/bpp$(EXE)
 SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/range.c src/optimize.c src/emit_x64.c src/raw_native.c src/locations.c src/value_facts.c src/strict_runtime.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
-.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-native-sanitizer check-native-checks check-sanitizer-availability check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
+.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-native-sanitizer check-native-checks check-sanitizer-availability check-verification check-fuzz check-reproducible check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
 RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o
 NATIVE_SANITIZER_OBJ := $(OBJDIR)/src/native_sanitizer.o
 DEPS += $(NATIVE_SANITIZER_OBJ:.o=.d)
@@ -122,7 +123,7 @@ check-targets: $(BIN)
 targets: $(BIN)
 	./$(BIN) --list-targets
 check-differential: $(BIN) $(OBJDIR)/generate_case$(EXE)
-	sh tests/check_differential.sh ./$(BIN) ./$(OBJDIR)/generate_case$(EXE)
+	$(PYTHON) tests/check_verification.py differential ./$(BIN) --generator ./$(OBJDIR)/generate_case$(EXE)
 check-stress: $(BIN) $(OBJDIR)/generate_case$(EXE)
 	sh tests/check_stress.sh ./$(BIN) ./$(OBJDIR)/generate_case$(EXE)
 benchmark: $(BIN) $(OBJDIR)/benchmark_clock$(EXE)
@@ -191,3 +192,12 @@ $(OBJDIR)/test_msan$(EXE): tests/test_msan.c Makefile
 clean:
 	rm -rf build bin/debug bin/tsan bin/release
 -include $(DEPS)
+
+check-verification: $(BIN)
+	$(PYTHON) tests/check_verification.py stress ./$(BIN)
+check-reproducible: $(BIN)
+	$(PYTHON) tests/check_verification.py reproducible ./$(BIN)
+check-fuzz: $(BIN) $(OBJDIR)/fuzz_compiler$(EXE) $(OBJDIR)/generate_case$(EXE)
+	$(PYTHON) tests/check_verification.py fuzz ./$(BIN) --harness ./$(OBJDIR)/fuzz_compiler$(EXE) --generator ./$(OBJDIR)/generate_case$(EXE)
+$(OBJDIR)/fuzz_compiler$(EXE): tests/fuzz_compiler.c $(filter-out $(OBJDIR)/src/main.o,$(OBJS)) Makefile
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) tests/fuzz_compiler.c $(filter-out $(OBJDIR)/src/main.o,$(OBJS)) -o "$@"
