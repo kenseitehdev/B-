@@ -37,21 +37,22 @@ def main():
     source += "define proc band(a,b){return a & b;}"
     source += "define proc bor(a,b){return a | b;}"
     source += "define proc bxor(a,b){return a ^ b;}"
-    source += "define proc main(){"
-    for index, (expression, expected) in enumerate(cases, 1):
-        source += f"if (({expression}) != {literal(expected)}){{return {index};}}\n"
-    source += "return 0;}\n"
     with tempfile.TemporaryDirectory(prefix="bpp-gates-") as directory:
         work = Path(directory)
         path, output = work / "gate.bpp", work / "gate.exe"
-        path.write_text(source)
-        for flags in ([], ["--no-opt"]):
-            result = run([compiler, *flags, "--print-result", "-o", output, path])
-            if result.returncode:
-                failure(work, "bitwise-compile", result, source.encode())
-            result = run([output])
-            if result.returncode or result.stdout.strip() != b"0":
-                failure(work, "bitwise-execute", result, source.encode())
+        for begin in range(0,len(cases),64):
+            batch=source+"define proc main(){"
+            for index,(expression,expected) in enumerate(cases[begin:begin+64],begin+1):
+                batch+=f"if (({expression}) != {literal(expected)}){{return {index};}}\n"
+            batch+="return 0;}\n"
+            path.write_text(batch)
+            for flags in ([], ["--no-opt"]):
+                result = run([compiler, *flags, "--print-result", "-o", output, path])
+                if result.returncode:
+                    failure(work, "bitwise-compile", result, batch.encode())
+                result = run([output])
+                if result.returncode or result.stdout.strip() != b"0":
+                    failure(work, "bitwise-execute", result, batch.encode())
     print(f"Bitwise gates passed: {len(cases)} oracle cases, optimized and unoptimized")
 
 

@@ -40,7 +40,8 @@ def main():
     source = "define proc probe(" + ",".join(parameters) + "){"
     for code, (expression, expected) in enumerate(checks, 1):
         source += f"if(({expression})!={expected}){{return {code};}}"
-    source += "return 0;}define proc main(){new byte failed=0;"
+    source += "return 0;}"
+    rows = []
     for a in range(5):
         for b in range(5):
             for c in range(5):
@@ -48,13 +49,17 @@ def main():
                             OR[a][c], OR[b][c], IMPLIES[a][c], IMPLIES[b][c],
                             XOR[a][c], XOR[b][c], DIRECTION[a][b],
                             (VALUES[b]-VALUES[a])/2]
-                source += "failed=probe(" + ",".join(map(literal,
+                row = "failed=probe(" + ",".join(map(literal,
                     [VALUES[a], VALUES[b], VALUES[c], *expected])) + ");"
-                source += f"if(failed>0){{return {(a*25+b*5+c+1)*100}+failed;}}"
-    source += "return failed;}"
+                row += f"if(failed>0){{return {(a*25+b*5+c+1)*100}+failed;}}"
+                rows.append(row)
     with tempfile.TemporaryDirectory(prefix="bpp-native-truth-") as directory:
         work = Path(directory)
-        execute(compiler, work, "table", source)
+        # Keep each oracle batch within the same per-process CPU/output bounds
+        # under instrumented GCC as under Clang. Stress has separate fixtures.
+        for begin in range(0,len(rows),25):
+            batch=source+"define proc main(){new byte failed=0;"+"".join(rows[begin:begin+25])+"return failed;}"
+            execute(compiler, work, f"table-{begin//25}", batch)
         execute(compiler, work, "threshold", """
         define proc main(){
             if(velocity(-1.0,1.0,1)>=1.0){}else{return 1;}
