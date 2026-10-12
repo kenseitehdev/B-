@@ -89,7 +89,20 @@ def stress(compiler, work):
             print(f"Stress diagnostic phase: {stage}",flush=True)
             probe=run([compiler,*flags,path],timeout=180,cpu=120)
             print(probe.stderr.decode(errors="replace"),flush=True)
-            if probe.returncode:failure(work,"stress-"+stage,probe,source.encode())
+            if probe.returncode:
+                if stage=="emit" and shutil.which("gdb") and os.name=="posix":
+                    import signal,time
+                    environment=dict(os.environ,ASAN_OPTIONS="detect_leaks=0")
+                    command=["gdb","--batch","-ex","set pagination off","-ex","run","-ex","thread apply all bt","--args",str(compiler),"--emit-asm","-o",str(work/"stress-profile.s"),str(path)]
+                    child=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True,env=environment)
+                    time.sleep(10)
+                    if child.poll() is None:os.killpg(child.pid,signal.SIGINT)
+                    try:trace=child.communicate(timeout=20)[0]
+                    except subprocess.TimeoutExpired:
+                        os.killpg(child.pid,signal.SIGKILL);trace=child.communicate()[0]
+                    print(trace.decode(errors="replace"),flush=True)
+                    probe.stderr+=trace
+                failure(work,"stress-"+stage,probe,source.encode())
     for mode in ([], ["--no-opt"]):
         output = work / "stress.exe"
         result = run([compiler, *mode, "--print-result", "-o", output, path], timeout=180, cpu=120)
