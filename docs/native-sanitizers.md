@@ -91,3 +91,5 @@ revision, runner/toolchain identity and test transcript.
 MSAN is rejected on macOS, Windows and non-Clang toolchains. Standalone LSAN
 availability is probed independently; the portable leak check does not depend
 on standalone LSAN support.
+
+Remaining cross-platform verification fixes and final-revision evidence are scheduled for 1.0.16 in `todo.md`. Hosted Linux x86-64 MSAN native tests, differential execution and stress passed in [run 16](https://github.com/kenseitehdev/B-/actions/runs/38204275312/job/114664184601); that result is tied to the recorded revision and does not certify subsequent fixes or other targets.

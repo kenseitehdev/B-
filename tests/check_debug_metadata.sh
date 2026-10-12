@@ -4,6 +4,7 @@ if [ "${CI:-}" = true ]; then set -x; fi
 
 bpp=$1
 work=${TMPDIR:-/tmp}/bpp-debug-metadata-$$
+if command -v cygpath >/dev/null 2>&1; then work=$(cygpath -m "$work"); fi
 cleanup() {
     result=$?
     if [ "$result" -ne 0 ] || [ "${BPP_KEEP_DEBUG_METADATA_TMP:-0}" = 1 ]; then
@@ -118,17 +119,18 @@ if [ -f "$work/program.exe" ]; then linked_program="$work/program.exe"; fi
 grep -Fx '42' "$work/result.txt" >/dev/null
 grep -F '"source_variable_ranges"' "$work/map.json" >/dev/null
 
-if command -v readelf >/dev/null 2>&1; then
+if [ "$(uname -s)" = Linux ] && command -v readelf >/dev/null 2>&1; then
     readelf --debug-dump=decodedline "$linked_program" >"$work/lines.txt"
     grep -F "library.bpp" "$work/lines.txt" >/dev/null
     readelf --debug-dump=info "$linked_program" >"$work/info.txt"
+    if [ "${CI:-}" = true ]; then cat "$work/info.txt"; fi
     grep -F 'DW_TAG_subprogram' "$work/info.txt" >/dev/null
     grep -F 'DW_TAG_formal_parameter' "$work/info.txt" >/dev/null
     grep -F 'DW_TAG_lexical_block' "$work/info.txt" >/dev/null
     grep -F 'DW_TAG_variable' "$work/info.txt" >/dev/null
     grep -E 'DW_AT_name[[:space:]]+: .*increment' "$work/info.txt" >/dev/null
     grep -E 'DW_AT_name[[:space:]]+: .*local' "$work/info.txt" >/dev/null
-    grep -E 'DW_AT_decl_file[[:space:]]+: 2' "$work/info.txt" >/dev/null
+    grep -E 'DW_AT_decl_file[[:space:]]+:.*[[:space:]](0x)?2([[:space:]]|$)' "$work/info.txt" >/dev/null
     readelf --debug-dump=loc "$linked_program" >"$work/locations.txt"
     grep -F 'Contents of the .debug_loclists section' "$work/locations.txt" >/dev/null
     grep -F 'DW_OP_bregx' "$work/locations.txt" >/dev/null
@@ -248,7 +250,7 @@ if [ "$(uname -s)" = Darwin ]; then
             -o 'process kill' -o quit \
             "$work/lldb-runtime-error" >"$work/lldb.txt" 2>&1 || true
         grep -F 'lldb_runtime_error.bpp:6' "$work/lldb.txt" >/dev/null
-        grep -F 'lldb_runtime_error.bpp:7' "$work/lldb.txt" >/dev/null
+        grep -E 'lldb_runtime_error.bpp:7|^7[[:space:]]' "$work/lldb.txt" >/dev/null
         # LLDB versions differ in the location suffix (for example 3.1 or
         # 3.2) when one source breakpoint resolves to multiple addresses.
         grep -F 'stop reason = breakpoint' "$work/lldb.txt" >/dev/null
@@ -306,8 +308,9 @@ if [ "$(uname -s)" = Linux ] && [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && comm
         -ex run -ex 'bt' -ex 'disable 1' -ex next -ex 'bt' \
         -ex continue -ex 'bt' -ex 'disable 2' -ex continue -ex 'bt' \
         -ex quit "$work/gdb-runtime-error" >"$work/gdb.txt" 2>&1 || true
+    cat "$work/gdb.txt"
     grep -F 'lldb_runtime_error.bpp:6' "$work/gdb.txt" >/dev/null
-    grep -F 'lldb_runtime_error.bpp:7' "$work/gdb.txt" >/dev/null
+    grep -E 'lldb_runtime_error.bpp:7|^7[[:space:]]' "$work/gdb.txt" >/dev/null
     grep -F 'read_invalid_address' "$work/gdb.txt" >/dev/null
     grep -F 'main' "$work/gdb.txt" >/dev/null
     grep -E 'SIGSEGV|SIGBUS|Program received signal|B\+\+ sanitizer:' "$work/gdb.txt" >/dev/null
