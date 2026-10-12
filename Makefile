@@ -136,7 +136,7 @@ check-asan-hook: $(OBJDIR)/test_native_sanitizer$(EXE)
 	sh tests/check_asan_hook.sh ./$(OBJDIR)/test_native_sanitizer$(EXE)
 check-msan: $(OBJDIR)/test_msan$(EXE)
 	sh tests/check_msan.sh ./$(OBJDIR)/test_msan$(EXE)
-test: check check-native check-strict-native-runtime check-native-sanitizer
+test: check check-native check-strict-native-runtime check-native-sanitizer check-gates
 ifeq ($(BUILD_MODE),msan)
 test: check-msan
 endif
@@ -201,3 +201,7 @@ check-fuzz: $(BIN) $(OBJDIR)/fuzz_compiler$(EXE) $(OBJDIR)/generate_case$(EXE)
 	$(PYTHON) tests/check_verification.py fuzz ./$(BIN) --harness ./$(OBJDIR)/fuzz_compiler$(EXE) --generator ./$(OBJDIR)/generate_case$(EXE)
 $(OBJDIR)/fuzz_compiler$(EXE): tests/fuzz_compiler.c $(filter-out $(OBJDIR)/src/main.o,$(OBJS)) Makefile
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) tests/fuzz_compiler.c $(filter-out $(OBJDIR)/src/main.o,$(OBJS)) -o "$@"
+
+.PHONY: check-gates
+check-gates: $(BIN)
+	$(PYTHON) tests/check_gates.py ./$(BIN)

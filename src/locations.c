@@ -75,7 +75,7 @@ static void dwarf_section(FILE *o,BPPTarget target,const char *name){
 }
 static void dwarf_str_offset(FILE *o,int macho,size_t offset){
     if(macho)fprintf(o,"    .long %zu\n",offset);
-    else fprintf(o,"    .long .L_bpp_debug_str_begin + %zu\n",offset);
+    else fprintf(o,"    .long .L_bpp_debug_str_%zu\n",offset);
 }
 static void dwarf_loclist_offset(FILE *o,int macho,size_t fi,size_t local){
     if(macho)fprintf(o,"    .long .L_bpp_loclist_%zu_%zu - .L_bpp_debug_loclists_begin\n",fi,local);
@@ -361,17 +361,20 @@ void bpp_asm_compile_unit(FILE *o,const BLIRModule *m,BPPTarget target,const cha
     dwarf_section(o,target,"debug_addr");
     fprintf(o,".L_bpp_debug_addr_begin:\n    .long 12\n    .short 5\n    .byte 8, 0\n.L_bpp_debug_addr_entries:\n    .quad %s\n",low_label);
     dwarf_section(o,target,"debug_str");fputs(".L_bpp_debug_str_begin:\n",o);
-    fputs("    .asciz ",o);quote(o,name);fputc('\n',o);
-    fputs("    .asciz ",o);quote(o,comp_dir);fputc('\n',o);
+    size_t str_cursor=0;
+    fprintf(o,".L_bpp_debug_str_%zu:\n    .asciz ",str_cursor);quote(o,name);fputc('\n',o);str_cursor+=name_bytes;
+    fprintf(o,".L_bpp_debug_str_%zu:\n    .asciz ",str_cursor);quote(o,comp_dir);fputc('\n',o);str_cursor+=comp_dir_bytes;
     size_t function_string_bytes=0;
-    for(size_t f=0;f<m->function_count;++f){const char *fn=m->functions[f].name?m->functions[f].name:"<procedure>";fputs("    .asciz ",o);quote(o,fn);fputc('\n',o);function_string_bytes+=strlen(fn)+1;}
+    for(size_t f=0;f<m->function_count;++f){const char *fn=m->functions[f].name?m->functions[f].name:"<procedure>";
+        fprintf(o,".L_bpp_debug_str_%zu:\n    .asciz ",str_cursor);quote(o,fn);fputc('\n',o);str_cursor+=strlen(fn)+1;function_string_bytes+=strlen(fn)+1;}
     for(size_t f=0;f<m->function_count;++f)for(size_t l=0;l<m->functions[f].local_count;++l){
-        fputs("    .asciz ",o);quote(o,m->functions[f].locals[l]?m->functions[f].locals[l]:"<local>");fputc('\n',o);
+        const char *local=m->functions[f].locals[l]?m->functions[f].locals[l]:"<local>";
+        fprintf(o,".L_bpp_debug_str_%zu:\n    .asciz ",str_cursor);quote(o,local);fputc('\n',o);str_cursor+=strlen(local)+1;
     }
     for(size_t f=0;f<m->function_count;++f)for(size_t l=0;l<m->functions[f].local_count;++l){
         const char *type=m->functions[f].local_types?m->functions[f].local_types[l]:NULL;
         if(l<m->functions[f].param_count||!type)type="B++ value (parameter type unspecified)";
-        fputs("    .asciz ",o);quote(o,type);fputc('\n',o);
+        fprintf(o,".L_bpp_debug_str_%zu:\n    .asciz ",str_cursor);quote(o,type);fputc('\n',o);str_cursor+=strlen(type)+1;
     }
     int raw_locations=!strcmp(proc_low_prefix,"bpp_raw_proc_");
     unsigned frame_register=cap->isa==BPP_ISA_ARM64?19u:12u;

@@ -156,6 +156,10 @@ BLToken bl_lexer_next(BLLexer *lexer) {
         case '/': return bl_make_token(TOK_SLASH, start, 1, line, column);
         case '%': return bl_make_token(TOK_PERCENT, start, 1, line, column);
         case '.': return bl_make_token(TOK_DOT, start, 1, line, column);
+        case '&': return bl_make_token(TOK_AMP, start, 1, line, column);
+        case '|': return bl_make_token(TOK_PIPE, start, 1, line, column);
+        case '^': return bl_make_token(TOK_CARET, start, 1, line, column);
+        case '~': return bl_make_token(TOK_TILDE, start, 1, line, column);
         case '!':
             if (bl_lexer_match(lexer, '=')) return bl_make_token(TOK_NEQ, start, 2, line, column);
             return bl_make_token(TOK_BANG, start, 1, line, column);
@@ -170,5 +174,5 @@ BLToken bl_lexer_next(BLLexer *lexer) {
             return bl_make_token(TOK_GT, start, 1, line, column);
     }
 
-    return bl_make_token(TOK_EOF, start, 0, line, column);
+    return bl_make_token(TOK_INVALID, start, 1, line, column);
 }

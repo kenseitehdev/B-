@@ -124,7 +124,7 @@ def stress(compiler, work):
 
 def reproducible(compiler, work):
     path = work / "repeat.bpp"
-    path.write_text("define proc plus(n){return n+1;}define proc main(){return plus(41);}\n")
+    path.write_text("define proc plus(n){return ((n & -1)+1)^0;}define proc main(){return plus(41)|0;}\n")
     clang = shutil.which("clang")
     for target, triple in (("macos-arm64", "arm64-apple-macos11"),
                            ("linux-arm64", "aarch64-linux-gnu"),

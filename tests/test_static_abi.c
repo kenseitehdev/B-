@@ -20,6 +20,9 @@ int main(void) {
     assert(bpp_static_invoke(&procedures[0],&runtime,NULL,NULL,args,1,&out)==BPP_STATIC_OK);
     assert(out.tag==BLV_INT&&out.as.i==42);bl_value_release(out);
     assert(bpp_static_invoke(&procedures[0],&runtime,NULL,NULL,args,0,&out)==BPP_STATIC_ARITY);
+    library.minor=0;assert(bpp_static_library_validate(&library,error,sizeof error));
+    library.minor=BPP_STATIC_ABI_MINOR+1;assert(!bpp_static_library_validate(&library,error,sizeof error));
+    assert(strstr(error,"minor is newer"));library.minor=BPP_STATIC_ABI_MINOR;
     library.major++;
     assert(!bpp_static_library_validate(&library,error,sizeof error));
     assert(strstr(error,"major mismatch"));

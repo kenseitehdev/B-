@@ -1,3 +1,4 @@
+#include "../include/word_ops.h"
 #include "../include/regalloc.h"
 #include <errno.h>
 #include <limits.h>
@@ -56,6 +57,7 @@ static int elidable_result(const BLIRInst *i,const BPPRegPlan *p){
    evaluating it cannot introduce or suppress a language-visible error. */
 static int safe_integer_result(const BLIRInst *i,long long a,long long b,long long *out){
  switch(i->op){
+ case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:case BL_IR_BIT_NOT:*out=bpp_word_bitop(i->op,a,b);return 1;
  case BL_IR_NEG:if(a==LLONG_MIN)return 0;*out=-a;return 1;
  case BL_IR_NOT:*out=!a;return 1;
  case BL_IR_ADD:
@@ -82,8 +84,9 @@ static int safe_integer_result(const BLIRInst *i,long long a,long long b,long lo
 }
 static int native_payload_use(const BLIRInst *i,size_t r){
  switch(i->op){
- case BL_IR_NEG:case BL_IR_NOT:case BL_IR_BRANCH:return r==i->a;
- case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
+ case BL_IR_NEG:case BL_IR_NOT:case BL_IR_BIT_NOT:case BL_IR_BRANCH:return r==i->a;
+ case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:
+    case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
  case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:return r==i->a||r==i->b;
  case BL_IR_STORE_LOCAL:case BL_IR_STORE_GLOBAL:case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:return r==i->b;
  case BL_IR_MALLOC:return r==i->a;
@@ -108,7 +111,7 @@ static size_t native_payload_cost(const BLIRInst *i){
  case BL_IR_MUL:return 12;
  case BL_IR_ADD:case BL_IR_SUB:return 10;
  case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:return 8;
- case BL_IR_NEG:case BL_IR_NOT:return 6;
+ case BL_IR_NEG:case BL_IR_NOT:case BL_IR_BIT_NOT:return 6;
  case BL_IR_BRANCH:return 5;
  case BL_IR_STORE_LOCAL:case BL_IR_STORE_GLOBAL:case BL_IR_INIT_LOCAL:case BL_IR_INIT_GLOBAL:return 4;
  case BL_IR_MALLOC:case BL_IR_REMALLOC:return 10;
@@ -231,9 +234,10 @@ static int is_unconditional_helper(const BLIRInst *i){
  * register bitmap for every instruction. */
 static size_t use_count(const BLIRInst *i){
  switch(i->op){
- case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_RELEASE:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_MALLOC:case BL_IR_PRINT_BYTE:
+ case BL_IR_NEG:case BL_IR_NOT:case BL_IR_BIT_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_RELEASE:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_MALLOC:case BL_IR_PRINT_BYTE:
   return i->a!=BL_IR_NONE;
- case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
+ case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:
+    case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
  case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:case BL_IR_INDEX_GET:case BL_IR_BYTE_LOAD:case BL_IR_REMALLOC:case BL_IR_PRINT_RANGE:
   return 2;
  case BL_IR_INDEX_SET:case BL_IR_BYTE_STORE:return 3;
@@ -245,10 +249,11 @@ static size_t use_count(const BLIRInst *i){
 static size_t copy_uses(const BLIRInst *i,BLIRId *out){
  size_t n=0;
  switch(i->op){
- case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_RELEASE:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_MALLOC:case BL_IR_PRINT_BYTE:
+ case BL_IR_NEG:case BL_IR_NOT:case BL_IR_BIT_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_RELEASE:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_MALLOC:case BL_IR_PRINT_BYTE:
   if(i->a!=BL_IR_NONE)out[n++]=i->a;
   break;
- case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
+ case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:
+    case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
  case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:case BL_IR_INDEX_GET:case BL_IR_BYTE_LOAD:case BL_IR_REMALLOC:case BL_IR_PRINT_RANGE:
   out[n++]=i->a;out[n++]=i->b;break;
  case BL_IR_INDEX_SET:case BL_IR_BYTE_STORE:out[n++]=i->a;out[n++]=i->b;out[n++]=i->c;break;
@@ -605,8 +610,8 @@ int bpp_reg_plan_create_limit(const BLIRFunction *fn,BPPRegPlan *p,BPPTarget tar
    size_t d=definition(i);if(d!=BL_IR_NONE){set(def+b*words,d);if(i->op!=BL_IR_RELEASE){def_position[d]=pos;unsigned char kind=allocation_class(i->op);long long remat=0;
      if(kind==BPP_ALLOC_IMMEDIATE_INT){known_int[d]=1;known_value[d]=i->integer;p->rematerialized_int[d]=i->integer;}
      else if(kind==BPP_ALLOC_IMMEDIATE_NULL)known_int[d]=0;
-     else if((i->op==BL_IR_NEG||i->op==BL_IR_NOT)&&i->a<n&&known_int[i->a]&&safe_integer_result(i,known_value[i->a],0,&remat)){kind=BPP_ALLOC_REMATERIALIZABLE;known_int[d]=1;known_value[d]=remat;}
-     else if(i->op>=BL_IR_ADD&&i->op<=BL_IR_GE&&i->a<n&&i->b<n&&known_int[i->a]&&known_int[i->b]&&safe_integer_result(i,known_value[i->a],known_value[i->b],&remat)){kind=BPP_ALLOC_REMATERIALIZABLE;known_int[d]=1;known_value[d]=remat;}
+     else if((i->op==BL_IR_NEG||i->op==BL_IR_NOT||i->op==BL_IR_BIT_NOT)&&i->a<n&&known_int[i->a]&&safe_integer_result(i,known_value[i->a],0,&remat)){kind=BPP_ALLOC_REMATERIALIZABLE;known_int[d]=1;known_value[d]=remat;}
+     else if(((i->op>=BL_IR_ADD&&i->op<=BL_IR_GE)||i->op==BL_IR_BIT_AND||i->op==BL_IR_BIT_OR||i->op==BL_IR_BIT_XOR)&&i->a<n&&i->b<n&&known_int[i->a]&&known_int[i->b]&&safe_integer_result(i,known_value[i->a],known_value[i->b],&remat)){kind=BPP_ALLOC_REMATERIALIZABLE;known_int[d]=1;known_value[d]=remat;}
      else known_int[d]=0;
      if(kind==BPP_ALLOC_REMATERIALIZABLE)p->rematerialized_int[d]=remat;
      if(p->alloc_class[d]&&p->alloc_class[d]!=kind)p->alloc_class[d]=BPP_ALLOC_TAGGED_PAIR;else p->alloc_class[d]=kind;
@@ -867,6 +872,6 @@ size_t bpp_reg_saved_set(const BPPRegPlan *p,unsigned *ids,size_t cap){unsigned 
 void bpp_known_update(unsigned char *kind,unsigned char *constant,long long *value,const BLIRInst *i){
  unsigned char tag=BPP_KIND_UNKNOWN;if(i->op==BL_IR_RELEASE){kind[i->a]=BPP_KIND_NULL;constant[i->a]=0;return;}if(i->dst==BL_IR_NONE)return;
  if(i->op==BL_IR_INT){tag=BPP_KIND_INT;constant[i->dst]=1;value[i->dst]=i->integer;}
- else{constant[i->dst]=0;if(i->op==BL_IR_NULL)tag=BPP_KIND_NULL;else if(i->op==BL_IR_STRING||i->op==BL_IR_TO_STRING_BUFFER)tag=BPP_KIND_OBJECT;else if(i->op==BL_IR_NEG||i->op==BL_IR_NOT||(i->op>=BL_IR_SUB&&i->op<=BL_IR_GE))tag=BPP_KIND_INT;else if(i->op==BL_IR_ADD&&kind[i->a]==BPP_KIND_INT&&kind[i->b]==BPP_KIND_INT)tag=BPP_KIND_INT;}
+ else{constant[i->dst]=0;if(i->op==BL_IR_NULL)tag=BPP_KIND_NULL;else if(i->op==BL_IR_STRING||i->op==BL_IR_TO_STRING_BUFFER)tag=BPP_KIND_OBJECT;else if(i->op==BL_IR_NEG||i->op==BL_IR_NOT||i->op==BL_IR_BIT_NOT||i->op==BL_IR_BIT_AND||i->op==BL_IR_BIT_OR||i->op==BL_IR_BIT_XOR||(i->op>=BL_IR_SUB&&i->op<=BL_IR_GE))tag=BPP_KIND_INT;else if(i->op==BL_IR_ADD&&kind[i->a]==BPP_KIND_INT&&kind[i->b]==BPP_KIND_INT)tag=BPP_KIND_INT;}
  kind[i->dst]=tag;
 }

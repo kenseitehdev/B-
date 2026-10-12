@@ -576,7 +576,7 @@ static int bl_import_static_manifest(BLImportState *state, const char *manifest,
                 bl_static_push_link_flag(state->ir, second);
         } else ok = bl_static_manifest_error(state, manifest, line_number, "unknown manifest directive");
     }
-    if (ok && (!header || !name || !archive_selected || abi_major != 1 || abi_minor > 0 || runtime_revision != 1))
+    if (ok && (!header || !name || !archive_selected || abi_major != 1 || abi_minor > 1 || runtime_revision < 1 || runtime_revision > 2))
         ok = bl_static_manifest_error(state, manifest, line_number ? line_number : 1, "manifest must declare bppabi 1, name, ABI 1.0, runtime 1, and an archive for this target");
     if (ok && requested_name && strcmp(name, requested_name)) ok = bl_static_manifest_error(state, manifest, 1, "manifest name does not match requested library");
     char *archive_path = NULL;

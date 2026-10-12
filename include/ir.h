@@ -40,7 +40,11 @@ typedef enum {
     BL_IR_CALL, BL_IR_RELEASE,
     BL_IR_FREE_LOCAL, BL_IR_FREE_GLOBAL,
     BL_IR_DELETE_LOCAL, BL_IR_DELETE_GLOBAL,
-    BL_IR_JUMP, BL_IR_BRANCH, BL_IR_RETURN
+    BL_IR_JUMP, BL_IR_BRANCH, BL_IR_RETURN,
+    /* Append opcodes: preserve the compiler-private runtime values used by
+     * existing static archives. */
+    BL_IR_BIT_AND, BL_IR_BIT_OR, BL_IR_BIT_XOR, BL_IR_BIT_NOT,
+    BL_IR_OPCODE_COUNT
 } BLIROp;
 const char *bl_ir_op_name(BLIROp op);
 

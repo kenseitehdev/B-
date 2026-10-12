@@ -138,13 +138,15 @@ static void *offset(const void *p,int64_t index){
 uint64_t bpp_s_byte_load(const void *p,int64_t index){return bpp_s_read(offset(p,index),1);}
 void bpp_s_byte_store(void *p,int64_t index,uint64_t v){bpp_s_write(offset(p,index),v,1);}
 void bpp_s_print_range(const void *p,int64_t n){
-    if(n<0)fault("negative-output-size");range(p,(size_t)n,0);
+    if(n<0)fault("negative-output-size");
+    range(p,(size_t)n,0);
     /* Write once: the C/host boundary sees exactly the bytes checked above. */
 #ifdef _WIN32
     if((uint64_t)n>UINT_MAX)fault("output-size-overflow");
     (void)_write(1,p,(unsigned)n);
 #else
-    (void)write(1,p,(size_t)n);
+    ssize_t written=write(1,p,(size_t)n);
+    if(written<0||(size_t)written!=(size_t)n)fault("output-write-failed");
 #endif
 }
 void bpp_s_finish(void){

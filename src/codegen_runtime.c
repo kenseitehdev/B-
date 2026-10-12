@@ -80,7 +80,8 @@ BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *f, size_t op, size_t dst, size_t a, s
         a=local_slot(f,a);bl_rt_store(f->vm, &site, &f->locals[a], &f->local_initialized[a], f->registers[slot(f,b)], op == BL_IR_INIT_LOCAL, "local"); return;
     case BL_IR_INIT_GLOBAL: case BL_IR_STORE_GLOBAL:
         bl_rt_store(f->vm, &site, &f->globals[a], &f->global_initialized[a], f->registers[slot(f,b)], op == BL_IR_INIT_GLOBAL, "global"); return;
-    case BL_IR_NEG: case BL_IR_NOT: v = bl_rt_unary(f->vm, &site, (BLIROp)op, f->registers[slot(f,a)]); break;
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_BIT_NOT: v = bl_rt_unary(f->vm, &site, (BLIROp)op, f->registers[slot(f,a)]); break;
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR:
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE:
         v = bl_rt_binary(f->vm, &site, (BLIROp)op, f->registers[slot(f,a)], f->registers[slot(f,b)]); break;

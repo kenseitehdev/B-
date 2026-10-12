@@ -43,6 +43,11 @@ runtime's minor revision. Changing the value layout, calling convention,
 ownership rules, or externally visible error contract requires a new major
 revision and symbol prefix, not a silent replacement.
 
+Revision 1.1 requires runtime revision 2 for the appended bitwise IR operations.
+Existing opcode numbers and the value/call layout are preserved. This runtime
+accepts revision 1.0 libraries using runtime revision 1; older consumers reject
+new manifests before linking.
+
 ## Calling convention
 
 Every exported procedure has this target-C-ABI signature:
@@ -98,8 +103,8 @@ The manifest is deliberately small and deterministic:
 ```text
 bppabi 1
 name math
-abi 1.0
-runtime 1
+abi 1.1
+runtime 2
 archive linux-x86_64 libmath.bpp.a 123456 01ab23cd45ef6789
 dependency numbers
 export add 2

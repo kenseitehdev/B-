@@ -9,7 +9,7 @@ cc=${BPP_ABI_CC:-cc}
 ar_tool=${AR:-ar}
 task_dir=$(mktemp -d)
 trap 'rm -rf "$task_dir"' EXIT HUP INT TERM
-printf '%s\n' 'define proc increment(n){return n+1;}return 0;' > "$task_dir/provider.bpp"
+printf '%s\n' 'define proc increment(n){return ((n & -1)+1)^0;}return 0;' > "$task_dir/provider.bpp"
 
 for target in macos-arm64 linux-x86_64 linux-arm64 windows-x86_64; do
     "$compiler" --emit-library --library-name provider --emit-asm --target "$target" -o "$task_dir/$target.s" "$task_dir/provider.bpp"

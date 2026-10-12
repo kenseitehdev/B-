@@ -1,3 +1,4 @@
+#include "../include/word_ops.h"
 #include "../include/runtime.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -356,7 +357,8 @@ void bl_rt_free(BLRuntime *vm, BLSite *site, BLValue value, unsigned char initia
 }
 BLValue bl_rt_unary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a) {
     if (op == BL_IR_NOT) return bl_value_int(!bl_value_is_truthy(a));
-    if (a.tag != BLV_INT) return bl_runtime_error(vm, site, "unary '-' expects integer");
+    if (a.tag != BLV_INT) return bl_runtime_error(vm, site, "unary operation expects integer");
+    if(op==BL_IR_BIT_NOT)return bl_value_int(bpp_word_bitop(op,a.as.i,0));
     if (a.as.i == LLONG_MIN) return bl_runtime_error(vm, site, "integer overflow");
     return bl_value_int(-a.as.i);
 }
@@ -376,6 +378,7 @@ BLValue bl_rt_binary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a, BLValue 
     long long x, y, r = 0;
     if (!bl_value_require_int(vm, site, a, "binary operation", &x) || !bl_value_require_int(vm, site, b, "binary operation", &y)) return bl_value_null();
     switch (op) {
+    case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:r=bpp_word_bitop(op,x,y);break;
     case BL_IR_ADD: if (__builtin_add_overflow(x, y, &r)) goto overflow; break;
     case BL_IR_SUB: if (__builtin_sub_overflow(x, y, &r)) goto overflow; break;
     case BL_IR_MUL: if (__builtin_mul_overflow(x, y, &r)) goto overflow; break;

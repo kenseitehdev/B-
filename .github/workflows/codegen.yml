@@ -188,6 +188,15 @@ jobs:
           path: verification-windows-2022-release.log
           if-no-files-found: warn
           retention-days: 30
+      - name: Upload Windows debug and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-windows-2022-release
+          path: |
+            build/debug-evidence
+            build/verification-failures
+          if-no-files-found: ignore
   msan:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

@@ -236,6 +236,11 @@ static int fast(X *e,const BLIRInst *i){FILE *o=e->out;
         fputs("    movl $1, (%rax)\n    movq %r10, 8(%rax)\n",o);
         if(init){slot(e,i->a,g,1);
     fputs("    movb $1, (%rax)\n",o);}jump(e,"jmp","done");return 1;}
+    case BL_IR_BIT_NOT:
+        guard(e,i->a);payload(e,i->a,"%r10");fputs("    notq %r10\n",o);result(e,i->dst,1);return 1;
+    case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:
+        guard(e,i->a);guard(e,i->b);payload(e,i->a,"%r10");payload(e,i->b,"%r11");
+        fprintf(o,"    %s %%r11, %%r10\n",i->op==BL_IR_BIT_AND?"andq":i->op==BL_IR_BIT_OR?"orq":"xorq");result(e,i->dst,1);return 1;
     case BL_IR_NOT:
         if(e->fact_regs[i->a].truth!=BPP_TRUTH_UNKNOWN){fprintf(o,"    movq $%d, %%r10\n",e->fact_regs[i->a].truth==BPP_TRUTH_TRUE?0:1);if(e->asm_comments)fprintf(o,"    # B++ truthiness-elided vreg=v%zu truth=%s\n",i->a,bpp_truth_name((BPPTruth)e->fact_regs[i->a].truth));result(e,i->dst,1);return 1;}
         fprintf(o,"    cmpl $0, %zu(%%r12)\n",cell(e,i->a));jump(e,"je","not_null");
@@ -487,7 +492,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
         fputs(".p2align 3\n",o);for(size_t f=0;f<m->function_count;++f){e=&all[f];size_t flags=layout_flags(&e->plan,e->fn);fprintf(o,"L_layout_%zu:\n    .quad %zu,%zu,%zu,%zu,%zu,%zu,%zu,%zu\n",f,e->fn->param_count,e->fn->register_count,e->fn->local_count,e->maxargs,e->plan.cell_count,e->plan.local_slot_count,e->plan.root_cell_count,flags);if(flags&BPP_LAYOUT_REGISTER_MAP)for(size_t r=0;r<e->fn->register_count;++r)fprintf(o,"    .quad %zu\n",e->plan.cell[r]);if(flags&BPP_LAYOUT_LOCAL_MAP)for(size_t l=0;l<e->fn->local_count;++l)fprintf(o,"    .quad %zu\n",e->plan.local_map[l]);}
         if(m->emit_library){
             size_t count=m->function_count?m->function_count-1:0;const char *name=m->library_name;
-            fprintf(o,".globl bpp_v1_library_%s\nbpp_v1_library_%s:\n    .long 0x42505031,1,0,7\n    .long 16,0,8,0\n    .quad %zu\n    .quad bpp_v1_procedures_%s\nbpp_v1_procedures_%s:\n",name,name,count,name,name);
+            fprintf(o,".globl bpp_v1_library_%s\nbpp_v1_library_%s:\n    .long 0x42505031,1,1,7\n    .long 16,0,8,0\n    .quad %zu\n    .quad bpp_v1_procedures_%s\nbpp_v1_procedures_%s:\n",name,name,count,name,name);
             for(size_t f=1;f<m->function_count;++f)fprintf(o,"    .quad L_abi_name_%zu\n    .long %zu,1\n    .quad bpp_v1_%s\n",f,m->functions[f].param_count,m->functions[f].name);
         }
         if(win)bpp_asm_codeview_symbols(o,m,0);

@@ -1,3 +1,4 @@
+#include "../include/word_ops.h"
 #include "../include/value_facts.h"
 
 #include <limits.h>
@@ -32,6 +33,8 @@ static BPPValueFact integer_fact(long long value, int known) {
 int bpp_integer_fold(BLIROp op, long long a, long long b, long long *out) {
     long long value = 0;
     switch (op) {
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR: case BL_IR_BIT_NOT:
+        value=bpp_word_bitop(op,a,b);break;
     case BL_IR_ADD:
         if ((b > 0 && a > LLONG_MAX - b) || (b < 0 && a < LLONG_MIN - b)) return 0;
         value = a + b; break;
@@ -153,6 +156,8 @@ void bpp_value_facts_transfer(const BPPValueFacts *facts, const BLIRInst *i,
     case BL_IR_NOT:
         out = integer_fact(a.truth == BPP_TRUTH_TRUE ? 0 : 1,
                            a.truth != BPP_TRUTH_UNKNOWN); break;
+    case BL_IR_BIT_NOT:
+        out=integer_fact(a.integer_known?bpp_word_bitop(i->op,a.integer,0):0,a.integer_known);break;
     case BL_IR_NEG:
         out = integer_fact(0, 0);
         if (a.integer_known && a.integer != LLONG_MIN) out = integer_fact(-a.integer, 1);
@@ -165,6 +170,7 @@ void bpp_value_facts_transfer(const BPPValueFacts *facts, const BLIRInst *i,
         }
         else if (a.kind != BPP_VALUE_UNKNOWN || b.kind != BPP_VALUE_UNKNOWN) out = kind_fact(BPP_VALUE_OBJECT);
         break;
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR:
     case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: {
         long long folded = 0;

@@ -9,6 +9,9 @@ cleanup() {
     result=$?
     if [ "$result" -ne 0 ] || [ "${BPP_KEEP_DEBUG_METADATA_TMP:-0}" = 1 ]; then
         echo "Preserved debug metadata test files at $work" >&2
+        for log in "$work/gdb-variables.txt" "$work/variables.txt" "$work/verify.txt"; do
+            if [ -f "$log" ]; then tail -80 "$log" >&2; fi
+        done
         if [ "${CI:-}" = true ]; then
             mkdir -p build/debug-evidence
             cp -R "$work" build/debug-evidence/

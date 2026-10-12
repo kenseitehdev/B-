@@ -297,6 +297,11 @@ static int fast(Emitter *e,const BLIRInst *i) {
         if(init){flagaddr(e,12,g,i->a);fputs("    mov w11, #1\n    strb w11, [x12]\n",o);}
         branch(e,"b","done");return 1;
     }
+    case BL_IR_BIT_NOT:
+        intguard(e,i->a);payload(e,9,i->a);fputs("    mvn x26, x9\n",o);result(e,i->dst,1);return 1;
+    case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:
+        intguard(e,i->a);intguard(e,i->b);payload(e,9,i->a);payload(e,10,i->b);
+        fprintf(o,"    %s x26, x9, x10\n",i->op==BL_IR_BIT_AND?"and":i->op==BL_IR_BIT_OR?"orr":"eor");result(e,i->dst,1);return 1;
     case BL_IR_NOT:
         if(e->fact_regs[i->a].truth!=BPP_TRUTH_UNKNOWN){imm(o,26,e->fact_regs[i->a].truth==BPP_TRUTH_TRUE?0:1);if(e->asm_comments)fprintf(o,"    // B++ truthiness-elided vreg=v%zu truth=%s\n",i->a,bpp_truth_name((BPPTruth)e->fact_regs[i->a].truth));result(e,i->dst,1);return 1;}
         regaddr(e,12,i->a);fputs("    ldr w9, [x12]\n",o);branch(e,"cbz w9,","not_null");
@@ -495,7 +500,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
          * layouts above in __const, but emit ABI metadata in relocatable
          * data. */
         fputs(".section __DATA,__data\n.p2align 3\n",o);
-        fprintf(o,".globl _bpp_v1_library_%s\n_bpp_v1_library_%s:\n    .long 0x42505031,1,0,7\n    .long 16,0,8,0\n    .quad %zu\n    .quad _bpp_v1_procedures_%s\n_bpp_v1_procedures_%s:\n",name,name,count,name,name);
+        fprintf(o,".globl _bpp_v1_library_%s\n_bpp_v1_library_%s:\n    .long 0x42505031,1,1,7\n    .long 16,0,8,0\n    .quad %zu\n    .quad _bpp_v1_procedures_%s\n_bpp_v1_procedures_%s:\n",name,name,count,name,name);
         for(size_t f=1;f<m->function_count;++f)fprintf(o,"    .quad L_abi_name_%zu\n    .long %zu,1\n    .quad _bpp_v1_%s\n",f,m->functions[f].param_count,m->functions[f].name);
     }
     fputs(".subsections_via_symbols\n",o);

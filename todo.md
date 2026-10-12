@@ -298,7 +298,7 @@ Current evidence: hosted macOS ARM64 release, ASAN/UBSAN and TSAN pass; Linux Cl
 Priority carryover:
 
 - [ ] Add AND, OR, XOR and bitwise NOT at the end of 1.0.16, with parser/IR/optimizer/native/static-ABI coverage.
-- [ ] Define and implement TAU (`=>`) from the supplied table/equations, including uncertainty/error propagation and the proposed truth domain (true `1`, false `-1`, uncertainty `0`). Resolve its scope and control-flow behavior before changing existing Boolean semantics.
+- [ ] Define and implement TAU (`=>`) from the supplied table/equations, including fractional uncertainty/error propagation across all Boolean results and conditions. Accepted: `a => b = sign(b-a)`, signed truth in [-1,1], logical AND=min/OR=max/NOT=negation/XOR=max(min(a,-b),min(-a,b)), and conditions that threshold transition velocity rather than final state. Finalize representation, threshold configuration and error provenance before changing the static ABI; see `docs/truth-and-tau.md`.
 
 - [ ] Finish Linux ELF metadata and native GDB verification on x86-64/ARM64, including source stepping, imported recursion, variable values and unwinding. Validate the extra DWARF-terminator fix, readelf formatting checks and x86 callback trap-flag masking on matching runners.
 - [ ] Finish Windows x86-64 native portable sanitizer checks, CodeView/PDB inspection, LLDB stepping/variable values and SEH/stack-probe execution. Validate Windows temp/import paths, executable suffix handling, and ELF-only inspection guards.

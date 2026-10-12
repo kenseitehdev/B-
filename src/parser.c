@@ -288,7 +288,7 @@ static BLNode *bl_parse_postfix(BLParser *parser) {
 
 static BLNode *bl_parse_unary(BLParser *parser) {
     BLToken token = parser->current;
-    if (bl_match(parser, TOK_MINUS) || bl_match(parser, TOK_BANG)) {
+    if (bl_match(parser, TOK_MINUS) || bl_match(parser, TOK_BANG) || bl_match(parser, TOK_TILDE)) {
         BLNode *node = bl_new_node(parser, AST_UNARY, token.line, token.column);
         node->as.unary.op = token.kind;
         node->as.unary.expr = bl_parse_unary(parser);
@@ -357,8 +357,23 @@ static BLNode *bl_parse_equality(BLParser *parser) {
     return expr;
 }
 
+/* Bitwise precedence follows equality: & binds tighter than ^, then |.
+ * All three are left-associative and evaluate both operands. */
+static BLNode *bl_parse_bits(BLParser *parser,BLNode *(*operand)(BLParser *),BLTokenKind kind){
+    BLNode *expr=operand(parser);
+    while(!parser->error&&parser->current.kind==kind){
+        BLToken op=parser->current;bl_advance(parser);
+        BLNode *right=operand(parser),*node=bl_new_node(parser,AST_BINARY,op.line,op.column);
+        node->as.binary.op=kind;node->as.binary.left=expr;node->as.binary.right=right;expr=node;
+    }
+    return expr;
+}
+static BLNode *bl_parse_bit_and(BLParser *p){return bl_parse_bits(p,bl_parse_equality,TOK_AMP);}
+static BLNode *bl_parse_bit_xor(BLParser *p){return bl_parse_bits(p,bl_parse_bit_and,TOK_CARET);}
+static BLNode *bl_parse_bit_or(BLParser *p){return bl_parse_bits(p,bl_parse_bit_xor,TOK_PIPE);}
+
 static BLNode *bl_parse_assignment(BLParser *parser) {
-    BLNode *expr = bl_parse_equality(parser);
+    BLNode *expr = bl_parse_bit_or(parser);
     if (parser->error) return NULL;
     if (bl_match(parser, TOK_EQUAL)) {
         BLToken eq = parser->previous;
