@@ -6,14 +6,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__GNUC__)
+#define FACT_INLINE static inline __attribute__((always_inline))
+#else
+#define FACT_INLINE static inline
+#endif
+
 enum { BPP_VALUE_FACTS_MAX_BYTES = 128 * 1024 * 1024 };
 
-static BPPValueFact unknown_fact(void) {
+FACT_INLINE BPPValueFact unknown_fact(void) {
     BPPValueFact f = { BPP_VALUE_UNKNOWN, BPP_TRUTH_UNKNOWN, 0, 0, 0 };
     return f;
 }
 
-static BPPValueFact kind_fact(BPPValueKind kind) {
+FACT_INLINE BPPValueFact kind_fact(BPPValueKind kind) {
     BPPValueFact f = unknown_fact();
     f.kind = (unsigned char)kind;
     if (kind == BPP_VALUE_NULL) f.truth = BPP_TRUTH_FALSE;
@@ -22,7 +28,7 @@ static BPPValueFact kind_fact(BPPValueKind kind) {
     return f;
 }
 
-static BPPValueFact integer_fact(long long value, int known) {
+FACT_INLINE BPPValueFact integer_fact(long long value, int known) {
     BPPValueFact f = kind_fact(BPP_VALUE_INT);
     f.integer_known = (unsigned char)known;
     f.integer = value;
@@ -66,7 +72,7 @@ int bpp_value_fact_integer(const BPPValueFact *fact, long long *out) {
     return 1;
 }
 
-static BPPValueFact merge_fact(BPPValueFact a, BPPValueFact b) {
+FACT_INLINE BPPValueFact merge_fact(BPPValueFact a, BPPValueFact b) {
     BPPValueFact r = unknown_fact();
     if (a.kind == b.kind) r.kind = a.kind;
     else if (a.kind >= BPP_VALUE_STRING && a.kind <= BPP_VALUE_OBJECT &&
@@ -80,7 +86,7 @@ static BPPValueFact merge_fact(BPPValueFact a, BPPValueFact b) {
     return r;
 }
 
-static int same_fact(BPPValueFact a, BPPValueFact b) {
+FACT_INLINE int same_fact(BPPValueFact a, BPPValueFact b) {
     return a.kind == b.kind && a.truth == b.truth &&
            a.initialized==b.initialized && a.integer_known == b.integer_known &&
            (!a.integer_known || a.integer == b.integer);
@@ -88,11 +94,11 @@ static int same_fact(BPPValueFact a, BPPValueFact b) {
 
 static int id_ok(BLIRId id, size_t count) { return id != BL_IR_NONE && id < count; }
 
-static BPPValueFact source(const BPPValueFact *registers, size_t count, BLIRId id) {
+FACT_INLINE BPPValueFact source(const BPPValueFact *registers, size_t count, BLIRId id) {
     return id_ok(id, count) ? registers[id] : unknown_fact();
 }
 
-static void set_dst(const BPPValueFacts *facts, const BLIRInst *i,
+FACT_INLINE void set_dst(const BPPValueFacts *facts, const BLIRInst *i,
                     BPPValueFact *registers, BPPValueFact value) {
     if (id_ok(i->dst, facts->register_count)) registers[i->dst] = value;
 }
@@ -234,6 +240,9 @@ int bpp_value_facts_create(const BLIRModule *m, size_t fi, BPPValueFacts *facts)
     if (!checked_bytes(facts->block_count, facts->global_count, &cells) ||
         !checked_bytes(cells, sizeof(BPPValueFact), &part) || bytes > SIZE_MAX - part) return 1;
     bytes += part;
+    if(!facts->block_count)return 1;
+    if(!checked_bytes(facts->block_count,sizeof(size_t)+1,&part)||bytes>SIZE_MAX-part)return 1;
+    bytes+=part;
     if (bytes > BPP_VALUE_FACTS_MAX_BYTES) return 1;
     facts->register_in = calloc(facts->block_count * (facts->register_count ? facts->register_count : 1), sizeof *facts->register_in);
     facts->local_in = calloc(facts->block_count * (facts->local_count ? facts->local_count : 1), sizeof *facts->local_in);
@@ -251,11 +260,16 @@ int bpp_value_facts_create(const BLIRModule *m, size_t fi, BPPValueFacts *facts)
     if (!seen) { free(r); free(l); free(g); bpp_value_facts_destroy(facts); return 1; }
     for(size_t j=0;j<facts->local_count;++j)facts->local_in[j].initialized=j<facts->function->param_count?1:2;
     if(fi==0)for(size_t j=0;j<facts->global_count;++j)facts->global_in[j].initialized=2;
-    seen[0] = 1;
-    int changed = 1;
-    while (changed) {
-        changed = 0;
-        for (size_t block = 0; block < facts->block_count; ++block) {
+    size_t *queue=calloc(facts->block_count,sizeof *queue);
+    unsigned char *pending=calloc(facts->block_count,1);
+    if(!queue||!pending){free(queue);free(pending);free(seen);free(r);free(l);free(g);bpp_value_facts_destroy(facts);return 1;}
+    size_t head=0,tail=0,count_pending=1;
+    queue[tail++]=0;if(tail==facts->block_count)tail=0;
+    pending[0]=1;seen[0]=1;
+    while(count_pending){
+        size_t block=queue[head++];if(head==facts->block_count)head=0;
+        --count_pending;pending[block]=0;
+        {
             /* Do not let an unreachable all-unknown state poison a later
              * merge.  Constant branches intentionally leave one successor
              * unseen, and only executable predecessors contribute facts. */
@@ -271,19 +285,25 @@ int bpp_value_facts_create(const BLIRModule *m, size_t fi, BPPValueFacts *facts)
                 BPPValueFact *dr = facts->register_in + to[edge] * facts->register_count;
                 BPPValueFact *dl = facts->local_in + to[edge] * facts->local_count;
                 BPPValueFact *dg = facts->global_in + to[edge] * facts->global_count;
+                int changed=0;
                 if (!seen[to[edge]]) {
                     memcpy(dr, r, facts->register_count * sizeof *r);
                     memcpy(dl, l, facts->local_count * sizeof *l);
                     memcpy(dg, g, facts->global_count * sizeof *g);
                     seen[to[edge]] = 1; changed = 1;
                 } else {
-                    for (size_t x = 0; x < facts->register_count; ++x) { BPPValueFact v = merge_fact(dr[x], r[x]); if (!same_fact(v, dr[x])) { dr[x] = v; changed = 1; } }
-                    for (size_t x = 0; x < facts->local_count; ++x) { BPPValueFact v = merge_fact(dl[x], l[x]); if (!same_fact(v, dl[x])) { dl[x] = v; changed = 1; } }
-                    for (size_t x = 0; x < facts->global_count; ++x) { BPPValueFact v = merge_fact(dg[x], g[x]); if (!same_fact(v, dg[x])) { dg[x] = v; changed = 1; } }
+                    for (size_t x = 0; x < facts->register_count; ++x) { if(same_fact(dr[x],r[x]))continue;BPPValueFact v = merge_fact(dr[x], r[x]); if (!same_fact(v, dr[x])) { dr[x] = v; changed = 1; } }
+                    for (size_t x = 0; x < facts->local_count; ++x) { if(same_fact(dl[x],l[x]))continue;BPPValueFact v = merge_fact(dl[x], l[x]); if (!same_fact(v, dl[x])) { dl[x] = v; changed = 1; } }
+                    for (size_t x = 0; x < facts->global_count; ++x) { if(same_fact(dg[x],g[x]))continue;BPPValueFact v = merge_fact(dg[x], g[x]); if (!same_fact(v, dg[x])) { dg[x] = v; changed = 1; } }
+                }
+                if(changed&&!pending[to[edge]]){
+                    queue[tail++]=to[edge];if(tail==facts->block_count)tail=0;
+                    pending[to[edge]]=1;++count_pending;
                 }
             }
         }
     }
+    free(queue);free(pending);
     free(seen); free(r); free(l); free(g);
     return 1;
 }
