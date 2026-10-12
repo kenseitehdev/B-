@@ -1,7 +1,7 @@
 name: Native codegen
 on:
   push:
-    branches: [main, "1.0.14"]
+    branches: [main, "1.0.*"]
   pull_request:
   workflow_dispatch:
 concurrency:
@@ -94,7 +94,7 @@ jobs:
           set -o pipefail
           make CC=${{ matrix.compiler }} BUILD_MODE=release check-stress 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Upload failing metadata evidence
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: metadata-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}

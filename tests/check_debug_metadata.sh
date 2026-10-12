@@ -123,7 +123,7 @@ if [ "$(uname -s)" = Linux ] && command -v readelf >/dev/null 2>&1; then
     readelf --debug-dump=decodedline "$linked_program" >"$work/lines.txt"
     grep -F "library.bpp" "$work/lines.txt" >/dev/null
     readelf --debug-dump=info "$linked_program" >"$work/info.txt"
-    if [ "${CI:-}" = true ]; then cat "$work/info.txt"; fi
+
     grep -F 'DW_TAG_subprogram' "$work/info.txt" >/dev/null
     grep -F 'DW_TAG_formal_parameter' "$work/info.txt" >/dev/null
     grep -F 'DW_TAG_lexical_block' "$work/info.txt" >/dev/null
@@ -152,7 +152,11 @@ esac
 if [ "$have_elf_dwarf" = 1 ] && command -v llvm-dwarfdump >/dev/null 2>&1; then
     dwarf_input="$work/program"
     if [ "$(uname -s)" = Darwin ]; then dwarf_input="$work/program.dSYM"; fi
-    llvm-dwarfdump --verify "$dwarf_input" >"$work/verify.txt"
+    if [ "$(uname -s)" = Linux ]; then
+        timeout 60 llvm-dwarfdump --verify "$dwarf_input" >"$work/verify.txt"
+    else
+        llvm-dwarfdump --verify "$dwarf_input" >"$work/verify.txt"
+    fi
     llvm-dwarfdump --debug-info --debug-loclists "$dwarf_input" >"$work/llvm-info.txt"
     grep -F 'DW_TAG_subprogram' "$work/llvm-info.txt" >/dev/null
     grep -F 'DW_OP_bregx' "$work/llvm-info.txt" >/dev/null
@@ -207,7 +211,7 @@ EOF
         printf ".globl %s\n%s:\n    ret\n" "$symbol" "$symbol" >>"$work/windows-stubs.s"
     done
     clang -target x86_64-w64-windows-gnu -c -x assembler "$work/windows-stubs.s" -o "$work/windows-stubs.o"
-    lld-link /debug /nodefaultlib /entry:main /subsystem:console \
+    MSYS2_ARG_CONV_EXCL='*' lld-link /debug /nodefaultlib /entry:main /subsystem:console \
         "/out:$work/raw-windows.exe" "/pdb:$work/raw-windows.pdb" \
         "$work/raw-windows.o" "$work/windows-stubs.o"
     llvm-pdbutil dump -modules -files -l -symbols -types "$work/raw-windows.pdb" >"$work/windows-pdb.txt"

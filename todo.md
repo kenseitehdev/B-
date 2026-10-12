@@ -300,6 +300,7 @@ Priority carryover:
 - [ ] Finish Linux ELF metadata and native GDB verification on x86-64/ARM64, including source stepping, imported recursion, variable values and unwinding. Validate the extra DWARF-terminator fix, readelf formatting checks and x86 callback trap-flag masking on matching runners.
 - [ ] Finish Windows x86-64 native portable sanitizer checks, CodeView/PDB inspection, LLDB stepping/variable values and SEH/stack-probe execution. Validate Windows temp/import paths, executable suffix handling, and ELF-only inspection guards.
 - [ ] Resolve unusually long GCC debug/TSAN jobs on both Linux architectures; retain toolchain/runtime probes and complete native intentional-fault/differential execution. Keep unsupported sanitizer combinations explicit.
+- [ ] Verify existing static linking and ABI v1 on each native runner: separately compiled archive producers/consumers, transitive dependencies and archive order, exports/arity, manifest/archive identity, and incompatible ABI/target rejection. Retain `check-static-abi` evidence alongside native executable tests.
 - [ ] Complete the final Clang/GCC/OS/architecture matrix with exact compiler revisions and retained transcripts; rerun Linux/Clang MSAN after the final verification fixes. Cross-assembly alone does not satisfy execution gates.
 - [ ] Keep CI runs bounded, cancel superseded runs and avoid duplicate push/PR verification jobs; remove invalid AppleDouble workflow metadata from the repository.
 
@@ -317,9 +318,20 @@ Priority carryover:
 - [ ] Test reproducible assembly/object output or document nondeterministic fields.
 - [ ] Gate a target release on its native runtime suite, ABI conformance, unwind, debug, and supported sanitizer checks.
 
-### 17. Performance and resource benchmarks
+### 17. Bake build tooling, static linking and performance
 
-Current implementation: a CSV harness compares C, native optimized and native `--no-opt` execution time plus executable size for loop/call/object workloads. Existing measurements are a smoke check, not an isolated baseline.
+**Planned target release:** 1.0.17, after the 1.0.16 verification work. Bake is a make-like build tool using a `Bakefile`; exact syntax and command behavior will be defined before implementation. Sanitizer integration belongs to the later debugger and is excluded from Bake's built-in commands, configuration and build profiles.
+
+- [ ] Define `Bakefile` syntax for named/default targets, dependencies, source files, compiler options, output paths, target platforms and executable/static-library outputs.
+- [ ] Define and implement the `bake` command and make-like target selection, alternate Bakefile selection, build, clean and ordinary test commands; document invocation and failure/exit behavior.
+- [ ] Implement dependency ordering and incremental rebuilding, including imported source files, changed options/toolchain/target, and changed static-library manifests or archives.
+- [ ] Drive the existing native compiler, assembler, archiver and linker with portable path/argument handling on all supported hosts; keep build outputs separated by target and profile.
+- [ ] Keep Bake builds free of sanitizer targets, flags, options and profiles, including implicit sanitizer activation inherited from compiler build defaults. Ordinary debug metadata is separate; sanitizers will be integrated with the debugger later.
+- [ ] Support creating and consuming target-specific static B++ archives and their `.bppabi` manifests through Bake, with manifest generation after archive creation and correct transitive archive ordering.
+- [ ] Preserve and validate the existing static-only ABI v1 contract: export symbols, arity, value layout, alignment/ownership, ABI/runtime revisions, target compatibility and archive identity. Broad FFI and dynamic loading remain outside this scope.
+- [ ] Add Bakefile examples and end-to-end builds for an executable, a static-library producer/consumer and transitive static dependencies; verify incremental rebuilds and ABI/target mismatch diagnostics on native runners.
+
+Benchmark status: the CSV harness measures native optimized and native `--no-opt` execution and executable size; earlier C comparisons remain historical evidence. Existing measurements are a smoke check, not an isolated baseline.
 
 - [ ] Separate compile time, assembly time, link time, startup time and steady-state execution time.
 - [ ] Add warmup, repeated samples, median/dispersion, environment metadata and stable machine identifiers.
@@ -521,6 +533,8 @@ The four emitters exist; only macOS ARM64 and Linux x86-64 have native release r
 - [ ] Test recursion, optimized code, B++ static-library imports, runtime errors and unwinding on every target.
 
 # 8. Sanitizers
+
+**Integration:** implement sanitizer controls and workflows in the debugger later. Bake/Bakefile has no built-in sanitizer configuration or commands.
 
 **Dependency:** public ABI/runtime allocation hooks, assembler/linker metadata, debugger source maps.
 

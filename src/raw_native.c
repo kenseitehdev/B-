@@ -128,21 +128,24 @@ static void xcall(const Raw *raw, const char *name) {
  * from the checked frame. Eight pushes preserve 16-byte call alignment. */
 static const char *const xscratch[]={"%rax","%rcx","%rdx","%r8","%r9","%r10","%r11"};
 static void xsave(const Raw *raw){
-    /* A debugger may single-step this sequence with TF set. Restoring that
-     * bit after the helper call would keep trapping inside unrelated C code. */
-    fputs("    pushfq\n    andq $-257, (%rsp)\n",raw->out);
     for(size_t s=0;s<7;++s)fprintf(raw->out,"    pushq %s\n",xscratch[s]);
+    /* Preserve only arithmetic flags. PUSHFQ/POPFQ also copy debugger control
+     * flags, so single-stepping can otherwise leave TF set across C calls.
+     * SETO/LAHF do not change flags; restore the incoming RAX before args. */
+    fputs("    seto %al\n    lahf\n    pushq %rax\n    movq 56(%rsp), %rax\n",raw->out);
     if(raw->windows)fputs("    subq $32, %rsp\n",raw->out);
 }
 static size_t xsaved(const Raw *raw,const char *reg){
-    for(size_t s=0;s<7;++s)if(!strcmp(reg,xscratch[s]))return (6-s)*8+(raw->windows?32:0);
+    for(size_t s=0;s<7;++s)if(!strcmp(reg,xscratch[s]))return (7-s)*8+(raw->windows?32:0);
     return SIZE_MAX;
 }
 static void xrestore(const Raw *raw,const char *result){
     if(result)fprintf(raw->out,"    movq %%rax, %zu(%%rsp)\n",xsaved(raw,result));
     if(raw->windows)fputs("    addq $32, %rsp\n",raw->out);
+    /* 0+127 clears OF; 1+127 sets OF. SAHF restores SF/ZF/AF/PF/CF without
+     * changing OF or the debugger's live control flags. POPs preserve them. */
+    fputs("    popq %rax\n    addb $127, %al\n    sahf\n",raw->out);
     for(size_t s=7;s-- >0;)fprintf(raw->out,"    popq %s\n",xscratch[s]);
-    fputs("    popfq\n",raw->out);
 }
 static void xsite(const Raw *raw,const BLIRInst *i){
     if(!raw->module->instrument_native)return;
