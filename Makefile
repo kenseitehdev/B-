@@ -100,7 +100,7 @@ check-arm64: $(BIN)
 check-msabi: $(BIN)
 	BPP_MSABI_CC="$(CC)" sh tests/check_msabi.sh ./$(BIN)
 check-static-abi: $(BIN) $(RUNTIME_OBJS)
-	BPP_ABI_CC="$(CC)" AR="$(AR)" sh tests/check_static_abi.sh ./$(BIN) $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o $(OBJDIR)/src/truth.o
+	BPP_ABI_CC="$(CC)" BPP_ABI_FLAGS="$(MODE_FLAGS) $(MODE_LINK_FLAGS)" AR="$(AR)" sh tests/check_static_abi.sh ./$(BIN) $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o $(OBJDIR)/src/truth.o
 check-xf-static-lib: $(BIN)
 	$(MAKE) -C Libraries/xf BPP_ROOT="$(CURDIR)" test
 check-runtime-boundary: $(BIN) tests/check_native_runtime_boundary.sh tests/native_runtime_boundary.bpp

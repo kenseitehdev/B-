@@ -1,7 +1,7 @@
 # XF static library for B++
 
 This package exposes the supplied XF runtime through the B++ static-library
-ABI v1.  It deliberately builds XF's core without the old embedded
+ABI v2.  It deliberately builds XF's core without the old embedded
 LambdaScript and ByteLang bridges: those bridges target the former ByteLang
 runtime and must not be linked into a modern B++ process.
 

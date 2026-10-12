@@ -447,7 +447,8 @@ BLValue bl_rt_native_memory(BLRuntime *vm,BLSite *site,BLIROp op,BLValue a,BLVal
     if(op==BL_IR_PRINT_RANGE){
         if(index<0||offset>root->size||(size_t)index>root->size-offset)return memory_error(vm,site,"output range out of bounds");
         for(size_t j=offset;j<offset+(size_t)index;++j)if(root->defined&&!root->defined[j])return memory_error(vm,site,"undefined output byte");
-        if(fwrite(root->data+offset,1,(size_t)index,stdout)!=(size_t)index)return memory_error(vm,site,"output failed");return bl_value_null();
+        if(fwrite(root->data+offset,1,(size_t)index,stdout)!=(size_t)index)return memory_error(vm,site,"output failed");
+        return bl_value_null();
     }
     if(position>=root->size)return memory_error(vm,site,"memory access out of bounds");
     if(op==BL_IR_BYTE_STORE){if(c.tag!=BLV_INT)return memory_error(vm,site,"byte store requires an integer");root->data[position]=(unsigned char)c.as.i;if(root->defined)root->defined[position]=1;return bl_value_null();}
@@ -470,7 +471,8 @@ BLValue bl_rt_binary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a, BLValue 
             return bl_value_int((op==BL_IR_EQ?equal:!equal)?1:-1);}
     }
     if(bl_value_is_buffer(a)&&b.tag==BLV_INT&&(op==BL_IR_ADD||op==BL_IR_SUB)){
-        if(op==BL_IR_SUB&&b.as.i==LLONG_MIN)return memory_error(vm,site,"pointer offset overflow");return native_offset(vm,site,a,op==BL_IR_SUB?-b.as.i:b.as.i);}
+        if(op==BL_IR_SUB&&b.as.i==LLONG_MIN)return memory_error(vm,site,"pointer offset overflow");
+        return native_offset(vm,site,a,op==BL_IR_SUB?-b.as.i:b.as.i);}
     if(op==BL_IR_ADD&&a.tag==BLV_INT&&bl_value_is_buffer(b))return native_offset(vm,site,b,a.as.i);
     if(bl_value_as_state(a)||bl_value_as_state(b)){
         BPPStateValue x,y;if(!state_number(a,&x)||!state_number(b,&y))return bl_runtime_error(vm,site,"numeric operation requires numbers");
@@ -480,7 +482,8 @@ BLValue bl_rt_binary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a, BLValue 
         case BL_IR_EQ:r.value=x.value==y.value?1:-1;break;case BL_IR_NE:r.value=x.value!=y.value?1:-1;break;
         case BL_IR_LT:r.value=x.value<y.value?1:-1;break;case BL_IR_LE:r.value=x.value<=y.value?1:-1;break;case BL_IR_GT:r.value=x.value>y.value?1:-1;break;case BL_IR_GE:r.value=x.value>=y.value?1:-1;break;
         default:return bl_runtime_error(vm,site,"bitwise/remainder operation requires integers");}
-        if(!isfinite(r.value))return bl_runtime_error(vm,site,"nonfinite numeric result");return state_result(r,a,b);
+        if(!isfinite(r.value))return bl_runtime_error(vm,site,"nonfinite numeric result");
+        return state_result(r,a,b);
     }
     if (op == BL_IR_EQ || op == BL_IR_NE) {
         int eq = bl_value_compare_eq(a, b); return bl_value_int((op == BL_IR_EQ ? eq : !eq)?1:-1);

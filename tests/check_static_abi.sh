@@ -10,7 +10,7 @@ cc=${BPP_ABI_CC:-cc}
 ar_tool=${AR:-ar}
 task_dir=$(mktemp -d)
 trap 'rm -rf "$task_dir"' EXIT HUP INT TERM
-printf '%s\n' 'define proc increment(n){return ((n & -1)+1)^0;}return 0;' > "$task_dir/provider.bpp"
+printf '%s\n' 'define proc increment(n){return ((n & -1)+1)^0;}define proc phase(n){return velocity(-1.0,n,3);}define proc failed(n){return 1/n;}return 0;' > "$task_dir/provider.bpp"
 
 for target in macos-arm64 linux-x86_64 linux-arm64 windows-x86_64; do
     "$compiler" --emit-library --library-name provider --emit-asm --target "$target" -o "$task_dir/$target.s" "$task_dir/provider.bpp"
@@ -34,7 +34,7 @@ grep -Fx 'bppabi 1' "$task_dir/libprovider.bppabi" >/dev/null
 grep -Fx 'name provider' "$task_dir/libprovider.bppabi" >/dev/null
 grep -Fx 'export increment 1' "$task_dir/libprovider.bppabi" >/dev/null
 awk '$1 == "archive" && $2 != "" && $3 == "libprovider.bpp.a" && $4 ~ /^[0-9]+$/ && $5 ~ /^[0-9A-Fa-f]+$/ { found=1 } END { exit !found }' "$task_dir/libprovider.bppabi"
-printf '%s\n' 'import library "provider";' 'return increment(41);' > "$task_dir/bpp-consumer.bpp"
+printf '%s\n' 'import library "provider";' 'new state rate=phase(0.5);if(rate!=0.5){return 1;}new state u=failed(0);if(faults(u)!=4){return 2;}return increment(41);' > "$task_dir/bpp-consumer.bpp"
 "$compiler" -L "$task_dir" --print-result -o "$task_dir/bpp-consumer" "$task_dir/bpp-consumer.bpp"
 test "$("$task_dir/bpp-consumer")" = 42
 "$compiler" -L "$task_dir" --emit-link-map -o "$task_dir/consumer.link-map" "$task_dir/bpp-consumer.bpp"
@@ -63,10 +63,14 @@ printf '%s\n' '#include "bpp_abi.h"' \
  'extern const BPPStaticLibrary bpp_v2_library_provider;' \
  'int main(void){' \
  'char e[128];BLRuntime vm={"consumer",0};BLValue a=bl_value_int(41),o=bl_value_null();' \
- 'if(!bpp_static_library_validate(&bpp_v2_library_provider,e,sizeof e)||bpp_v2_library_provider.procedure_count!=1||bpp_static_invoke(&bpp_v2_library_provider.procedures[0],&vm,0,0,&a,1,&o)!=BPP_STATIC_OK||o.tag!=BLV_INT||o.as.i!=42)return 1;' \
+ 'if(!bpp_static_library_validate(&bpp_v2_library_provider,e,sizeof e)||bpp_v2_library_provider.procedure_count!=3||bpp_static_invoke(&bpp_v2_library_provider.procedures[0],&vm,0,0,&a,1,&o)!=BPP_STATIC_OK||o.tag!=BLV_INT||o.as.i!=42)return 1;' \
+ 'bl_value_release(o);a=bl_value_state((BPPStateValue){0.5,{0}},0);o=bl_value_null();' \
+ 'if(bpp_static_invoke(&bpp_v2_library_provider.procedures[1],&vm,0,0,&a,1,&o)!=BPP_STATIC_OK||!bl_value_as_state(o)||bl_value_as_state(o)->state.value!=0.5)return 2;' \
+ 'bl_value_release(a);bl_value_release(o);a=bl_value_int(0);o=bl_value_null();' \
+ 'if(bpp_static_invoke(&bpp_v2_library_provider.procedures[2],&vm,0,0,&a,1,&o)!=BPP_STATIC_OK||!bl_value_as_state(o)||bl_value_as_state(o)->state.value!=0||bl_value_as_state(o)->state.context.faults!=4)return 3;' \
  'bl_value_release(o);return 0;}' > "$task_dir/consumer.c"
 case "$(uname -s)" in Linux) link_flags=-no-pie ;; *) link_flags= ;; esac
-"$cc" -std=c11 -Iinclude $link_flags "$task_dir/consumer.c" "$runtime" "$value" "$native_runtime" "$abi_runtime" "$truth_runtime" "$task_dir/libprovider.bpp.a" -o "$task_dir/consumer"
+"$cc" -std=c11 -Iinclude $link_flags ${BPP_ABI_FLAGS:-} "$task_dir/consumer.c" "$runtime" "$value" "$native_runtime" "$abi_runtime" "$truth_runtime" "$task_dir/libprovider.bpp.a" -o "$task_dir/consumer"
 "$task_dir/consumer"
 printf x >> "$task_dir/libprovider.bpp.a"
 if "$compiler" -L "$task_dir" --check "$task_dir/bpp-consumer.bpp" >"$task_dir/stale-archive.out" 2>&1; then
