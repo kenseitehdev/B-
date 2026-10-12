@@ -236,8 +236,10 @@ manifest, and run a B++ consumer.
 | release | O2, no sanitizers | bin/release/bpp |
 
 Debug and TSAN builds save `<output>.bpp-source` and emit assembler line directives.
-Use `--debug-info` to enable this in release too. Preserve the snapshot next to
-its executable for source stepping. `--emit-map -o demo.json` records the selected
+On macOS, native debug builds also create `<output>.dSYM` so LLDB can resolve the
+assembler line table after linking. Use `--debug-info` to enable this in release
+too. Preserve the snapshot next to its executable for source stepping.
+`--emit-map -o demo.json` records the selected
 target's local offsets relative to x19 or r12. It is an inspection manifest,
 not DWARF local-variable DIEs or a standalone debugger.
 

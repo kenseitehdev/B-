@@ -137,26 +137,47 @@ static int native_compile(const char *temp, const char *output, int native, BPPT
     char value_path[] = BPP_VALUE_OBJECT;
     char sanitizer_flag[] = "-fsanitize=" BPP_SANITIZERS;
     int msan = strcmp(BPP_SANITIZERS, "memory") == 0;
+    const BPPBackendCapabilities *cap=bpp_target_capabilities(target);
+    int macho_debug=native&&!object&&debug&&cap&&cap->format==BPP_FORMAT_MACHO;
+    char object_temp[4096],dsym_path[4096];
+    if(macho_debug){
+        int object_length=snprintf(object_temp,sizeof object_temp,"%s.o",temp);
+        int dsym_length=snprintf(dsym_path,sizeof dsym_path,"%s.dSYM",output);
+        if(object_length<0||(size_t)object_length>=sizeof object_temp||dsym_length<0||(size_t)dsym_length>=sizeof dsym_path){fputs("B++: debug output path is too long\n",stderr);return 0;}
+    }
     size_t capacity = 32 + (module ? module->static_library_count + module->static_link_flag_count : 0);
     char **command = calloc(capacity, sizeof *command); if (!command) { perror("calloc"); return 0; }
     size_t n = 0;
+    /* Apple's linker leaves assembler DWARF in its debug map rather than
+     * embedding it in the executable. Keep the object alive through dsymutil
+     * so the final dSYM contains the line table and LLDB can resolve sources. */
+    if(macho_debug){
+        command[n++]=(char *)cc;
+        if(BPP_SANITIZERS[0]){command[n++]=sanitizer_flag;command[n++]="-g";}
+        if(!BPP_SANITIZERS[0])command[n++]="-g";
+        if(cap->isa==BPP_ISA_ARM64){command[n++]="-arch";command[n++]="arm64";}
+        command[n++]="-c";
+        command[n++]="-x";command[n++]="assembler";command[n++]=(char *)temp;
+        command[n++]="-o";command[n++]=object_temp;command[n]=NULL;
+        if(!run_command(command)){free(command);unlink(object_temp);return 0;}
+        n=0;
+    }
     command[n++] = (char *)cc; if (!native) command[n++] = "-std=c11";
-    command[n++] = BPP_OPTIMIZATION;
+    if(!macho_debug)command[n++] = BPP_OPTIMIZATION;
     if (BPP_SANITIZERS[0]) {
         command[n++] = sanitizer_flag; command[n++] = "-g";
         if(!native){command[n++] = "-fno-omit-frame-pointer"; command[n++] = "-fno-sanitize-recover=undefined";}
     }
     if(debug&&!BPP_SANITIZERS[0])command[n++]="-g";
-    command[n++] = include_path;
-    const BPPBackendCapabilities *cap=bpp_target_capabilities(target);
+    if(!macho_debug)command[n++] = include_path;
     if (native && cap && cap->format==BPP_FORMAT_MACHO && cap->isa==BPP_ISA_ARM64) { command[n++] = "-arch"; command[n++] = "arm64"; }
     /* The x86-64 large internal code model uses R_X86_64_64 for B++ labels.
      * Generated ELF executables therefore deliberately use the non-PIE static
      * model until the linker stage owns PLT/GOT and veneer placement. */
     if (native && cap && cap->format==BPP_FORMAT_ELF && cap->isa==BPP_ISA_X86_64) command[n++] = "-no-pie";
     if (object) command[n++] = "-c";
-    command[n++] = "-x"; command[n++] = native ? "assembler" : "c";
-    command[n++] = (char *)temp; command[n++] = "-x"; command[n++] = "none";
+    if(macho_debug)command[n++]=object_temp;
+    else {command[n++] = "-x"; command[n++] = native ? "assembler" : "c";command[n++] = (char *)temp;}
     if (!object) {
         /* The strict bootstrap profile is deliberately linkable without any
          * B++ C runtime object. Do not weaken this by adding an implicit
@@ -176,7 +197,19 @@ static int native_compile(const char *temp, const char *output, int native, BPPT
         if (msan) command[n++] = "-pie";
     }
     command[n++] = "-o"; command[n++] = (char *)output; command[n] = NULL;
-    int ok = run_command(command); free(command); return ok;
+    int ok = run_command(command);
+    if(ok&&macho_debug){
+        char *dsym_command[]={"dsymutil",(char *)output,"-o",dsym_path,NULL};
+        ok=run_command(dsym_command);
+        if(!ok)fprintf(stderr,"B++: dsymutil failed while creating '%s'\n",dsym_path);
+    }
+    if(macho_debug){
+        const char *keep_debug_object=getenv("BPP_KEEP_DEBUG_OBJECT");
+        if(keep_debug_object&&*keep_debug_object)
+            fprintf(stderr,"B++: preserved Mach-O debug object: %s\n",object_temp);
+        else unlink(object_temp);
+    }
+    free(command); return ok;
 }
 
 static int emit_library_manifest(const BLIRModule *ir, FILE *out, const char *name, BPPTarget target,

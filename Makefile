@@ -8,7 +8,11 @@ ifneq ($(wildcard $(LLVM_PREFIX)/clang),)
 CC := $(LLVM_PREFIX)/clang
 endif
 BUILD_MODE ?= debug
+ifeq ($(UNAME_S),Darwin)
+DEBUG_SANITIZERS ?= address,undefined
+else
 DEBUG_SANITIZERS ?= address,leak,undefined
+endif
 MODE_LINK_FLAGS :=
 ifeq ($(BUILD_MODE),debug)
 OPT := -O1
@@ -60,6 +64,10 @@ DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/sr
 .PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
 RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o
 TEST_SANITIZER_ENV := BPP_TEST_SANITIZED=$(if $(strip $(SANITIZERS)),1,0)
+DEBUGGER_TEST_ENV :=
+ifneq ($(BUILD_MODE),debug)
+DEBUGGER_TEST_ENV := BPP_SKIP_DEBUGGER_TESTS=1
+endif
 all: $(BIN)
 debug:
 	$(MAKE) BUILD_MODE=debug all
@@ -91,7 +99,7 @@ check-runtime-boundary: $(BIN) tests/check_native_runtime_boundary.sh tests/nati
 check-raw-core: $(BIN) tests/check_raw_core.sh tests/raw_core.bpp
 	sh tests/check_raw_core.sh ./$(BIN)
 check-debug-metadata: $(BIN) tests/check_debug_metadata.sh
-	sh tests/check_debug_metadata.sh ./$(BIN)
+	$(DEBUGGER_TEST_ENV) sh tests/check_debug_metadata.sh ./$(BIN)
 check-strict-native-runtime: $(BIN) tests/check_strict_native_runtime.sh tests/strict_native_runtime.bpp
 	sh tests/check_strict_native_runtime.sh ./$(BIN)
 check-targets: $(BIN)

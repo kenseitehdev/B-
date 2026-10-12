@@ -60,8 +60,8 @@ void bl_ir_dispose(BLIRModule *m) {
             for (size_t k = 0; k < b->count; ++k) { free(b->insts[k].text); free(b->insts[k].args); }
             free(b->insts);
         }
-        for (size_t j = 0; j < f->local_count; ++j) free(f->locals[j]);
-        free(f->locals); free(f->blocks); free(f->name);
+        for (size_t j = 0; j < f->local_count; ++j) { free(f->locals[j]); if(f->local_types)free(f->local_types[j]); }
+        free(f->local_types); free(f->locals); free(f->blocks); free(f->name);
     }
     for (size_t i = 0; i < m->global_count; ++i) free(m->globals[i]);
     for (size_t i = 0; i < m->static_library_count; ++i) {
@@ -88,6 +88,12 @@ static BLIRId find(char **names, size_t n, const char *s) {
 static BLIRId add_name(char ***names, size_t *n, size_t *cap, const char *s) {
     reserve((void **)names, cap, *n + 1, sizeof **names);
     (*names)[*n] = copy(s); return (*n)++;
+}
+static BLIRId add_local(BLIRFunction *f,const char *name,const char *type){
+    BLIRId id=add_name(&f->locals,&f->local_count,&f->local_capacity,name);
+    reserve((void **)&f->local_types,&f->local_type_capacity,f->local_count,sizeof *f->local_types);
+    f->local_types[id]=type?copy(type):NULL;
+    return id;
 }
 static BLIRId function_id(const BLIRModule *m, const char *name) {
     for (size_t i = 1; i < m->function_count; ++i)
@@ -126,7 +132,9 @@ static void collect(BLIRModule *m, BLIRFunction *f, const BLNode *n) {
         if (find(*names, *count, n->as.var_decl.name) != BL_IR_NONE) {
             error(m, n, "duplicate declaration '%s'", n->as.var_decl.name); return;
         }
-        add_name(names, count, cap, n->as.var_decl.name); break;
+        if(f)add_local(f,n->as.var_decl.name,n->as.var_decl.type_name);
+        else add_name(names, count, cap, n->as.var_decl.name);
+        break;
     }
     case AST_IF:
         collect(m, f, n->as.if_stmt.then_branch); collect(m, f, n->as.if_stmt.else_branch); break;
@@ -396,7 +404,7 @@ int bl_ir_compile(BLIRModule *m, const char *path, const BLNode *program) {
         for (size_t k = 0; k < f->param_count; ++k) {
             const char *p = n->as.proc_def.params[k];
             if (find(f->locals, f->local_count, p) != BL_IR_NONE) { error(m, n, "duplicate parameter '%s'", p); break; }
-            add_name(&f->locals, &f->local_count, &f->local_capacity, p);
+            add_local(f,p,NULL);
         }
         collect(m, f, n->as.proc_def.body);
     }

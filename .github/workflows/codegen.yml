@@ -23,7 +23,14 @@ jobs:
           esac
       - name: Homebrew LLVM
         if: runner.os == 'macOS'
-        run: brew install llvm
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+      - name: Install Linux metadata and debugger tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdb llvm
       - name: Record native runner and toolchain
         run: |
           log="verification-${{ matrix.os }}-${{ matrix.mode }}.log"
@@ -34,6 +41,11 @@ jobs:
             echo "uname=$(uname -a)"
             clang --version
             make --version
+            command -v readelf || true
+            command -v llvm-dwarfdump || true
+            command -v llvm-readobj || true
+            command -v lldb || true
+            command -v gdb || true
           } | tee "$log"
       - name: Compiler and native execution
         run: |
@@ -87,6 +99,7 @@ jobs:
           install: >-
             make
             mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-llvm
       - name: Record native runner and toolchain
         run: |
           log=verification-windows-2022-release.log
@@ -97,11 +110,13 @@ jobs:
             echo "uname=$(uname -a)"
             clang --version
             make --version
+            command -v llvm-dwarfdump || true
+            command -v llvm-readobj || true
           } | tee "$log"
       - name: Windows native execution
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=release -j2 test check-static-abi check-differential check-stress 2>&1 | tee -a verification-windows-2022-release.log
+          make CC=clang BUILD_MODE=release -j2 test check-debug-metadata check-static-abi check-differential check-stress 2>&1 | tee -a verification-windows-2022-release.log
       - name: Cross-target assembly
         run: |
           set -o pipefail

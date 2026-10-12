@@ -97,7 +97,15 @@ static void label(const Raw *raw, const char *kind) {
 }
 
 static void procedure_label(FILE *out, size_t function) { fprintf(out, "bpp_raw_proc_%zu", function); }
+static void procedure_done_label(FILE *out, const Raw *raw) {
+    if (raw->macho) fprintf(out, "L_bpp_raw_proc_%zu_done", raw->function);
+    else { procedure_label(out, raw->function); fputs("_done", out); }
+}
 static void block_label(FILE *out, size_t function, size_t block) { fprintf(out, "L_raw_f%zu_b%zu", function, block); }
+static void debug_pc_label(const Raw *raw, const char *edge) {
+    fprintf(raw->out, "L_bpp_pc_f%zu_b%zu_i%zu_%s:\n",
+            raw->function, raw->block, raw->instruction, edge);
+}
 
 static void xcall(const Raw *raw, const char *name) {
     fprintf(raw->out, "    call %s%s\n", name, raw->windows ? "" : "@PLT");
@@ -151,7 +159,6 @@ static const char *xcondition(BLIROp op) {
 }
 static void xemit_inst(Raw *raw, const BLIRInst *inst) {
     FILE *out = raw->out;
-    if (raw->module->debug_path) bpp_asm_location(out, raw->module, inst);
     switch (inst->op) {
     case BL_IR_NULL: case BL_IR_INT:
         fprintf(out, "    movq $%lld, %%rax\n", inst->op == BL_IR_INT ? inst->integer : 0LL); xstore(raw, inst->dst, "%rax"); break;
@@ -175,7 +182,7 @@ static void xemit_inst(Raw *raw, const BLIRInst *inst) {
         int global = inst->op == BL_IR_MFREE_GLOBAL; xcheck_initialized(raw, inst->a, global); xlocal_address(raw, inst->a, global, 0);
         fputs("    movq (%rax), %rax\n", out); fprintf(out, "    movq %%rax, %s\n", raw->windows ? "%rcx" : "%rdi"); xcall(raw, "free"); break;
     }
-    case BL_IR_RELEASE: break;
+    case BL_IR_RELEASE: if(raw->module->debug_path)fputs("    nop\n",out);break;
     case BL_IR_NEG:
         xvalue(raw, inst->a, "%rax"); fputs("    negq %rax\n    jno ", out); label(raw, "arith"); fputs("\n    movl $1, ", out); fputs(raw->windows ? "%ecx\n" : "%edi\n", out); xtrap(raw); label(raw, "arith"); fputs(":\n", out); xstore(raw, inst->dst, "%rax"); break;
     case BL_IR_NOT:
@@ -217,9 +224,17 @@ static void xemit_inst(Raw *raw, const BLIRInst *inst) {
 static void xemit_function(Raw *raw) {
     FILE *out = raw->out; layout(raw);
     procedure_label(out, raw->function); fputs(":\n", out);
-    if (!raw->windows) fputs("    .cfi_startproc\n", out);
-    fputs("    pushq %rbp\n    movq %rsp, %rbp\n    pushq %r12\n    pushq %r13\n    pushq %r14\n    pushq %r15\n    pushq %rbx\n", out);
-    fprintf(out, "    subq $%zu, %%rsp\n    movq %%rsp, %%r12\n", raw->bytes);
+    if(raw->windows){fputs(".seh_proc ",out);procedure_label(out,raw->function);fputc('\n',out);}
+    else fputs("    .cfi_startproc\n",out);
+    fputs("    pushq %rbp\n",out);
+    if(raw->windows)fputs("    .seh_pushreg %rbp\n",out);else fputs("    .cfi_def_cfa_offset 16\n    .cfi_offset %rbp, -16\n",out);
+    fputs("    movq %rsp, %rbp\n",out);
+    if(raw->windows)fputs("    .seh_setframe %rbp, 0\n",out);else fputs("    .cfi_def_cfa_register %rbp\n",out);
+    static const char *const saves[]={"%r12","%r13","%r14","%r15","%rbx"};
+    for(size_t s=0;s<sizeof saves/sizeof saves[0];++s){fprintf(out,"    pushq %s\n",saves[s]);if(raw->windows)fprintf(out,"    .seh_pushreg %s\n",saves[s]);else fprintf(out,"    .cfi_offset %s, -%zu\n",saves[s],24+s*8);}
+    fprintf(out,"    subq $%zu, %%rsp\n",raw->bytes);
+    if(raw->windows)fprintf(out,"    .seh_stackalloc %zu\n    .seh_endprologue\n",raw->bytes);
+    fputs("    movq %rsp, %r12\n",out);
     /* Keep the incoming ABI arguments in callee-saved registers while rep
      * clears every value cell and initialization flag.  Stack contents must
      * never decide whether a B++ local is initialized. */
@@ -236,25 +251,33 @@ static void xemit_function(Raw *raw) {
         raw->block = b; block_label(out, raw->function, b); fputs(":\n", out);
         for (size_t k = 0; k < raw->fn->blocks[b].count; ++k) {
             raw->instruction = k; const BLIRInst *inst = &raw->fn->blocks[b].insts[k];
-            if (inst->op == BL_IR_JUMP) { fprintf(out, "    jmp L_raw_f%zu_b%zu\n", raw->function, inst->a); continue; }
-            if (inst->op == BL_IR_BRANCH) { xvalue(raw, inst->a, "%rax"); fputs("    testq %rax, %rax\n    jne ", out); block_label(out, raw->function, inst->b); fputs("\n    jmp ", out); block_label(out, raw->function, inst->c); fputc('\n', out); continue; }
-            if (inst->op == BL_IR_RETURN) { xvalue(raw, inst->a, "%rax"); fputs("    movq 16(%r12), %rdx\n    movq %rax, (%rdx)\n    jmp ", out); procedure_label(out, raw->function); fputs("_done\n", out); continue; }
+            if(raw->module->debug_path){bpp_asm_location(out,raw->module,inst);debug_pc_label(raw,"begin");}
+            if (inst->op == BL_IR_JUMP) { fprintf(out, "    jmp L_raw_f%zu_b%zu\n", raw->function, inst->a); if(raw->module->debug_path)debug_pc_label(raw,"end"); continue; }
+            if (inst->op == BL_IR_BRANCH) { xvalue(raw, inst->a, "%rax"); fputs("    testq %rax, %rax\n    jne ", out); block_label(out, raw->function, inst->b); fputs("\n    jmp ", out); block_label(out, raw->function, inst->c); fputc('\n', out); if(raw->module->debug_path)debug_pc_label(raw,"end"); continue; }
+            if (inst->op == BL_IR_RETURN) { xvalue(raw, inst->a, "%rax"); fputs("    movq 16(%r12), %rdx\n    movq %rax, (%rdx)\n    jmp ", out); procedure_done_label(out, raw); fputc('\n',out); if(raw->module->debug_path)debug_pc_label(raw,"end"); continue; }
             xemit_inst(raw, inst);
+            if(raw->module->debug_path)debug_pc_label(raw,"end");
         }
     }
-    procedure_label(out, raw->function); fputs("_done:\n", out);
-    fprintf(out, "    addq $%zu, %%rsp\n    popq %%rbx\n    popq %%r15\n    popq %%r14\n    popq %%r13\n    popq %%r12\n    popq %%rbp\n    ret\n", raw->bytes);
-    if (!raw->windows) fputs("    .cfi_endproc\n", out);
+    procedure_done_label(out, raw); fputs(":\n", out);
+    fprintf(out,"    addq $%zu, %%rsp\n",raw->bytes);
+    for(size_t s=sizeof saves/sizeof saves[0];s-- >0;){fprintf(out,"    popq %s\n",saves[s]);if(!raw->windows)fprintf(out,"    .cfi_restore %s\n",saves[s]);}
+    fputs("    popq %rbp\n",out);
+    if(raw->windows)fputs("    ret\n    .seh_endproc\n",out);else fputs("    .cfi_def_cfa %rsp, 8\n    .cfi_restore %rbp\n    ret\n    .cfi_endproc\n",out);
+    if(raw->macho){procedure_label(out,raw->function);fputs("_done:\n",out);}
 }
 
 static void xemit_main(Raw *raw, int print_result) {
     size_t globals = raw->module->global_count ? raw->module->global_count : 1;
     FILE *out = raw->out;
     fputs(".globl main\nmain:\n", out);
-    if (!raw->windows) fputs("    .cfi_startproc\n", out);
+    if(raw->windows)fputs("    .seh_proc main\n",out);else fputs("    .cfi_startproc\n",out);
     /* 48 bytes supplies the Windows home area plus a result word and keeps
      * rsp 16-byte aligned before every call on both x86-64 ABIs. */
-    fputs("    pushq %rbp\n    movq %rsp, %rbp\n    subq $48, %rsp\n", out);
+    fputs("    pushq %rbp\n",out);
+    if(raw->windows)fputs("    .seh_pushreg %rbp\n",out);else fputs("    .cfi_def_cfa_offset 16\n    .cfi_offset %rbp, -16\n",out);
+    fputs("    movq %rsp, %rbp\n",out);
+    if(raw->windows)fputs("    .seh_setframe %rbp, 0\n    subq $48, %rsp\n    .seh_stackalloc 48\n    .seh_endprologue\n",out);else fputs("    .cfi_def_cfa_register %rbp\n    subq $48, %rsp\n",out);
     if (raw->windows) fputs("    leaq bpp_raw_globals(%rip), %rcx\n    leaq bpp_raw_global_flags(%rip), %rdx\n    xorq %r8, %r8\n    leaq 32(%rsp), %r9\n", out);
     else fputs("    leaq bpp_raw_globals(%rip), %rdi\n    leaq bpp_raw_global_flags(%rip), %rsi\n    xorq %rdx, %rdx\n    leaq 32(%rsp), %rcx\n", out);
     fputs("    call bpp_raw_proc_0", out); fputc('\n', out);
@@ -263,8 +286,8 @@ static void xemit_main(Raw *raw, int print_result) {
         else fputs("    movq 32(%rsp), %rsi\n    leaq L_raw_print_int(%rip), %rdi\n    xorl %eax, %eax\n", out);
         xcall(raw, "printf");
     }
-    fputs("    xorl %eax, %eax\n    leave\n    ret\n", out);
-    if (!raw->windows) fputs("    .cfi_endproc\n", out);
+    fputs("    xorl %eax, %eax\n    leave\n", out);
+    if(raw->windows)fputs("    ret\n    .seh_endproc\n",out);else fputs("    .cfi_def_cfa %rsp, 8\n    .cfi_restore %rbp\n    ret\n    .cfi_endproc\n",out);
     fprintf(out, ".section .bss\n    .comm bpp_raw_globals,%zu,8\n    .comm bpp_raw_global_flags,%zu,1\n", globals * 8, globals);
     if (print_result) fputs(".section .rodata\nL_raw_print_int:\n    .asciz \"%lld\\n\"\n", out);
     if (!raw->windows) fputs(".section .note.GNU-stack,\"\",@progbits\n", out);
@@ -311,14 +334,14 @@ static void auser_call(const Raw *raw, const BLIRInst *inst) {
     fputs("    bl ", raw->out); procedure_label(raw->out, inst->a); fputc('\n', raw->out);
 }
 static void aemit_inst(Raw *raw, const BLIRInst *inst) {
-    FILE *out = raw->out; if (raw->module->debug_path) bpp_asm_location(out, raw->module, inst);
+    FILE *out = raw->out;
     switch (inst->op) {
     case BL_IR_NULL: case BL_IR_INT: aimmediate(out, "x10", inst->op == BL_IR_INT ? (uint64_t)inst->integer : 0); astore(raw, inst->dst, "x10"); break;
     case BL_IR_LOAD_LOCAL: case BL_IR_LOAD_GLOBAL: { int g=inst->op==BL_IR_LOAD_GLOBAL; acheck_initialized(raw,inst->a,g); alocal_address(raw,inst->a,g,0); fputs("    ldr x10, [x9]\n",out); astore(raw,inst->dst,"x10"); break; }
     case BL_IR_INIT_LOCAL: case BL_IR_INIT_GLOBAL: case BL_IR_STORE_LOCAL: case BL_IR_STORE_GLOBAL: { int g=inst->op==BL_IR_INIT_GLOBAL||inst->op==BL_IR_STORE_GLOBAL, init=inst->op==BL_IR_INIT_GLOBAL||inst->op==BL_IR_INIT_LOCAL; if(!init)acheck_initialized(raw,inst->a,g); avalue(raw,inst->b,"x10"); alocal_address(raw,inst->a,g,0); fputs("    str x10, [x9]\n",out); if(init){alocal_address(raw,inst->a,g,1);fputs("    mov w10, #1\n    strb w10, [x9]\n",out);}break; }
     case BL_IR_DELETE_LOCAL: case BL_IR_DELETE_GLOBAL: {int g=inst->op==BL_IR_DELETE_GLOBAL;alocal_address(raw,inst->a,g,0);fputs("    str xzr, [x9]\n",out);alocal_address(raw,inst->a,g,1);fputs("    strb wzr, [x9]\n",out);break;}
     case BL_IR_MFREE_LOCAL: case BL_IR_MFREE_GLOBAL: {int g=inst->op==BL_IR_MFREE_GLOBAL;acheck_initialized(raw,inst->a,g);alocal_address(raw,inst->a,g,0);fputs("    ldr x0, [x9]\n",out);acall(raw,"free");break;}
-    case BL_IR_RELEASE: break;
+    case BL_IR_RELEASE: if(raw->module->debug_path)fputs("    nop\n",out);break;
     case BL_IR_NEG: avalue(raw,inst->a,"x10");fputs("    negs x10, x10\n    b.vs ",out);label(raw,"trap");fputs("\n",out);astore(raw,inst->dst,"x10");fputs("    b ",out);label(raw,"done");fputs("\n",out);label(raw,"trap");fputs(":\n",out);atrap(raw);label(raw,"done");fputs(":\n",out);break;
     case BL_IR_NOT: avalue(raw,inst->a,"x10");fputs("    cmp x10, #0\n    cset x10, eq\n",out);astore(raw,inst->dst,"x10");break;
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: avalue(raw,inst->a,"x10");avalue(raw,inst->b,"x11"); if(inst->op==BL_IR_ADD)fputs("    adds x10, x10, x11\n    b.vs ",out);else if(inst->op==BL_IR_SUB)fputs("    subs x10, x10, x11\n    b.vs ",out);else fputs("    mul x12, x10, x11\n    smulh x13, x10, x11\n    asr x14, x12, #63\n    cmp x13, x14\n    b.ne ",out);label(raw,"trap");fputs("\n",out); if(inst->op==BL_IR_MUL)fputs("    mov x10, x12\n",out);astore(raw,inst->dst,"x10");fputs("    b ",out);label(raw,"done");fputs("\n",out);label(raw,"trap");fputs(":\n",out);atrap(raw);label(raw,"done");fputs(":\n",out);break;
@@ -333,12 +356,98 @@ static void aemit_inst(Raw *raw, const BLIRInst *inst) {
     case BL_IR_CALL: auser_call(raw,inst);break;
     default:break;
     }
+    if(raw->module->debug_path)debug_pc_label(raw,"end");
 }
 static void aemit_function(Raw *raw) {
-    FILE *out=raw->out;layout(raw);procedure_label(out,raw->function);fputs(":\n    stp x29, x30, [sp, #-16]!\n    mov x29, sp\n    stp x19, x20, [sp, #-16]!\n    stp x21, x22, [sp, #-16]!\n    stp x23, x24, [sp, #-16]!\n",out);aimmediate(out,"x9",raw->bytes);fputs("    sub sp, sp, x9\n    mov x19, sp\n    mov x20, x0\n    mov x21, x1\n    mov x22, x3\n    mov x23, x2\n",out);aaddress(raw,"x9","x19",0);aimmediate(out,"x10",(raw->bytes+7)/8);fprintf(out,"L_raw_zero_%zu:\n    cbz x10, L_raw_zero_done_%zu\n    str xzr, [x9], #8\n    sub x10, x10, #1\n    b L_raw_zero_%zu\nL_raw_zero_done_%zu:\n",raw->function,raw->function,raw->function,raw->function);for(size_t p=0;p<raw->fn->param_count;++p){aaddress(raw,"x9","x23",p*8);fputs("    ldr x10, [x9]\n",out);aaddress(raw,"x9","x19",raw->locals+p*8);fputs("    str x10, [x9]\n",out);aaddress(raw,"x9","x19",raw->flags+p);fputs("    mov w10, #1\n    strb w10, [x9]\n",out);}for(size_t b=0;b<raw->fn->block_count;++b){raw->block=b;block_label(out,raw->function,b);fputs(":\n",out);for(size_t k=0;k<raw->fn->blocks[b].count;++k){raw->instruction=k;const BLIRInst *i=&raw->fn->blocks[b].insts[k];if(i->op==BL_IR_JUMP){fprintf(out,"    b L_raw_f%zu_b%zu\n",raw->function,i->a);continue;}if(i->op==BL_IR_BRANCH){avalue(raw,i->a,"x10");fprintf(out,"    cbnz x10, L_raw_f%zu_b%zu\n    b L_raw_f%zu_b%zu\n",raw->function,i->b,raw->function,i->c);continue;}if(i->op==BL_IR_RETURN){avalue(raw,i->a,"x10");fputs("    str x10, [x22]\n    b ",out);procedure_label(out,raw->function);fputs("_done\n",out);continue;}aemit_inst(raw,i);}}
-    procedure_label(out,raw->function);fputs("_done:\n",out);aimmediate(out,"x9",raw->bytes);fputs("    add sp, sp, x9\n    ldp x23, x24, [sp], #16\n    ldp x21, x22, [sp], #16\n    ldp x19, x20, [sp], #16\n    ldp x29, x30, [sp], #16\n    ret\n",out);
+    FILE *out=raw->out;
+    layout(raw);
+    procedure_label(out,raw->function);
+    fputs(":\n    .cfi_startproc\n"
+          "    stp x29, x30, [sp, #-16]!\n"
+          "    .cfi_def_cfa_offset 16\n"
+          "    .cfi_offset x29, -16\n"
+          "    .cfi_offset x30, -8\n"
+          "    mov x29, sp\n"
+          "    .cfi_def_cfa x29, 16\n"
+          "    stp x19, x20, [sp, #-16]!\n"
+          "    .cfi_offset x19, -32\n"
+          "    .cfi_offset x20, -24\n"
+          "    stp x21, x22, [sp, #-16]!\n"
+          "    .cfi_offset x21, -48\n"
+          "    .cfi_offset x22, -40\n"
+          "    stp x23, x24, [sp, #-16]!\n"
+          "    .cfi_offset x23, -64\n"
+          "    .cfi_offset x24, -56\n",out);
+    aimmediate(out,"x9",raw->bytes);
+    fputs("    sub sp, sp, x9\n    mov x19, sp\n"
+          "    mov x20, x0\n    mov x21, x1\n"
+          "    mov x22, x3\n    mov x23, x2\n",out);
+    aaddress(raw,"x9","x19",0);
+    aimmediate(out,"x10",(raw->bytes+7)/8);
+    fprintf(out,"L_raw_zero_%zu:\n    cbz x10, L_raw_zero_done_%zu\n"
+                "    str xzr, [x9], #8\n    sub x10, x10, #1\n"
+                "    b L_raw_zero_%zu\nL_raw_zero_done_%zu:\n",
+            raw->function,raw->function,raw->function,raw->function);
+    for(size_t p=0;p<raw->fn->param_count;++p){
+        if(raw->module->debug_path)fputs("    .cfi_def_cfa x29, 16\n",out);
+        aaddress(raw,"x9","x23",p*8);
+        fputs("    ldr x10, [x9]\n",out);
+        aaddress(raw,"x9","x19",raw->locals+p*8);
+        fputs("    str x10, [x9]\n",out);
+        aaddress(raw,"x9","x19",raw->flags+p);
+        fputs("    mov w10, #1\n    strb w10, [x9]\n",out);
+    }
+    for(size_t b=0;b<raw->fn->block_count;++b){
+        raw->block=b;
+        block_label(out,raw->function,b);
+        fputs(":\n",out);
+        if(raw->module->debug_path)fputs("    .cfi_def_cfa x29, 16\n",out);
+        for(size_t k=0;k<raw->fn->blocks[b].count;++k){
+            raw->instruction=k;
+            const BLIRInst *i=&raw->fn->blocks[b].insts[k];
+            if(raw->module->debug_path){
+                bpp_asm_location(out,raw->module,i);
+                fputs("    .cfi_def_cfa x29, 16\n",out);
+                debug_pc_label(raw,"begin");
+            }
+            if(i->op==BL_IR_JUMP){
+                fprintf(out,"    b L_raw_f%zu_b%zu\n",raw->function,i->a);
+                if(raw->module->debug_path)debug_pc_label(raw,"end");
+                continue;
+            }
+            if(i->op==BL_IR_BRANCH){
+                avalue(raw,i->a,"x10");
+                fprintf(out,"    cbnz x10, L_raw_f%zu_b%zu\n"
+                            "    b L_raw_f%zu_b%zu\n",
+                        raw->function,i->b,raw->function,i->c);
+                if(raw->module->debug_path)debug_pc_label(raw,"end");
+                continue;
+            }
+            if(i->op==BL_IR_RETURN){
+                avalue(raw,i->a,"x10");
+                fputs("    str x10, [x22]\n    b ",out);
+                procedure_done_label(out,raw);
+                fputc('\n',out);
+                if(raw->module->debug_path)debug_pc_label(raw,"end");
+                continue;
+            }
+            aemit_inst(raw,i);
+        }
+    }
+    procedure_done_label(out,raw);
+    fputs(":\n",out);
+    if(raw->module->debug_path)fputs("    .cfi_def_cfa x29, 16\n",out);
+    aimmediate(out,"x9",raw->bytes);
+    fputs("    add sp, sp, x9\n"
+          "    ldp x23, x24, [sp], #16\n"
+          "    ldp x21, x22, [sp], #16\n"
+          "    ldp x19, x20, [sp], #16\n"
+          "    ldp x29, x30, [sp], #16\n"
+          "    .cfi_def_cfa sp, 0\n"
+          "    ret\n    .cfi_endproc\n",out);
+    if(raw->macho){procedure_label(out,raw->function);fputs("_done:\n",out);}
 }
-static void aemit_main(Raw *raw,int print_result){FILE*out=raw->out;size_t globals=raw->module->global_count?raw->module->global_count:1;if(raw->macho)fputs(".globl _main\n_main:\n",out);else fputs(".globl main\n.type main, %function\nmain:\n",out);fputs("    stp x29, x30, [sp, #-16]!\n    mov x29, sp\n    sub sp, sp, #16\n",out);aemit_global_address(raw,"x0","bpp_raw_globals");aemit_global_address(raw,"x1","bpp_raw_global_flags");fputs("    mov x2, xzr\n    mov x3, sp\n    bl bpp_raw_proc_0\n",out);if(print_result){fputs("    ldr x1, [sp]\n",out);aemit_local_address(raw,"x0","L_raw_print_int");acall(raw,"printf");}fputs("    mov w0, #0\n    add sp, sp, #16\n    ldp x29, x30, [sp], #16\n    ret\n",out);if(raw->macho){fputs(".section __TEXT,__cstring,cstring_literals\nL_raw_print_int:\n    .asciz \"%lld\\n\"\n.zerofill __DATA,__bss,_bpp_raw_globals,",out);fprintf(out,"%zu,3\n.zerofill __DATA,__bss,_bpp_raw_global_flags,%zu,0\n",globals*8,globals);}else{if(print_result)fputs(".section .rodata\nL_raw_print_int:\n    .asciz \"%lld\\n\"\n",out);fprintf(out,".comm bpp_raw_globals,%zu,8\n.comm bpp_raw_global_flags,%zu,1\n.section .note.GNU-stack,\"\",%%progbits\n",globals*8,globals);}}
+static void aemit_main(Raw *raw,int print_result){FILE*out=raw->out;size_t globals=raw->module->global_count?raw->module->global_count:1;if(raw->macho)fputs(".globl _main\n_main:\n",out);else fputs(".globl main\n.type main, %function\nmain:\n",out);fputs("    .cfi_startproc\n    stp x29, x30, [sp, #-16]!\n    .cfi_def_cfa_offset 16\n    .cfi_offset x29, -16\n    .cfi_offset x30, -8\n    mov x29, sp\n    .cfi_def_cfa x29, 16\n    sub sp, sp, #16\n",out);aemit_global_address(raw,"x0","bpp_raw_globals");aemit_global_address(raw,"x1","bpp_raw_global_flags");fputs("    mov x2, xzr\n    mov x3, sp\n    bl bpp_raw_proc_0\n",out);if(print_result){fputs("    ldr x1, [sp]\n",out);aemit_local_address(raw,"x0","L_raw_print_int");acall(raw,"printf");}fputs("    mov w0, #0\n    .cfi_def_cfa x29, 16\n    add sp, sp, #16\n    ldp x29, x30, [sp], #16\n    .cfi_def_cfa sp, 0\n    ret\n    .cfi_endproc\n",out);if(raw->macho){fputs(".section __TEXT,__cstring,cstring_literals\nL_raw_print_int:\n    .asciz \"%lld\\n\"\n.zerofill __DATA,__bss,_bpp_raw_globals,",out);fprintf(out,"%zu,3\n.zerofill __DATA,__bss,_bpp_raw_global_flags,%zu,0\n",globals*8,globals);}else{if(print_result)fputs(".section .rodata\nL_raw_print_int:\n    .asciz \"%lld\\n\"\n",out);fprintf(out,".comm bpp_raw_globals,%zu,8\n.comm bpp_raw_global_flags,%zu,1\n.section .note.GNU-stack,\"\",%%progbits\n",globals*8,globals);}}
 
 int bpp_emit_raw_native(BLIRModule *module, FILE *out, int print_result, BPPTarget target) {
     const BPPBackendCapabilities *cap=bpp_target_capabilities(target);
@@ -346,8 +455,15 @@ int bpp_emit_raw_native(BLIRModule *module, FILE *out, int print_result, BPPTarg
     bpp_asm_source(out,module);
     Raw raw={0};raw.out=out;raw.module=module;raw.target=target;raw.windows=cap->format==BPP_FORMAT_COFF;raw.arm64=cap->isa==BPP_ISA_ARM64;raw.macho=cap->format==BPP_FORMAT_MACHO;
     if(raw.arm64) fputs(raw.macho?".section __TEXT,__text,regular,pure_instructions\n.p2align 2\n":".text\n.p2align 2\n",out);else fputs(".text\n.p2align 4\n",out);
+    int dwarf=module->debug_path&&(cap->format==BPP_FORMAT_MACHO||cap->format==BPP_FORMAT_ELF);
+    if(dwarf)fputs("L_bpp_debug_start:\n",out);
     for(size_t f=0;f<module->function_count;++f){raw.function=f;raw.fn=&module->functions[f];if(raw.arm64)aemit_function(&raw);else xemit_function(&raw);}
     if(raw.arm64)aemit_main(&raw,print_result);else xemit_main(&raw,print_result);
+    if(dwarf){
+        fputs(raw.macho?".section __TEXT,__text,regular,pure_instructions\nL_bpp_debug_end:\n":".text\nL_bpp_debug_end:\n",out);
+        bpp_asm_compile_unit(out,module,target,"L_bpp_debug_start","L_bpp_debug_end",
+                             "bpp_raw_proc_","bpp_raw_proc_","_done");
+    }
     return !ferror(out);
 }
 
@@ -415,13 +531,15 @@ int bpp_emit_raw_locations(BLIRModule *module, FILE *out, BPPTarget target) {
         for (size_t p = 0; p < fn->param_count; ++p) {
             if (p) fputc(',', out);
             fputs("{\"name\":", out); json_text(out, fn->locals[p]);
-            fprintf(out, ",\"representation\":\"raw-word\",\"location\":{\"kind\":\"frame-slot\",\"offset\":%zu,\"initialized_flag_offset\":%zu}}", raw.locals + p * 8, raw.flags + p);
+            fprintf(out, ",\"representation\":\"raw-word\",\"declared_type\":null,\"location\":{\"kind\":\"frame-slot\",\"offset\":%zu,\"initialized_flag_offset\":%zu},\"location_status\":\"exact_raw_frame_slot\"}", raw.locals + p * 8, raw.flags + p);
         }
         fputs("],\"locals\":[", out);
         for (size_t l = fn->param_count; l < fn->local_count; ++l) {
             if (l != fn->param_count) fputc(',', out);
             fputs("{\"name\":", out); json_text(out, fn->locals[l]);
-            fprintf(out, ",\"representation\":\"raw-word\",\"declared_storage\":{\"kind\":\"frame-slot\",\"offset\":%zu,\"initialized_flag_offset\":%zu},\"location_status\":\"exact raw frame slot\",\"may_be_uninitialized\":true}", raw.locals + l * 8, raw.flags + l);
+            fputs(",\"representation\":\"raw-word\",\"declared_type\":",out);
+            if(fn->local_types&&fn->local_types[l])json_text(out,fn->local_types[l]);else fputs("null",out);
+            fprintf(out, ",\"declared_storage\":{\"kind\":\"frame-slot\",\"offset\":%zu,\"initialized_flag_offset\":%zu},\"location_status\":\"exact_raw_frame_slot_when_initialized\",\"may_be_uninitialized\":true}", raw.locals + l * 8, raw.flags + l);
         }
         fputs("],\"instructions\":[", out);
         int first = 1;
@@ -436,7 +554,7 @@ int bpp_emit_raw_locations(BLIRModule *module, FILE *out, BPPTarget target) {
                 int global = inst->op == BL_IR_INIT_GLOBAL || inst->op == BL_IR_STORE_GLOBAL;
                 const char *name = global ? module->globals[inst->a] : fn->locals[inst->a];
                 fprintf(out, ",\"variable_write\":{\"scope\":\"%s\",\"slot\":%zu,\"name\":", global ? "global" : "local", inst->a); json_text(out, name);
-                fprintf(out, ",\"value_vreg\":%zu,\"value_location\":{\"kind\":\"frame-slot\",\"offset\":%zu}}", inst->b, raw.values + inst->b * 8);
+                fprintf(out, ",\"value_vreg\":%zu,\"value_location_role\":\"assigned_value_at_this_instruction\",\"value_location\":{\"kind\":\"frame-slot\",\"offset\":%zu}}", inst->b, raw.values + inst->b * 8);
             } else if (raw_variable_end(inst->op)) {
                 int global = inst->op == BL_IR_MFREE_GLOBAL || inst->op == BL_IR_DELETE_GLOBAL;
                 const char *name = global ? module->globals[inst->a] : fn->locals[inst->a];

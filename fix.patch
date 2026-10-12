@@ -1,0 +1,1850 @@
+diff --git a/.github/workflows/codegen.yml b/.github/workflows/codegen.yml
+index 10c2be3..94075f3 100755
+--- a/.github/workflows/codegen.yml
++++ b/.github/workflows/codegen.yml
+@@ -3,6 +3,24 @@ on: [push, pull_request, workflow_dispatch]
+ permissions:
+   contents: read
+ jobs:
++  debug-metadata:
++    runs-on: ubuntu-24.04
++    steps:
++      - uses: actions/checkout@v4
++      - name: Install metadata and debugger tools
++        run: sudo apt-get update && sudo apt-get install -y clang llvm lld gdb lldb
++      - name: Verify source metadata, debuggers and PDB compatibility
++        run: |
++          set -o pipefail
++          make CC=clang BUILD_MODE=release -j2 check-debug-metadata check-debug-pdb 2>&1 | tee verification-debug-metadata.log
++      - name: Upload metadata verification transcript
++        if: always()
++        uses: actions/upload-artifact@v4
++        with:
++          name: verification-debug-metadata
++          path: verification-debug-metadata.log
++          if-no-files-found: warn
++          retention-days: 30
+   unix:
+     strategy:
+       fail-fast: false
+diff --git a/CODEGEN-CHECKLIST.md b/CODEGEN-CHECKLIST.md
+index f2454c9..5658cab 100755
+--- a/CODEGEN-CHECKLIST.md
++++ b/CODEGEN-CHECKLIST.md
+@@ -20,7 +20,7 @@ passes. The following separates implemented foundations from unfinished work.
+ | Long branches | ARM64 internal address transfers | Range diagnostics or alternative code models for extreme sections |
+ | Call lowering | Host conventions implemented for all four targets | Stable public ABI is roadmap stage 2 |
+ | C runtime dependency | Native arithmetic/control/calls bypass generated C | Native/B++ object runtime and startup remain needed |
+-| Debug metadata | Line tables, unwind metadata and local-offset map | DWARF variable records, procedure names, original import maps |
++| Debug metadata | Original source/import maps, DWARF/CodeView procedure and value records, lifetime ranges, Linux debugger tests | Native debugger gates on macOS/ARM64/Windows; future register-only variable trajectories |
+ | Sanitizers | Runtime instrumentation, global hooks and native TSAN entry/exit | Full native stack instrumentation and Windows sanitizer execution |
+ | Verification | Unit/stress/differential/Cross-object checks | Actual updated macOS, Linux ARM64 and Windows native CI |
+ | Benchmarks | Portable CSV harness for loops/calls/objects | Repeatable measurements on all four actual hosts |
+@@ -30,6 +30,23 @@ The ABI, custom assembler/linker, buildFile, library format, debugger and comple
+ sanitizer implementations remain separate roadmap stages. This private boundary
+ can change while the codegen gates above are being completed.
+ 
++## 14. Debug metadata
++
++Implemented and locally verified details are in [debug-metadata.md](docs/debug-metadata.md).
++
++- [x] Preserve original source spans through imports, lowering, folding, DCE and CFG compaction.
++- [x] Represent original source files and import stacks; retain the expanded sidecar as a snapshot.
++- [x] Emit procedure/parameter/local names, runtime value types and the language's function-level scopes.
++- [x] Emit DWARF location lists and CodeView definition ranges for canonical tagged-value storage.
++- [x] Report uninitialized, ambiguous and recycled-slot values as unavailable instead of reading stale cells.
++- [x] Keep ARM64 saved-register storage allocated until its epilogue reloads finish.
++- [x] Inspect eight target/mode object combinations with LLVM/GNU tools; round-trip CodeView through a PDB.
++- [x] Test loops, calls, recursion, imports, entry/cleanup unwind and runtime errors with Linux x86-64 GDB/LLDB.
++- [ ] Carry definition/invocation provenance when macro expansion is implemented (currently declarations are discarded).
++- [ ] Track register-only source variables moving to spills when that allocation strategy exists (current registers cache IR payloads; named values have canonical slots).
++- [ ] Validate native macOS ARM64, Linux ARM64 and Windows debugger sessions and platform-native metadata tools.
++- [ ] Sample unwind state through every probe/veneer/prologue/epilogue instruction on all native hosts.
++
+ ## Next verification run on Apple Silicon
+ 
+ ```sh
+diff --git a/Makefile b/Makefile
+index 3fc7d82..a0d7eb3 100755
+--- a/Makefile
++++ b/Makefile
+@@ -54,10 +54,10 @@ EXE :=
+ PROJECT_DIR := $(CURDIR)
+ endif
+ BIN := bin/$(BUILD_MODE)/bpp$(EXE)
+-SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/optimize.c src/emit_x64.c src/locations.c src/value_facts.c
++SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_c.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/optimize.c src/emit_x64.c src/locations.c src/debug.c src/value_facts.c
+ OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
+ DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
+-.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-differential check-stress check-asan-hook check-msan benchmark benchmark-smoke test targets clean
++.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-differential check-stress check-asan-hook check-msan benchmark benchmark-smoke check-debug-metadata check-debug-pdb test targets clean
+ RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o
+ all: $(BIN)
+ debug:
+@@ -97,6 +97,11 @@ benchmark-smoke: $(BIN) $(OBJDIR)/benchmark_clock$(EXE)
+ 	@awk -F, 'NR == 7 && $$2 == "calls" && $$3 == "generic" && $$9 > 0 && $$11 > 0 { ok=1 } END { exit !ok }' $(OBJDIR)/benchmark-smoke.csv
+ check-asan-hook: $(OBJDIR)/test_native_sanitizer$(EXE)
+ 	sh tests/check_asan_hook.sh ./$(OBJDIR)/test_native_sanitizer$(EXE)
++check-debug-pdb: $(BIN)
++	sh tests/check_debug_pdb.sh ./$(BIN)
++check-debug-metadata: $(BIN) $(OBJDIR)/test_source$(EXE)
++	./$(OBJDIR)/test_source$(EXE)
++	sh tests/check_debug_metadata.sh ./$(BIN)
+ check-msan: $(OBJDIR)/test_msan$(EXE)
+ 	sh tests/check_msan.sh ./$(OBJDIR)/test_msan$(EXE)
+ test: check check-native
+@@ -129,9 +134,12 @@ $(OBJDIR)/test_value_facts$(EXE): tests/test_value_facts.c src/value_facts.c inc
+ $(OBJDIR)/test_ir_effects$(EXE): tests/test_ir_effects.c src/ir_effects.c include/ir_effects.h include/ir.h Makefile
+ 	mkdir -p "$(@D)"
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_ir_effects.c src/ir_effects.c -o "$@"
+-$(OBJDIR)/test_isel$(EXE): tests/test_isel.c src/ir.c src/ir_effects.c src/isel.c src/target.c src/emit_arm64.c src/emit_x64.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c include/isel.h include/target.h include/ir.h Makefile
++$(OBJDIR)/test_isel$(EXE): tests/test_isel.c src/ir.c src/ir_effects.c src/isel.c src/target.c src/emit_arm64.c src/emit_x64.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c src/debug.c include/debug.h include/source.h include/isel.h include/target.h include/ir.h Makefile
+ 	mkdir -p "$(@D)"
+-	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_isel.c src/ir.c src/ir_effects.c src/isel.c src/target.c src/emit_arm64.c src/emit_x64.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c -o "$@"
++	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_isel.c src/ir.c src/ir_effects.c src/isel.c src/target.c src/emit_arm64.c src/emit_x64.c src/regalloc.c src/registers.c src/value_facts.c src/locations.c src/debug.c -o "$@"
++$(OBJDIR)/test_source$(EXE): tests/test_source.c src/compiler.c src/parser.c src/lexer.c src/ir.c src/optimize.c src/ir_effects.c src/value_facts.c include/compiler.h include/parser.h include/lexer.h include/ir.h include/source.h Makefile
++	mkdir -p "$(@D)"
++	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_source.c src/compiler.c src/parser.c src/lexer.c src/ir.c src/optimize.c src/ir_effects.c src/value_facts.c -o "$@"
+ $(OBJDIR)/generate_case$(EXE): tests/generate_case.c Makefile
+ 	mkdir -p "$(@D)"
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) tests/generate_case.c -o "$@"
+diff --git a/README.md b/README.md
+index 660156d..dc0cf35 100755
+--- a/README.md
++++ b/README.md
+@@ -178,9 +178,14 @@ See [CODEGEN.md](CODEGEN.md), [IR-NOTES.md](IR-NOTES.md), and
+ 
+ Debug and TSAN builds save `<output>.bpp-source` and emit assembler line directives.
+ Use `--debug-info` to enable this in release too. Preserve the snapshot next to
+-its executable for source stepping. `--emit-map -o demo.json` records the selected
+-target's local offsets relative to x19 or r12. It is an inspection manifest,
+-not DWARF local-variable DIEs or a standalone debugger.
++its executable for inspection. Debugger line tables now refer to original source
++files, including imports; preserve those files for source stepping.
++ELF/Mach-O output includes DWARF procedure/variable records and location lists;
++Windows output includes CodeView records and definition ranges. `--emit-map -o
++demo.json` records original file/import provenance and the selected target's
++local offsets relative to x19 or r12. See [debug metadata](docs/debug-metadata.md)
++for conservative value availability, tool requirements and remaining native-host
++verification gates.
+ 
+ ASAN hooks cover native global fast paths. Explicit signed-overflow guards provide
+ integer safety; C runtime helpers cover strings, arrays, buffers and bounds.
+diff --git a/docs/debug-metadata.md b/docs/debug-metadata.md
+new file mode 100644
+index 0000000..d9d71b7
+--- /dev/null
++++ b/docs/debug-metadata.md
+@@ -0,0 +1,109 @@
++# Native debug metadata
++
++`--debug-info` now describes original source files in assembler line tables,
++emits DWARF 4 on ELF/Mach-O and CodeView on Windows COFF, and retains the expanded
++`.bpp-source` snapshot for inspection. Debuggers use the original files, so keep
++those files available and unchanged while debugging. The sidecar is no longer
++the source of every location.
++
++## Source provenance
++
++AST nodes, IR instructions, procedure declarations and variable declarations
++carry original file/context IDs and exclusive end positions. Import expansion
++produces a file table, an import-context tree and an expanded-line mapping.
++Lowering copies spans; folding and CFG/DCE compaction retain them with the
++surviving instruction. Synthetic instructions have no original-file ID.
++Parser, lowering and runtime errors use original filenames and coordinates.
++
++`--emit-map` includes `source_files`, `import_contexts`, original instruction
++spans, declared variable types and storage information. DWARF also carries
++import nesting through standard `DW_MACINFO_start_file`/`end_file` records.
++CodeView has original file/line tables; its import-context tree remains in the
++JSON map. Parsed macro declarations/native snippets are currently discarded by
++the language implementation: there is no macro expansion to attribute. A future
++expander must carry both definition and invocation provenance.
++
++## Procedures, scopes and values
++
++Procedure names, parameter names, locals and runtime value types appear in
++standard debug records. B++ blocks do not introduce lexical scopes: variables
++belong to their entire procedure, and module declarations are globals. No nested
++lexical scope is invented. DWARF globals have conservative availability ranges
++in the module entry; they are unavailable in other procedures until an
++interprocedural initialization analysis is implemented. CodeView retains module
++global names/types without definition ranges: its current register-relative
++range form cannot describe dereferencing the runtime global-array pointer.
++
++All source values are dynamically tagged `BLValue` structures (tag plus an
++integer/object-pointer union), including declarations spelled `int`, `String`
++or `Array`. Parameter declarations have no static type. The map preserves
++declared spelling; standard records describe the actual runtime representation.
++DWARF uses C99 to make that structure readable by existing debuggers. Procedures
++are marked `DW_CC_nocall`: their compiler-private physical calling convention
++cannot be invoked using a source-level debugger prototype. CodeView similarly
++uses `T_NOTYPE` for the callable procedure prototype while preserving typed
++source parameters in its local-symbol records. Calling B++ procedures from a
++debugger is unsupported.
++
++Named variables currently have canonical tagged-value slots. Allocated payload
++registers hold caches of IR temporaries, not complete source values. Debug
++records therefore use register-relative canonical addresses (`r12` or `x19`),
++with DWARF location lists and CodeView register-relative definition ranges.
++Do not infer value availability from the allocator's planned cache segments.
++Register-only source variables and register/spill transitions will need actual
++emission events when that allocation strategy is introduced.
++
++Definite slot-owner analysis follows CFG edges and loops. Locations start after
++successful initialization, disappear while a reused slot is initialized for
++another variable, and end before cleanup. Ambiguous joins, uninitialized values,
++and former owners are reported as unavailable/optimized out, rather than reading
++stale frame cells. The analysis is conservative: unavailable does not always
++mean that the value cannot exist on a particular runtime path. Global locations
++use the runtime frame's global-array pointer, not a fictitious static address.
++
++Prologues use their procedure declaration as a non-statement line entry, so
++LLDB recognizes the function before reaching `prologue_end`. Cleanup uses line
++zero; the first source instruction marks `prologue_end`. Existing CFI/SEH remains active through probes, helper
++calls and shared cleanup. ARM64 now restores saved registers before releasing
++their stack storage, preventing asynchronous signal frames from overwriting
++those saved values during the epilogue.
++
++## Validation
++
++From the checkout root, with Clang, LLVM inspection tools, GNU `readelf`, GDB and
++LLDB installed:
++
++```sh
++make CC=clang BUILD_MODE=release check-debug-metadata
++make CC=clang BUILD_MODE=release check-debug-pdb
++```
++
++`check-debug-metadata` tests nested import provenance and spans after optimization,
++inspects all four targets in optimized/baseline modes with `llvm-dwarfdump`,
++`llvm-readobj` and `readelf`, and verifies original-source stepping, live and
++unavailable values, loops, recursive backtraces, entry/cleanup unwinding and
++imported runtime errors with the selected host debuggers. Missing required tools
++fail the explicit gate. Select `BPP_DEBUGGERS=lldb` on macOS, or
++`BPP_DEBUGGERS=none` for object inspection without native debugger execution.
++
++Tool overrides are `BPP_ASSEMBLER`, `BPP_DWARFDUMP`, `BPP_READOBJ`, `BPP_READELF`,
++`BPP_GDB`, `BPP_LLDB`, `BPP_LLD_LINK`, and `BPP_PDBUTIL`.
++`check-debug-pdb` uses LLD and `llvm-pdbutil` to round-trip CodeView into a PDB.
++Its runtime link stubs are never executed: this verifies metadata compatibility,
++not a runnable Windows program.
++
++For checkouts containing tracked build outputs, use separate directories:
++
++```sh
++make CC=cc BUILD_MODE=release OBJDIR=build/onboarding-release/obj \
++  BIN=bin/onboarding-release/bpp check-debug-metadata check-debug-pdb
++```
++
++Linux x86-64 GDB/LLDB execution, all eight cross-object inspections and the PDB
++round trip have been verified during this change. Real macOS ARM64/Linux ARM64
++debugger sessions and Windows WinDbg/Visual Studio sessions remain native-host
++gates. On macOS inspect the linked executable/dSYM with `dwarfdump --verify`;
++on Windows link the real runtime with debug/PDB options and test the PDB in
++WinDbg or Visual Studio. Cross-assembly and a metadata-only PDB do not replace
++those sessions. Signal/probe/veneer instruction-by-instruction unwind sampling
++on every native host also remains a separate verification gate.
+diff --git a/include/debug.h b/include/debug.h
+new file mode 100644
+index 0000000..f0e2808
+--- /dev/null
++++ b/include/debug.h
+@@ -0,0 +1,11 @@
++#ifndef BPP_DEBUG_H
++#define BPP_DEBUG_H
++#include "target.h"
++#include "regalloc.h"
++/* Debug sections use actual emitted body/cleanup labels, not estimated IR
++ * instruction sizes. Named slots contain complete BLValues; payload caches
++ * are not authoritative source-variable locations. */
++int bpp_debug_sections(FILE *,BLIRModule *,BPPTarget);
++void bpp_debug_line_start(FILE *,const BLIRModule *,BPPTarget);
++void bpp_debug_artificial_location(FILE *,const BLIRModule *,const BLIRFunction *,BPPTarget,int);
++#endif
+diff --git a/include/ir.h b/include/ir.h
+index 28a4070..dd4aa98 100755
+--- a/include/ir.h
++++ b/include/ir.h
+@@ -3,6 +3,7 @@
+ 
+ #include <stddef.h>
+ #include <stdio.h>
++#include "source.h"
+ 
+ typedef struct BLNode BLNode;
+ typedef size_t BLIRId;
+@@ -32,6 +33,7 @@ typedef struct {
+     BLIRId *args;              /* owned list of borrowed call registers */
+     size_t arg_count;
+     int line, column;
++    BPPSourceSpan span;
+ } BLIRInst;
+ 
+ typedef struct {
+@@ -39,12 +41,16 @@ typedef struct {
+     size_t count, capacity;
+ } BLIRBlock;
+ 
++typedef struct { char *type_name; BPPSourceSpan span; } BPPDebugVariable;
++
+ typedef struct {
+     char *name;
+     char **locals;             /* parameters occupy the first slots */
+     size_t local_count, local_capacity, param_count;
+     BLIRBlock *blocks;
+     size_t block_count, block_capacity, register_count;
++    BPPSourceSpan span;
++    BPPDebugVariable *local_debug;
+ } BLIRFunction;
+ 
+ typedef struct {
+@@ -62,6 +68,8 @@ typedef struct {
+     int emit_asm_comments;
+     char *expanded_source, *debug_path;
+     char **globals;
++    BPPDebugVariable *global_debug;
++    BPPSourceMap sources;
+     size_t global_count, global_capacity;
+     BLIRFunction *functions;   /* function 0 is the module entry */
+     size_t function_count, function_capacity;
+diff --git a/include/lexer.h b/include/lexer.h
+index 8a11c42..9776a19 100755
+--- a/include/lexer.h
++++ b/include/lexer.h
+@@ -54,6 +54,7 @@ typedef struct {
+     size_t length;
+     int line;
+     int column;
++    int end_line, end_column;
+     long long number;
+ } BLToken;
+ 
+diff --git a/include/parser.h b/include/parser.h
+index c711981..e4d3cb9 100755
+--- a/include/parser.h
++++ b/include/parser.h
+@@ -2,6 +2,7 @@
+ #define BYTELANG_PARSER_H
+ 
+ #include "lexer.h"
++#include "source.h"
+ 
+ #include <stddef.h>
+ 
+@@ -32,6 +33,8 @@ struct BLNode {
+     BLNodeKind kind;
+     int line;
+     int column;
++    BPPSourceSpan span;
++    const char *source_path; /* borrowed from the compilation source map */
+     union {
+         struct {
+             BLNode **items;
+@@ -88,6 +91,7 @@ struct BLNode {
+         struct {
+             char *name;
+             char **params;
++            BPPSourceSpan *param_spans;
+             size_t param_count;
+             BLNode *body;
+         } proc_def;
+@@ -113,6 +117,7 @@ typedef struct {
+     BLNode **allocated_nodes;
+     size_t allocated_count;
+     size_t allocated_cap;
++    const BPPSourceMap *source_map;
+ } BLParser;
+ 
+ void bl_parser_init(BLParser *parser, const char *path, const char *source);
+diff --git a/include/source.h b/include/source.h
+new file mode 100644
+index 0000000..bc52fd7
+--- /dev/null
++++ b/include/source.h
+@@ -0,0 +1,22 @@
++#ifndef BPP_SOURCE_H
++#define BPP_SOURCE_H
++#include <stddef.h>
++
++/* One-based file/context IDs; zero denotes compiler-generated code. End
++ * positions are exclusive and refer to the original file, never expanded text. */
++typedef struct {
++    size_t file, context;
++    int line, column, end_line, end_column;
++} BPPSourceSpan;
++typedef struct { char *path; } BPPSourceFile;
++typedef struct { size_t file, parent; int line, column; } BPPImportContext;
++typedef struct { size_t file, context; int line; } BPPSourceLine;
++typedef struct {
++    BPPSourceFile *files;
++    size_t file_count;
++    BPPImportContext *contexts;
++    size_t context_count;
++    BPPSourceLine *lines;
++    size_t line_count;
++} BPPSourceMap;
++#endif
+diff --git a/include/target.h b/include/target.h
+index de5b511..826b38a 100755
+--- a/include/target.h
++++ b/include/target.h
+@@ -33,8 +33,8 @@ int bpp_host_supported(void);
+ int bpp_emit_native(BLIRModule *,FILE *,int,BPPTarget);
+ int bpp_emit_x64(BLIRModule *,FILE *,int,int);
+ int bpp_ir_optimize(BLIRModule *);
+-void bpp_asm_source(FILE *,const BLIRModule *);
+-void bpp_asm_location(FILE *,const BLIRInst *);
++void bpp_asm_source(FILE *,const BLIRModule *,BPPTarget);
++void bpp_asm_location(FILE *,const BLIRInst *,BPPTarget,size_t,int);
+ void bpp_asm_instruction_comment(FILE *,const BLIRFunction *,size_t,size_t,size_t,const BPPRegPlan *,BPPTarget,int);
+ int bpp_emit_locations(BLIRModule *,FILE *,BPPTarget);
+ #endif
+diff --git a/src/compiler.c b/src/compiler.c
+index 7385d97..ae8a4e0 100755
+--- a/src/compiler.c
++++ b/src/compiler.c
+@@ -21,6 +21,7 @@ typedef struct {
+     BLPathList active_paths;
+     BLPathList loaded_paths;
+     char *error;
++    BPPSourceMap map;
+ } BLImportState;
+ 
+ typedef struct {
+@@ -149,6 +150,8 @@ static void bl_import_state_dispose(BLImportState *state) {
+     bl_path_list_dispose(&state->active_paths);
+     bl_path_list_dispose(&state->loaded_paths);
+     free(state->error);
++    for(size_t i=0;i<state->map.file_count;++i)free(state->map.files[i].path);
++    free(state->map.files);free(state->map.contexts);free(state->map.lines);
+     memset(state, 0, sizeof(*state));
+ }
+ 
+@@ -421,9 +424,20 @@ static char *bl_parse_import_target(const char *path, int line_number, const cha
+     return NULL;
+ }
+ 
+-static char *bl_preprocess_file(BLImportState *state, const char *path);
++static size_t bl_source_context(BLImportState *state,const char *path,size_t parent,int line) {
++    BPPSourceMap *m=&state->map; size_t file=0;
++    for(size_t i=0;i<m->file_count;++i)if(!strcmp(m->files[i].path,path)){file=i+1;break;}
++    if(!file){BPPSourceFile *files=realloc(m->files,(m->file_count+1)*sizeof *files);if(!files){perror("source files");exit(1);}m->files=files;file=++m->file_count;m->files[file-1].path=bl_strdup_local(path);}
++    BPPImportContext *contexts=realloc(m->contexts,(m->context_count+1)*sizeof *contexts);if(!contexts){perror("import contexts");exit(1);}m->contexts=contexts;
++    m->contexts[m->context_count++]=(BPPImportContext){file,parent,line,1};return m->context_count;
++}
++static void bl_source_line(BLImportState *state,size_t context,int line) {
++    BPPSourceMap *m=&state->map;BPPSourceLine *lines=realloc(m->lines,(m->line_count+1)*sizeof *lines);if(!lines){perror("source lines");exit(1);}m->lines=lines;
++    m->lines[m->line_count++]=(BPPSourceLine){m->contexts[context-1].file,context,line};
++}
++static char *bl_preprocess_file(BLImportState *state, const char *path,size_t parent,int line);
+ 
+-static char *bl_preprocess_source(BLImportState *state, const char *path, const char *source) {
++static char *bl_preprocess_source(BLImportState *state, const char *path, const char *source,size_t context) {
+     BLStringBuilder out = {0};
+     const char *cursor = source;
+     int line_number = 1;
+@@ -458,7 +472,7 @@ static char *bl_preprocess_source(BLImportState *state, const char *path, const
+                 return NULL;
+             }
+ 
+-            char *expanded = bl_preprocess_file(state, resolved);
++            char *expanded = bl_preprocess_file(state, resolved,context,line_number);
+             free(resolved);
+             free(target);
+             if (!expanded) {
+@@ -472,6 +486,7 @@ static char *bl_preprocess_source(BLImportState *state, const char *path, const
+             }
+             free(expanded);
+         } else {
++            bl_source_line(state,context,line_number);
+             bl_sb_append_n(&out, line_start, line_length);
+             if (has_newline) bl_sb_append(&out, "\n");
+         }
+@@ -485,7 +500,7 @@ static char *bl_preprocess_source(BLImportState *state, const char *path, const
+     return bl_sb_take(&out);
+ }
+ 
+-static char *bl_preprocess_file(BLImportState *state, const char *path) {
++static char *bl_preprocess_file(BLImportState *state, const char *path,size_t parent,int line) {
+     char *canonical = bl_path_canonicalize(path);
+     if (!canonical) {
+         bl_import_state_set_errorf(state, path, "failed to normalize path");
+@@ -515,7 +530,7 @@ static char *bl_preprocess_file(BLImportState *state, const char *path) {
+     }
+ 
+     bl_path_list_push_owned(&state->active_paths, bl_strdup_local(canonical));
+-    char *expanded = bl_preprocess_source(state, canonical, source);
++    char *expanded = bl_preprocess_source(state, canonical, source,bl_source_context(state,canonical,parent,line));
+     bl_path_list_pop(&state->active_paths);
+ 
+     free(source);
+@@ -529,11 +544,16 @@ static char *bl_preprocess_file(BLImportState *state, const char *path) {
+     return expanded;
+ }
+ 
+-static char *bl_preprocess_root_source(const char *virtual_path, const char *source, char **error_out) {
++static char *bl_preprocess_root_source(const char *virtual_path, const char *source, char **error_out,BPPSourceMap *map) {
+     BLImportState state;
+     memset(&state, 0, sizeof(state));
+ 
+-    char *expanded = bl_preprocess_source(&state, virtual_path ? virtual_path : "<memory>", source ? source : "");
++    const char *name=virtual_path?virtual_path:"<memory>";
++    char *canonical=virtual_path?bl_path_canonicalize(virtual_path):NULL;
++    if(canonical)name=canonical;
++    bl_path_list_push_owned(&state.active_paths,bl_strdup_local(name));
++    char *expanded = bl_preprocess_source(&state, name, source ? source : "",bl_source_context(&state,name,0,0));
++    free(canonical);
+     if (!expanded && error_out) {
+         *error_out = state.error ? bl_strdup_local(state.error) : bl_strdup_local("import error");
+     }
+@@ -542,23 +562,45 @@ static char *bl_preprocess_root_source(const char *virtual_path, const char *sou
+         *error_out = NULL;
+     }
+ 
++    if(expanded){*map=state.map;memset(&state.map,0,sizeof state.map);}
+     bl_import_state_dispose(&state);
+     return expanded;
+ }
+ 
++static void bl_remap_span(BPPSourceSpan *s,const BPPSourceMap *map) {
++    if(s->line<=0||(size_t)s->line>map->line_count)return;
++    BPPSourceLine start=map->lines[s->line-1];
++    if(s->end_line>0&&(size_t)s->end_line<=map->line_count&&map->lines[s->end_line-1].context==start.context)s->end_line=map->lines[s->end_line-1].line;
++    else {s->end_line=start.line;s->end_column=s->column+1;}
++    s->file=start.file;s->context=start.context;s->line=start.line;
++}
++
+ int bl_compile_source(BLCompiler *compiler, const char *path, const char *source, BLIRModule *ir) {
+-    char *import_error = NULL;
+-    char *expanded = bl_preprocess_root_source(path, source, &import_error);
++    char *import_error = NULL; BPPSourceMap map={0};
++    char *expanded = bl_preprocess_root_source(path, source, &import_error,&map);
+     if (!expanded) {
+         bl_set_error(compiler, import_error ? import_error : "import error");
+         free(import_error); return 0;
+     }
+-    BLParser parser; bl_parser_init(&parser, path, expanded);
++    BLParser parser; bl_parser_init(&parser, path, expanded);parser.source_map=&map;
+     BLNode *program = bl_parse_program(&parser);
++    /* AST positions are expanded coordinates until parsing is complete. */
++    for(size_t j=0;j<parser.allocated_count;++j){BLNode *n=parser.allocated_nodes[j];BPPSourceSpan *s=&n->span;
++        bl_remap_span(s,&map);
++        if(s->file){
++            if(n->line>0&&(size_t)n->line<=map.line_count)n->line=map.lines[n->line-1].line;
++            n->source_path=map.files[s->file-1].path;
++        }
++        if(n->kind==AST_PROC_DEF)for(size_t k=0;k<n->as.proc_def.param_count;++k)bl_remap_span(&n->as.proc_def.param_spans[k],&map);
++    }
++    if(program){int line=1,column=1;for(const char *p=source?source:"";*p;++p){if(*p=='\n'){++line;column=1;}else ++column;}
++        program->span=(BPPSourceSpan){1,1,1,1,line,column};program->line=program->column=1;program->source_path=map.files[0].path;}
+     int ok = program && bl_ir_compile(ir, path, program);
+     bl_set_error(compiler, ok ? NULL : (program ? bl_ir_last_error(ir) : parser.error));
+-    if(ok){ir->expanded_source=expanded;expanded=NULL;}
+-    bl_parser_dispose(&parser); free(expanded); return ok;
++    if(ok){ir->expanded_source=expanded;expanded=NULL;ir->sources=map;memset(&map,0,sizeof map);}
++    bl_parser_dispose(&parser); free(expanded);
++    for(size_t j=0;j<map.file_count;++j)free(map.files[j].path);
++    free(map.files);free(map.contexts);free(map.lines);return ok;
+ }
+ int bl_compile_file(BLCompiler *compiler, const char *path, BLIRModule *ir) {
+     char *source = bl_read_file(path);
+diff --git a/src/debug.c b/src/debug.c
+new file mode 100644
+index 0000000..8e6279b
+--- /dev/null
++++ b/src/debug.c
+@@ -0,0 +1,246 @@
++#include "debug.h"
++#include "codegen_abi.h"
++#include <stdlib.h>
++#include <stdint.h>
++
++static void string(FILE *o,const char *s) {
++    fputs("    .asciz \"",o);
++    for(const unsigned char *p=(const unsigned char *)s;*p;++p){
++        if(*p=='"'||*p=='\\')fputc('\\',o);
++        if(*p<32||*p>=127)fprintf(o,"\\%03o",*p);else fputc(*p,o);
++    }
++    fputs("\"\n",o);
++}
++static void section(FILE *o,BPPTarget t,const char *name) {
++    const BPPBackendCapabilities *c=bpp_target_capabilities(t);
++    if(c->format==BPP_FORMAT_MACHO)fprintf(o,".section __DWARF,__%s,regular,debug\n",name);
++    else fprintf(o,".section .%s,\"\",%sprogbits\n",name,c->isa==BPP_ISA_ARM64?"%":"@");
++}
++void bpp_debug_line_start(FILE *o,const BLIRModule *m,BPPTarget t) {
++    if(!m->debug_path||bpp_target_capabilities(t)->format==BPP_FORMAT_COFF)return;
++    section(o,t,"debug_line");fputs("L_bpp_line:\n",o);
++}
++void bpp_debug_artificial_location(FILE *o,const BLIRModule *m,const BLIRFunction *fn,BPPTarget t,int prologue) {
++    if(!m->debug_path)return;
++    if(t==BPP_WINDOWS_X64){if(prologue){size_t f=(size_t)(fn-m->functions);
++        fprintf(o," .cv_func_id %zu\n .cv_loc %zu %zu %d %d\n",f,f,fn->span.file?fn->span.file:1,fn->span.line>0?fn->span.line:1,fn->span.column>0?fn->span.column:1);}
++        return;
++    }
++    fprintf(o," .loc %zu %d %d is_stmt 0\n",fn->span.file?fn->span.file:1,prologue&&fn->span.line>0?fn->span.line:0,prologue&&fn->span.column>0?fn->span.column:0);
++}
++/* DWARF 4 abbreviations, deliberately using inline strings and section-relative
++ * references so both ELF and Mach-O assemblers can relocate the same records. */
++static void abbreviations(FILE *o) {
++    fputs("L_bpp_abbrev:\n"
++          /* CU: producer, language, name, stmt_list, low_pc, high_pc. */
++          " .uleb128 1\n .uleb128 17\n .byte 1\n"
++          " .uleb128 37\n .uleb128 8\n .uleb128 19\n .uleb128 5\n"
++          " .uleb128 3\n .uleb128 8\n .uleb128 16\n .uleb128 23\n"
++          " .uleb128 17\n .uleb128 1\n .uleb128 18\n .uleb128 7\n .uleb128 67\n .uleb128 23\n .byte 0,0\n"
++          /* base type: name, encoding, byte_size */
++          " .uleb128 2\n .uleb128 36\n .byte 0\n"
++          " .uleb128 3\n .uleb128 8\n .uleb128 62\n .uleb128 11\n .uleb128 11\n .uleb128 11\n .byte 0,0\n"
++          /* structure/union: name, byte_size */
++          " .uleb128 3\n .uleb128 19\n .byte 1\n .uleb128 3\n .uleb128 8\n .uleb128 11\n .uleb128 11\n .byte 0,0\n"
++          " .uleb128 4\n .uleb128 23\n .byte 1\n .uleb128 3\n .uleb128 8\n .uleb128 11\n .uleb128 11\n .byte 0,0\n"
++          /* member: name, type, data_member_location */
++          " .uleb128 5\n .uleb128 13\n .byte 0\n .uleb128 3\n .uleb128 8\n .uleb128 73\n .uleb128 19\n .uleb128 56\n .uleb128 11\n .byte 0,0\n"
++          /* pointer: byte_size (void pointer) */
++          " .uleb128 6\n .uleb128 15\n .byte 0\n .uleb128 11\n .uleb128 11\n .byte 0,0\n"
++          /* subprogram: name, file/line/column, PCs, frame_base, type */
++          " .uleb128 7\n .uleb128 46\n .byte 1\n .uleb128 3\n .uleb128 8\n"
++          " .uleb128 58\n .uleb128 15\n .uleb128 59\n .uleb128 15\n .uleb128 57\n .uleb128 15\n"
++          " .uleb128 17\n .uleb128 1\n .uleb128 18\n .uleb128 7\n .uleb128 64\n .uleb128 24\n .uleb128 73\n .uleb128 19\n .uleb128 54\n .uleb128 11\n .byte 0,0\n"
++          /* variable / parameter: name, decl_file/line/column, type, location */
++          " .uleb128 8\n .uleb128 52\n .byte 0\n .uleb128 3\n .uleb128 8\n"
++          " .uleb128 58\n .uleb128 15\n .uleb128 59\n .uleb128 15\n .uleb128 57\n .uleb128 15\n"
++          " .uleb128 73\n .uleb128 19\n .uleb128 2\n .uleb128 23\n .byte 0,0\n"
++          " .uleb128 9\n .uleb128 5\n .byte 0\n .uleb128 3\n .uleb128 8\n"
++          " .uleb128 58\n .uleb128 15\n .uleb128 59\n .uleb128 15\n .uleb128 57\n .uleb128 15\n"
++          " .uleb128 73\n .uleb128 19\n .uleb128 2\n .uleb128 23\n .byte 0,0\n"
++          " .uleb128 10\n .uleb128 46\n .byte 0\n .uleb128 3\n .uleb128 8\n"
++          " .uleb128 58\n .uleb128 15\n .uleb128 59\n .uleb128 15\n .uleb128 57\n .uleb128 15\n"
++          " .uleb128 17\n .uleb128 1\n .uleb128 18\n .uleb128 7\n .uleb128 64\n .uleb128 24\n .uleb128 73\n .uleb128 19\n .uleb128 54\n .uleb128 11\n .byte 0,0\n .byte 0\n",o);
++}
++static void declaration(FILE *o,BPPSourceSpan s) {
++    fprintf(o," .uleb128 %zu\n .uleb128 %d\n .uleb128 %d\n",s.file?s.file:1,s.line>0?s.line:1,s.column>0?s.column:1);
++}
++static void member(FILE *o,const char *name,const char *type,unsigned offset) {
++    fputs(" .uleb128 5\n",o);string(o,name);
++    fprintf(o," .long L_bpp_type_%s-L_bpp_cu\n .byte %u\n",type,offset);
++}
++/* Location-list gaps describe unavailable values. Only definite initialized
++ * owners receive a complete BLValue location; no stale recycled cell escapes. */
++static void location(FILE *o,const char *begin,const char *end,size_t offset,unsigned reg,int global) {
++    fputs(" .quad -1,0\n",o);
++    fprintf(o," .quad %s\n .quad %s\n .short 2f-1f\n1:\n .byte %u\n .sleb128 %zu\n",begin,end,112+reg,global?8:offset);
++    if(global)fprintf(o," .byte 6,35\n .uleb128 %zu\n",offset);
++    fputs("2:\n",o);
++}
++/* Definite logical owner of each reused physical slot. TOP means an edge has
++ * not been visited; NONE means paths disagree or the slot is uninitialized.
++ * The meet is conservative across loops, unreachable blocks and joins. */
++#define OWNER_TOP (BL_IR_NONE-1)
++static size_t *owners(const BLIRFunction *fn,const BPPRegPlan *p,size_t globals) {
++    size_t slots=globals?globals:p->local_slot_count?p->local_slot_count:1,blocks=fn->block_count;
++    if(blocks>SIZE_MAX/slots/sizeof(size_t)/2)return NULL;
++    size_t n=blocks*slots;if(n>(512u*1024u*1024u)/(2*sizeof(size_t)))return NULL;
++    size_t *states=malloc(2*n*sizeof *states),*next=malloc(slots*sizeof *next);
++    if(!states||!next){free(states);free(next);return NULL;}
++    size_t *in=states,*out=states+n;
++    for(size_t j=0;j<2*n;++j)states[j]=OWNER_TOP;
++    for(size_t j=0;j<slots;++j)in[j]=BL_IR_NONE;
++    if(!globals)for(size_t j=0;j<fn->param_count;++j)in[p->local_map[j]]=j;
++    int changed;
++    do {changed=0;
++        for(size_t b=0;b<blocks;++b){
++            for(size_t j=0;j<slots;++j)next[j]=in[b*slots+j];
++            for(size_t k=0;k<fn->blocks[b].count;++k){const BLIRInst *i=&fn->blocks[b].insts[k];if(i->op==(globals?BL_IR_INIT_GLOBAL:BL_IR_INIT_LOCAL))next[globals?i->a:p->local_map[i->a]]=i->a;}
++            for(size_t j=0;j<slots;++j)if(out[b*slots+j]!=next[j]){out[b*slots+j]=next[j];changed=1;}
++            const BLIRInst *term=&fn->blocks[b].insts[fn->blocks[b].count-1];size_t dest[2]={BL_IR_NONE,BL_IR_NONE};
++            if(term->op==BL_IR_JUMP)dest[0]=term->a;else if(term->op==BL_IR_BRANCH){dest[0]=term->b;dest[1]=term->c;}
++            for(size_t edge=0;edge<2;++edge)if(dest[edge]!=BL_IR_NONE){size_t *d=in+dest[edge]*slots;
++                for(size_t j=0;j<slots;++j){size_t v=out[b*slots+j],meet=d[j]==OWNER_TOP?v:v==OWNER_TOP?d[j]:d[j]==v?v:BL_IR_NONE;if(meet!=d[j]){d[j]=meet;changed=1;}}
++            }
++        }
++    }while(changed);
++    free(next);return states;
++}
++static void local_locations(FILE *o,const BLIRFunction *fn,const BPPRegPlan *p,const BPPNativeFrameLayout *layout,const size_t *state,size_t f,size_t l,unsigned reg,int cv,size_t globals) {
++    char begin[96],end[96];size_t slot=globals?l:p->local_map[l],offset=globals?16*l:layout->locals_offset+16*slot;
++    if(!state)return;
++    size_t slots=globals?globals:p->local_slot_count?p->local_slot_count:1;
++    for(size_t b=0;b<fn->block_count;++b){size_t owner=state[b*slots+slot],start=BL_IR_NONE;
++        for(size_t k=0;k<=fn->blocks[b].count;++k){const BLIRInst *i=k<fn->blocks[b].count?&fn->blocks[b].insts[k]:NULL;
++            int available=i&&owner==l&&!(i->op==(globals?BL_IR_INIT_GLOBAL:BL_IR_INIT_LOCAL)&&(globals?i->a:p->local_map[i->a])==slot);
++            if(available&&start==BL_IR_NONE)start=k;
++            if(!available&&start!=BL_IR_NONE){snprintf(begin,sizeof begin,"L_bpp_i_%zu_%zu_%zu",f,b,start);snprintf(end,sizeof end,"L_bpp_i_%zu_%zu_%zu",f,b,k);
++                if(cv)fprintf(o," .cv_def_range %s %s, reg_rel, 340, 0, %zu\n",begin,end,offset);
++                else location(o,begin,end,offset,reg,globals!=0);
++                start=BL_IR_NONE;
++            }
++            if(i&&i->op==(globals?BL_IR_INIT_GLOBAL:BL_IR_INIT_LOCAL)&&(globals?i->a:p->local_map[i->a])==slot)owner=i->a;
++        }
++    }
++}
++static void cv_record_start(FILE *o,size_t id,unsigned kind) {
++    fprintf(o," .short L_cv_end_%zu-L_cv_record_%zu\nL_cv_record_%zu:\n .short %u\n",id,id,id,kind);
++}
++static void cv_record_end(FILE *o,size_t id) {
++    fprintf(o," .p2align 2,0\nL_cv_end_%zu:\n",id);
++}
++static void cv_type_start(FILE *o,size_t id,unsigned kind) {
++    fprintf(o," .short L_cv_type_end_%zu-L_cv_type_%zu\nL_cv_type_%zu:\n .short %u\n",id,id,id,kind);
++}
++static void cv_padding(FILE *o) {
++    fputs(" .if ((.-L_cv_types)%4)==1\n .byte 243,242,241\n .elseif ((.-L_cv_types)%4)==2\n .byte 242,241\n .elseif ((.-L_cv_types)%4)==3\n .byte 241\n .endif\n",o);
++}
++static void cv_type_end(FILE *o,size_t id) {
++    cv_padding(o);fprintf(o,"L_cv_type_end_%zu:\n",id);
++}
++static void cv_member(FILE *o,const char *name,unsigned type,unsigned offset) {
++    fputs(" .short 0x150d,3\n",o);fprintf(o," .long %u\n .short %u\n",type,offset);string(o,name);
++    cv_padding(o);
++}
++static int codeview(FILE *o,BLIRModule *m) {
++    fputs(".section .debug$T,\"dr\"\n .p2align 2,0\nL_cv_types:\n .long 4\n",o);
++    cv_type_start(o,0,0x1203);cv_member(o,"i",0x13,0);cv_member(o,"obj",0x603,0);cv_type_end(o,0);
++    cv_type_start(o,1,0x1506);fputs(" .short 2,0\n .long 0x1000\n .short 8\n",o);string(o,"BLValuePayload");cv_type_end(o,1);
++    cv_type_start(o,2,0x1203);cv_member(o,"tag",0x74,0);cv_member(o,"as",0x1001,8);cv_type_end(o,2);
++    cv_type_start(o,3,0x1505);fputs(" .short 2,0\n .long 0x1002,0,0\n .short 16\n",o);string(o,"BLValue");cv_type_end(o,3);
++    /* The five-pointer private machine ABI is not a source-level C prototype.
++     * Keep source parameters in S_LOCAL records and use T_NOTYPE for the
++     * callable procedure type rather than claiming a standard calling ABI. */
++    fputs(".section .debug$S,\"dr\"\n .p2align 2,0\n .long 4\n .long 241\n .long L_cv_compile_end-L_cv_compile\nL_cv_compile:\n",o);
++    size_t id=0;
++    cv_record_start(o,id,0x113c);fputs(" .long 0\n .short 208\n .short 1,0,0,0,1,0,0,0\n",o);string(o,"B++ native compiler (tagged runtime values)");cv_record_end(o,id++);
++    fputs("L_cv_compile_end:\n .p2align 2,0\n",o);
++    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];BPPRegPlan p;
++        if(!bpp_reg_plan_create_target(fn,&p,BPP_WINDOWS_X64)){snprintf(m->error,sizeof m->error,"CodeView register planning failed in %s",fn->name);return 0;}
++        size_t maxargs=0;for(size_t b=0;b<fn->block_count;++b)for(size_t k=0;k<fn->blocks[b].count;++k)if(fn->blocks[b].insts[k].arg_count>maxargs)maxargs=fn->blocks[b].insts[k].arg_count;
++        BPPNativeFrameLayout layout;int valid=bpp_native_frame_layout(p.cell_count,p.local_slot_count,maxargs,&layout);
++        size_t *state=owners(fn,&p,0);
++        if(!valid||!state){free(state);bpp_reg_plan_destroy(&p);snprintf(m->error,sizeof m->error,"debug location allocation failed in %s",fn->name);return 0;}
++        fprintf(o," .long 241\n .long L_cv_symbols_end_%zu-L_cv_symbols_%zu\nL_cv_symbols_%zu:\n",f,f,f);
++        cv_record_start(o,id,0x1110);fputs(" .long 0,0,0\n",o);
++        fprintf(o," .long L_bpp_end_%zu-L_proc_%zu\n .long L_bpp_body_%zu-L_proc_%zu\n .long L_bpp_cleanup_%zu-L_proc_%zu\n .long %zu\n .secrel32 L_proc_%zu\n .secidx L_proc_%zu\n .byte 0\n",f,f,f,f,f,f,(size_t)0,f,f);
++        string(o,fn->name);cv_record_end(o,id++);
++        for(size_t l=0;l<fn->local_count;++l){
++            cv_record_start(o,id,0x113e);fprintf(o," .long 0x1003\n .short %u\n",l<fn->param_count?1:0);string(o,fn->locals[l]);cv_record_end(o,id++);
++            if(valid)local_locations(o,fn,&p,&layout,state,f,l,12,1,0);
++        }
++        if(f==0)for(size_t g=0;g<m->global_count;++g){
++            /* Heap globals require a dereferencing location program; the
++             * supported register-relative CodeView ranges cannot express it.
++             * Preserve the name/type without advertising a stale address. */
++            cv_record_start(o,id,0x113e);fputs(" .long 0x1003\n .short 0\n",o);string(o,m->globals[g]);cv_record_end(o,id++);
++        }
++        fputs(" .short 2,6\n",o);fprintf(o,"L_cv_symbols_end_%zu:\n .p2align 2,0\n .cv_linetable %zu, L_proc_%zu, L_bpp_end_%zu\n",f,f,f,f);
++        free(state);bpp_reg_plan_destroy(&p);
++    }
++    fputs(" .cv_filechecksums\n .cv_stringtable\n",o);return !ferror(o);
++}
++int bpp_debug_sections(FILE *o,BLIRModule *m,BPPTarget t) {
++    if(!m->debug_path)return 1;
++    if(bpp_target_capabilities(t)->format==BPP_FORMAT_COFF)return codeview(o,m);
++    unsigned frame_reg=bpp_target_capabilities(t)->isa==BPP_ISA_ARM64?19:12;
++    section(o,t,"debug_abbrev");abbreviations(o);
++    section(o,t,"debug_info");
++    fputs("L_bpp_cu:\n .long L_bpp_cu_end-L_bpp_cu_header\nL_bpp_cu_header:\n .short 4\n",o);
++    fputs(t==BPP_MACOS_ARM64?" .long L_bpp_abbrev-L_bpp_abbrev\n":" .long L_bpp_abbrev\n",o);
++    fputs(" .byte 8\n .uleb128 1\n",o);
++    string(o,"B++ native compiler (tagged runtime values)");
++    /* C99 describes the runtime representation, rather than inventing static
++     * B++ types for a language whose declarations permit dynamic values. */
++    fputs(" .short 12\n",o);string(o,m->sources.file_count?m->sources.files[0].path:m->path);
++    fputs(t==BPP_MACOS_ARM64?" .long L_bpp_line-L_bpp_line\n":" .long L_bpp_line\n",o);
++    fprintf(o," .quad L_proc_0\n .quad L_bpp_end_%zu-L_proc_0\n",m->function_count-1);
++    fputs(t==BPP_MACOS_ARM64?" .long L_bpp_imports-L_bpp_imports\n":" .long L_bpp_imports\n",o);
++    fputs("L_bpp_type_tag:\n .uleb128 2\n",o);string(o,"BLValueTag");fputs(" .byte 5,4\nL_bpp_type_integer:\n .uleb128 2\n",o);string(o,"long long");
++    fputs(" .byte 5,8\nL_bpp_type_pointer:\n .uleb128 6\n .byte 8\nL_bpp_type_payload:\n .uleb128 4\n",o);string(o,"BLValuePayload");fputs(" .byte 8\n",o);
++    member(o,"i","integer",0);member(o,"obj","pointer",0);fputs(" .byte 0\nL_bpp_type_value:\n .uleb128 3\n",o);string(o,"BLValue");fputs(" .byte 16\n",o);
++    member(o,"tag","tag",0);member(o,"as","payload",8);fputs(" .byte 0\n",o);
++    for(size_t g=0;g<m->global_count;++g){fputs(" .uleb128 8\n",o);string(o,m->globals[g]);declaration(o,m->global_debug?m->global_debug[g].span:m->functions[0].span);
++        fputs(" .long L_bpp_type_value-L_bpp_cu\n",o);
++        fprintf(o,t==BPP_MACOS_ARM64?" .long L_bpp_global_loc_%zu-L_bpp_locations\n":" .long L_bpp_global_loc_%zu\n",g);
++    }
++    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];
++        fprintf(o," .uleb128 %u\n",fn->local_count?7:10);string(o,fn->name);declaration(o,fn->span);
++        fprintf(o," .quad L_proc_%zu\n .quad L_bpp_end_%zu-L_proc_%zu\n .uleb128 1\n .byte %u\n .long L_bpp_type_value-L_bpp_cu\n .byte 3\n",f,f,f,80+frame_reg);
++        for(size_t l=0;l<fn->local_count;++l){fprintf(o," .uleb128 %u\n",l<fn->param_count?9:8);string(o,fn->locals[l]);declaration(o,fn->local_debug?fn->local_debug[l].span:fn->span);
++            fputs(" .long L_bpp_type_value-L_bpp_cu\n",o);
++            fprintf(o,t==BPP_MACOS_ARM64?" .long L_bpp_loc_%zu_%zu-L_bpp_locations\n":" .long L_bpp_loc_%zu_%zu\n",f,l);}
++        if(fn->local_count)fputs(" .byte 0\n",o);
++    }
++    fputs(" .byte 0\nL_bpp_cu_end:\n",o);
++    section(o,t,"debug_loc");fputs("L_bpp_locations:\n",o);
++    for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];BPPRegPlan p;
++        if(!bpp_reg_plan_create_target(fn,&p,t)){snprintf(m->error,sizeof m->error,"DWARF register planning failed in %s",fn->name);return 0;}
++        BPPNativeFrameLayout layout;size_t maxargs=0;
++        for(size_t b=0;b<fn->block_count;++b)for(size_t k=0;k<fn->blocks[b].count;++k)if(fn->blocks[b].insts[k].arg_count>maxargs)maxargs=fn->blocks[b].insts[k].arg_count;
++        int valid=bpp_native_frame_layout(p.cell_count,p.local_slot_count,maxargs,&layout);
++        size_t *state=owners(fn,&p,0);
++        if(!valid||!state){free(state);bpp_reg_plan_destroy(&p);snprintf(m->error,sizeof m->error,"debug location allocation failed in %s",fn->name);return 0;}
++        for(size_t l=0;l<fn->local_count;++l){fprintf(o,"L_bpp_loc_%zu_%zu:\n",f,l);
++            /* The slot flag alone cannot distinguish recycled logical owners. */
++            if(valid)local_locations(o,fn,&p,&layout,state,f,l,frame_reg,0,0);
++            fputs(" .quad 0,0\n",o);
++        }
++        if(f==0&&m->global_count){size_t *global_state=owners(fn,&p,m->global_count);
++            if(!global_state){free(state);bpp_reg_plan_destroy(&p);snprintf(m->error,sizeof m->error,"global debug location allocation failed");return 0;}
++            for(size_t g=0;g<m->global_count;++g){fprintf(o,"L_bpp_global_loc_%zu:\n",g);local_locations(o,fn,&p,&layout,global_state,0,g,frame_reg,0,m->global_count);fputs(" .quad 0,0\n",o);}
++            free(global_state);
++        }
++        free(state);bpp_reg_plan_destroy(&p);
++    }
++    /* DWARF 4 import nesting uses standard start_file/end_file records. No
++     * macro definitions or expansions are invented for discarded declarations. */
++    section(o,t,"debug_macinfo");fputs("L_bpp_imports:\n",o);size_t active=0;
++    for(size_t j=0;j<m->sources.context_count;++j){BPPImportContext c=m->sources.contexts[j];
++        while(active!=c.parent){fputs(" .byte 4\n",o);active=m->sources.contexts[active-1].parent;}
++        fprintf(o," .byte 3\n .uleb128 %d\n .uleb128 %zu\n",c.line,c.file);active=j+1;
++    }
++    while(active){fputs(" .byte 4\n",o);active=m->sources.contexts[active-1].parent;}
++    fputs(" .byte 0\n",o);
++    return !ferror(o);
++}
+diff --git a/src/emit_arm64.c b/src/emit_arm64.c
+index a60cc06..a9c911a 100755
+--- a/src/emit_arm64.c
++++ b/src/emit_arm64.c
+@@ -1,3 +1,4 @@
++#include "debug.h"
+ #include "../include/compiler.h"
+ #include "../include/target.h"
+ #include "../include/codegen_abi.h"
+@@ -56,9 +57,9 @@ static void arm_save_prologue(FILE *o,const BPPRegPlan *plan){
+ }
+ static void arm_save_epilogue(FILE *o,const BPPRegPlan *plan){
+     unsigned ids[BPP_MAX_ALLOCATABLE_REGS];size_t n=arm_saved_registers(plan,ids);
+-    fputs("    mov sp, x29\n",o);
++
+     for(size_t i=0;i<n;++i){size_t off=(i+1)*8;fprintf(o,"    ldr x%u, [x29, #-%zu]\n    .cfi_restore x%u\n",ids[i],off,ids[i]);}
+-    fputs("    ldp x29, x30, [sp], #16\n    .cfi_def_cfa sp, 0\n    .cfi_restore x29\n    .cfi_restore x30\n    ret\n    .cfi_endproc\n",o);
++    fputs("    mov sp, x29\n    ldp x29, x30, [sp], #16\n    .cfi_def_cfa sp, 0\n    .cfi_restore x29\n    .cfi_restore x30\n    ret\n    .cfi_endproc\n",o);
+ }
+ static void label(Emitter *e,const char *name) { fprintf(e->out,"L_%s_%zu_%zu_%zu",name,e->f,e->b,e->k); }
+ static void farjump(FILE *o,const char *target,int call){
+@@ -223,7 +224,9 @@ static int fast(Emitter *e,const BLIRInst *i) {
+ }
+ static void slow(Emitter *e,const BLIRInst *i,int conditional) {
+     flush(e,conditional?e->before:e->dirty,!conditional);
+-    FILE *o=e->out;fputs("    mov x0, x19\n",o);
++    FILE *o=e->out;
++    if(i->span.file){char name[80];snprintf(name,sizeof name,"L_source_%zu",i->span.file);fputs("    ldr x9, [x19]\n",o);addr(o,10,name);fputs("    str x10, [x9]\n",o);}
++    fputs("    mov x0, x19\n",o);
+     if(i->op==BL_IR_STRING){imm(o,1,i->dst);char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu",e->f,e->b,e->k);addr(o,2,s);fputs("    bl _bpp_a_string\n",o);}
+     else if(i->op==BL_IR_CALL) {
+         for(size_t j=0;j<i->arg_count;++j){fputs("    mov x0, x19\n",o);imm(o,1,j);imm(o,2,i->args[j]);fputs("    bl _bpp_a_arg\n",o);}
+@@ -269,7 +272,8 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
+         for(size_t f=0;f<m->function_count;++f)bpp_reg_plan_destroy(&plans[f]);
+         free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return 0;
+     }
+-    bpp_asm_source(o,m);
++    bpp_debug_line_start(o,m,target);
++    bpp_asm_source(o,m,target);
+     fputs("// B++ native codegen; compiler-private ABI placeholder revision 2\n.section __TEXT,__text,regular,pure_instructions\n.p2align 2\n.globl _main\n_main:\n    .cfi_startproc\n    stp x29, x30, [sp, #-16]!\n    .cfi_def_cfa_offset 16\n    .cfi_offset w29, -16\n    .cfi_offset w30, -8\n    mov x29, sp\n",o);
+     addr(o,0,"L_proc_0");addr(o,1,"L_path");imm(o,2,m->global_count);imm(o,3,(uint64_t)(print_result!=0));
+     fputs("    bl _bpp_a_run\n    ldp x29, x30, [sp], #16\n    .cfi_def_cfa_offset 0\n    .cfi_restore w29\n    .cfi_restore w30\n    ret\n    .cfi_endproc\n",o);
+@@ -279,12 +283,15 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
+         if(!e.fact_regs||!e.fact_locals||!e.fact_globals){bpp_value_facts_destroy(&e.facts);free(e.fact_regs);free(e.fact_locals);free(e.fact_globals);for(size_t j=0;j<m->function_count;++j)bpp_reg_plan_destroy(&plans[j]);free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return 0;}
+         memset(dirty,0,fn->register_count);memset(dirty_phys,0,fn->register_count*sizeof *dirty_phys);
+         fprintf(o,"// payload registers: %zu of %zu IR values cached in x20/x21/x22/x23/x24/x25/x27/x28\n.p2align 2\nL_proc_%zu:\n    .cfi_startproc\n",plans[f].cached_count,fn->register_count,f);
++        bpp_debug_artificial_location(o,m,fn,target,1);
+         arm_save_prologue(o,&plans[f]);
+         fputs("    mov x20, x0\n    mov x21, x1\n    mov x22, x2\n    mov x24, x4\n",o);
+         imm(o,9,e.layout.bytes);fprintf(o,"L_probe_%zu:\n    cmp x9, #4096\n    b.lo L_probe_tail_%zu\n    sub sp, sp, #4096\n    str xzr, [sp]\n    sub x9, x9, #4096\n    b L_probe_%zu\nL_probe_tail_%zu:\n    sub sp, sp, x9\n    mov x19, sp\n",f,f,f,f);
+         char name[64];snprintf(name,sizeof name,"L_layout_%zu",f);addr(o,4,name);fputs("    mov x5, x19\n    bl _bpp_n_enter\n    str x24, [x19, #96]\n",o);if(m->instrument_native)fputs("    ldr x0, [x29, #8]\n    bl _bpp_a_trace_enter\n",o);fprintf(o,"    b L_f%zu_b0\n",f);
++        if(m->debug_path)fprintf(o,"L_bpp_body_%zu:\n",f);
++        int prologue_end=1;
+             for(size_t b=0;b<fn->block_count;++b){e.b=b;bpp_value_facts_begin_block(&e.facts,b,e.fact_regs,e.fact_locals,e.fact_globals);sync_known(&e);memset(dirty,0,fn->register_count);memset(dirty_phys,0,fn->register_count*sizeof *dirty_phys);memset(loaded_phys,0,fn->register_count*sizeof *loaded_phys);if(!m->instrument_native)for(size_t r=0;r<fn->register_count;++r){unsigned p=bpp_reg_dirty_entry(&plans[f],b,r);if(p){dirty[r]=1;dirty_phys[r]=p;loaded_phys[r]=p;}}fprintf(o,"L_f%zu_b%zu:\n",f,b);
+-            for(size_t k=0;k<fn->blocks[b].count;++k){e.k=k;const BLIRInst *i=&fn->blocks[b].insts[k];if(i->dst!=BL_IR_NONE&&e.plan->begin[i->dst]==SIZE_MAX)continue;if(m->debug_path)bpp_asm_location(o,i);if(m->emit_asm_comments)bpp_asm_instruction_comment(o,fn,f,b,k,e.plan,target,0);
++            for(size_t k=0;k<fn->blocks[b].count;++k){e.k=k;const BLIRInst *i=&fn->blocks[b].insts[k];if(m->debug_path)fprintf(o,"L_bpp_i_%zu_%zu_%zu:\n",f,b,k);if(i->dst!=BL_IR_NONE&&e.plan->begin[i->dst]==SIZE_MAX)continue;if(m->debug_path){bpp_asm_location(o,i,target,f,prologue_end);if(i->span.file)prologue_end=0;}if(m->emit_asm_comments)bpp_asm_instruction_comment(o,fn,f,b,k,e.plan,target,0);
+                 if(m->instrument_native&&(i->op==BL_IR_LOAD_GLOBAL||i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL)){flush(&e,e.dirty,1);fputs("    mov x0, x19\n",o);imm(o,1,i->op);imm(o,2,i->a);fputs("    bl _bpp_a_access\n",o);}
+                 if(i->op==BL_IR_JUMP){edge_flush(&e,i->a);char target[64];snprintf(target,sizeof target,"L_f%zu_b%zu",f,i->a);farjump(o,target,0);memset(e.dirty,0,fn->register_count);memset(e.dirty_phys,0,fn->register_count*sizeof *e.dirty_phys);continue;}
+                 if(i->op==BL_IR_RETURN){flush(&e,e.dirty,1);imm(o,1,i->a);char target[64];snprintf(target,sizeof target,"L_cleanup_%zu",f);farjump(o,target,0);continue;}
+@@ -298,12 +305,16 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
+                 if(conditional) define(&e,"slow");
+                 slow(&e,i,conditional); define(&e,"done");bpp_value_facts_transfer(&e.facts,i,e.fact_regs,e.fact_locals,e.fact_globals);sync_known(&e);
+             }
++            if(m->debug_path)fprintf(o,"L_bpp_i_%zu_%zu_%zu:\n",f,b,fn->blocks[b].count);
+         }
++        bpp_debug_artificial_location(o,m,fn,target,0);
++        if(m->debug_path)fprintf(o,"L_bpp_cleanup_%zu:\n",f);
+         fprintf(o,"L_fail_%zu:\n",f);imm(o,1,UINT64_MAX);fprintf(o,"L_cleanup_%zu:\n    mov x0, x19\n    ldr x2, [x19, #96]\n    bl _bpp_a_leave\n",f);
+         if(m->instrument_native)fputs("    bl _bpp_a_trace_exit\n",o);
+-        arm_save_epilogue(o,&plans[f]);if(m->emit_asm_comments){fprintf(o,"    // B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",fn->name,e.emitted_spills,e.emitted_reloads,e.emitted_rematerializations);access_traffic(o,fn);}bpp_value_facts_destroy(&e.facts);free(e.fact_regs);free(e.fact_locals);free(e.fact_globals);
++        arm_save_epilogue(o,&plans[f]);if(m->debug_path)fprintf(o,"L_bpp_end_%zu:\n",f);if(m->emit_asm_comments){fprintf(o,"    // B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",fn->name,e.emitted_spills,e.emitted_reloads,e.emitted_rematerializations);access_traffic(o,fn);}bpp_value_facts_destroy(&e.facts);free(e.fact_regs);free(e.fact_locals);free(e.fact_globals);
+     }
+     fputs(".section __TEXT,__cstring,cstring_literals\n",o);literal(o,"L_path",m->path);
++    for(size_t j=0;j<m->sources.file_count;++j){char name[80];snprintf(name,sizeof name,"L_source_%zu",j+1);literal(o,name,m->sources.files[j].path);}
+     for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];if(i->text){char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu",f,b,k);literal(o,s,i->text);}}
+     fputs(".section __TEXT,__const\n.p2align 3\n",o);
+     for(size_t f=0;f<m->function_count;++f){
+@@ -312,7 +323,8 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
+         if(flags&BPP_LAYOUT_REGISTER_MAP)for(size_t r=0;r<m->functions[f].register_count;++r)fprintf(o,"    .quad %zu\n",plans[f].cell[r]);
+         if(flags&BPP_LAYOUT_LOCAL_MAP)for(size_t l=0;l<m->functions[f].local_count;++l)fprintf(o,"    .quad %zu\n",plans[f].local_map[l]);
+     }
++    int metadata_ok=bpp_debug_sections(o,m,target);
+     fputs(".subsections_via_symbols\n",o);
+     for(size_t f=0;f<m->function_count;++f)bpp_reg_plan_destroy(&plans[f]);
+-    free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return !ferror(o);
++    free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return metadata_ok&&!ferror(o);
+ }
+diff --git a/src/emit_c.c b/src/emit_c.c
+index f17017f..0f3076e 100755
+--- a/src/emit_c.c
++++ b/src/emit_c.c
+@@ -39,6 +39,7 @@ int bl_emit_c(BLIRModule *m, FILE *out, int print_result) {
+             fprintf(out, "b%zu:\n", b);
+             for (size_t k = 0; k < fn->blocks[b].count; ++k) {
+                 BLIRInst *i = &fn->blocks[b].insts[k];
++                if(i->span.file&&i->span.file<=m->sources.file_count){fputs("  vm->path=",out);cstring(out,m->sources.files[i->span.file-1].path);fputs(";\n",out);}
+                 fputs("  ", out);
+                 int dest = i->dst != BL_IR_NONE;
+                 if (dest) fprintf(out, "bl_rt_move(&r[%zu], ", i->dst);
+diff --git a/src/emit_x64.c b/src/emit_x64.c
+index 81f51d5..9d317e0 100755
+--- a/src/emit_x64.c
++++ b/src/emit_x64.c
+@@ -1,3 +1,4 @@
++#include "debug.h"
+ #include "../include/target.h"
+ #include "../include/codegen_abi.h"
+ #include "../include/regalloc.h"
+@@ -162,7 +163,9 @@ static int fast(X *e,const BLIRInst *i){FILE *o=e->out;
+     }
+ }
+ static void textref(X *e,unsigned argn){char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu(%%rip)",e->f,e->b,e->k);arg(e,argn,s,1);}
+-static void slow(X *e,const BLIRInst *i,int conditional){flush(e,conditional?e->before:e->dirty,!conditional);arg(e,0,"%r12",0);
++static void slow(X *e,const BLIRInst *i,int conditional){flush(e,conditional?e->before:e->dirty,!conditional);
++    if(i->span.file)fprintf(e->out,"    movq 0(%%r12), %%rax\n    leaq L_source_%zu(%%rip), %%r11\n    movq %%r11, (%%rax)\n",i->span.file);
++    arg(e,0,"%r12",0);
+     if(i->op==BL_IR_STRING){number(e,1,i->dst);textref(e,2);call(e,"bpp_a_string");}
+     else if(i->op==BL_IR_CALL){
+         for(size_t j=0;j<i->arg_count;++j){arg(e,0,"%r12",0);number(e,1,j);number(e,2,i->args[j]);call(e,"bpp_a_arg");}
+@@ -220,7 +223,8 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
+     }
+     if(!ok&&!m->error[0])frame_error(m,&m->functions[failed_fn],"x86-64");
+     if(ok){
+-        bpp_asm_source(o,m);
++        bpp_debug_line_start(o,m,win?BPP_WINDOWS_X64:BPP_LINUX_X64);
++        bpp_asm_source(o,m,win?BPP_WINDOWS_X64:BPP_LINUX_X64);
+         fputs("# B++ native x86-64, private ABI revision 2\n.text\n.globl main\nmain:\n",o);
+         X *e=&all[0];
+         if(win)fputs("    .seh_proc main\n    subq $40, %rsp\n    .seh_stackalloc 40\n    .seh_endprologue\n",o);
+@@ -228,6 +232,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
+         arg(e,0,"L_proc_0(%rip)",1);arg(e,1,"L_path(%rip)",1);number(e,2,m->global_count);number(e,3,(uint64_t)print);call(e,"bpp_a_run");
+         if(win)fputs("    addq $40, %rsp\n    ret\n    .seh_endproc\n",o);else fputs("    popq %rbp\n    .cfi_def_cfa %rsp, 8\n    ret\n    .cfi_endproc\n",o);
+         for(size_t f=0;f<m->function_count;++f){e=&all[f];size_t alloc=e->alloc;fprintf(o,".p2align 4\nL_proc_%zu:\n",f);
++            bpp_debug_artificial_location(o,m,e->fn,win?BPP_WINDOWS_X64:BPP_LINUX_X64,1);
+             if(win)fprintf(o,"    .seh_proc L_proc_%zu\n",f);else fputs("    .cfi_startproc\n",o);
+             for(size_t s=0;s<e->saved_count;++s){const char *name=cache(e,e->saved[s]);fprintf(o,"    pushq %s\n",name);
+     if(win)fprintf(o,"    .seh_pushreg %s\n",name);else{
+@@ -239,10 +244,13 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
+             fputs("    leaq 64(%rsp), %r12\n",o);char layout[80];snprintf(layout,sizeof layout,"L_layout_%zu(%%rip)",f);arg(e,4,layout,1);arg(e,5,"%r12",0);call(e,"bpp_n_enter");
+             if(win)fputs("    movq %rbp, 96(%r12)\n",o);else fprintf(o,"    movq -%zu(%%rbp), %%rax\n    movq %%rax, 96(%%r12)\n",e->saved_count*8);
+             if(m->instrument_native){char caller[64];if(win)snprintf(caller,sizeof caller,"%zu(%%rsp)",alloc+e->saved_count*8);else snprintf(caller,sizeof caller,"8(%%rbp)");arg(e,0,caller,0);call(e,"bpp_a_trace_enter");}
++            if(m->debug_path)fprintf(o,"L_bpp_body_%zu:\n",f);
++            int prologue_end=1;
+             for(size_t b=0;b<e->fn->block_count;++b){e->b=b;bpp_value_facts_begin_block(&e->facts,b,e->fact_regs,e->fact_locals,e->fact_globals);sync_known(e);memset(e->dirty,0,e->fn->register_count);memset(e->dirty_phys,0,e->fn->register_count*sizeof *e->dirty_phys);memset(e->loaded_phys,0,e->fn->register_count*sizeof *e->loaded_phys);if(!m->instrument_native)for(size_t r=0;r<e->fn->register_count;++r){unsigned p=bpp_reg_dirty_entry(&e->plan,b,r);if(p){e->dirty[r]=1;e->dirty_phys[r]=p;e->loaded_phys[r]=p;}}fprintf(o,"L_f%zu_b%zu:\n",f,b);
+                 for(size_t k=0;k<e->fn->blocks[b].count;++k){e->k=k;const BLIRInst *i=&e->fn->blocks[b].insts[k];
++                    if(m->debug_path)fprintf(o,"L_bpp_i_%zu_%zu_%zu:\n",f,b,k);
+                     if(i->dst!=BL_IR_NONE&&e->plan.begin[i->dst]==SIZE_MAX)continue;
+-                    if(m->debug_path)bpp_asm_location(o,i);
++                    if(m->debug_path){bpp_asm_location(o,i,win?BPP_WINDOWS_X64:BPP_LINUX_X64,f,prologue_end);if(i->span.file)prologue_end=0;}
+                     if(m->emit_asm_comments)bpp_asm_instruction_comment(o,e->fn,f,b,k,&e->plan,target,1);
+                     if(m->instrument_native&&(i->op==BL_IR_LOAD_GLOBAL||i->op==BL_IR_STORE_GLOBAL||i->op==BL_IR_INIT_GLOBAL)){flush(e,e->dirty,1);arg(e,0,"%r12",0);number(e,1,i->op);number(e,2,i->a);call(e,"bpp_a_access");}
+                     if(i->op==BL_IR_RETURN){flush(e,e->dirty,1);number(e,1,i->a);fprintf(o,"    jmp L_cleanup_%zu\n",f);continue;}
+@@ -259,19 +267,24 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
+     if(conditional)def(e,"slow");
+                     slow(e,i,conditional);def(e,"done");bpp_value_facts_transfer(&e->facts,i,e->fact_regs,e->fact_locals,e->fact_globals);sync_known(e);
+                 }
++                if(m->debug_path)fprintf(o,"L_bpp_i_%zu_%zu_%zu:\n",f,b,e->fn->blocks[b].count);
+             }
++            bpp_debug_artificial_location(o,m,e->fn,win?BPP_WINDOWS_X64:BPP_LINUX_X64,0);
++            if(m->debug_path)fprintf(o,"L_bpp_cleanup_%zu:\n",f);
+             fprintf(o,"L_fail_%zu:\n",f);number(e,1,UINT64_MAX);fprintf(o,"L_cleanup_%zu:\n",f);arg(e,0,"%r12",0);arg(e,2,"96(%r12)",0);call(e,"bpp_a_leave");
+             if(m->instrument_native)call(e,"bpp_a_trace_exit");
+             fprintf(o,"    addq $%zu, %%rsp\n",alloc);for(size_t s=e->saved_count;s-- >0;){const char *name=cache(e,e->saved[s]);fprintf(o,"    popq %s\n",name);
+     if(!win)fprintf(o,"    .cfi_restore %s\n",name);}
+             if(!win)fputs("    .cfi_def_cfa %rsp, 8\n",o);
+     fputs("    ret\n",o);
+-    fputs(win?"    .seh_endproc\n":"    .cfi_endproc\n",o);if(e->asm_comments){fprintf(o,"    # B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",e->fn->name,e->emitted_spills,e->emitted_reloads,e->emitted_rematerializations);access_traffic(o,e->fn);}
++    fputs(win?"    .seh_endproc\n":"    .cfi_endproc\n",o);if(m->debug_path)fprintf(o,"L_bpp_end_%zu:\n",f);if(e->asm_comments){fprintf(o,"    # B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",e->fn->name,e->emitted_spills,e->emitted_reloads,e->emitted_rematerializations);access_traffic(o,e->fn);}
+         }
+         fputs(win?".section .rdata,\"dr\"\n":".section .rodata\n",o);literal(o,"L_path",m->path);
++        for(size_t j=0;j<m->sources.file_count;++j){char name[80];snprintf(name,sizeof name,"L_source_%zu",j+1);literal(o,name,m->sources.files[j].path);}
+         for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];
+     if(i->text){char label[96];snprintf(label,sizeof label,"L_text_%zu_%zu_%zu",f,b,k);literal(o,label,i->text);}}
+         fputs(".p2align 3\n",o);for(size_t f=0;f<m->function_count;++f){e=&all[f];size_t flags=layout_flags(&e->plan,e->fn);fprintf(o,"L_layout_%zu:\n    .quad %zu,%zu,%zu,%zu,%zu,%zu,%zu,%zu\n",f,e->fn->param_count,e->fn->register_count,e->fn->local_count,e->maxargs,e->plan.cell_count,e->plan.local_slot_count,e->plan.root_cell_count,flags);if(flags&BPP_LAYOUT_REGISTER_MAP)for(size_t r=0;r<e->fn->register_count;++r)fprintf(o,"    .quad %zu\n",e->plan.cell[r]);if(flags&BPP_LAYOUT_LOCAL_MAP)for(size_t l=0;l<e->fn->local_count;++l)fprintf(o,"    .quad %zu\n",e->plan.local_map[l]);}
++        if(!bpp_debug_sections(o,m,win?BPP_WINDOWS_X64:BPP_LINUX_X64))ok=0;
+         if(!win)fputs(".section .note.GNU-stack,\"\",@progbits\n",o);
+     }
+             for(size_t f=0;f<m->function_count;++f){bpp_reg_plan_destroy(&all[f].plan);bpp_value_facts_destroy(&all[f].facts);free(all[f].dirty);free(all[f].before);free(all[f].kind);free(all[f].constant);free(all[f].loaded_phys);free(all[f].value);free(all[f].dirty_phys);free(all[f].fact_regs);free(all[f].fact_locals);free(all[f].fact_globals);}free(all);return ok&&!ferror(o);
+diff --git a/src/ir.c b/src/ir.c
+index 8551aaa..379d724 100755
+--- a/src/ir.c
++++ b/src/ir.c
+@@ -26,7 +26,7 @@ static void error(BLIRModule *m, const BLNode *n, const char *fmt, ...) {
+     if (m->error[0]) return;
+     char msg[320]; va_list ap; va_start(ap, fmt);
+     vsnprintf(msg, sizeof msg, fmt, ap); va_end(ap);
+-    snprintf(m->error, sizeof m->error, "%s:%d:%d: %s", m->path ? m->path : "<input>",
++    snprintf(m->error, sizeof m->error, "%s:%d:%d: %s", n&&n->source_path?n->source_path:(m->path ? m->path : "<input>"),
+              n ? n->line : 1, n ? n->column : 1, msg);
+ }
+ void bl_ir_init(BLIRModule *m) { memset(m, 0, sizeof *m); }
+@@ -40,9 +40,13 @@ void bl_ir_dispose(BLIRModule *m) {
+             free(b->insts);
+         }
+         for (size_t j = 0; j < f->local_count; ++j) free(f->locals[j]);
+-        free(f->locals); free(f->blocks); free(f->name);
++        if(f->local_debug)for(size_t j=0;j<f->local_count;++j)free(f->local_debug[j].type_name);
++        free(f->local_debug);free(f->locals); free(f->blocks); free(f->name);
+     }
+     for (size_t i = 0; i < m->global_count; ++i) free(m->globals[i]);
++    if(m->global_debug)for(size_t j=0;j<m->global_count;++j)free(m->global_debug[j].type_name);
++    for(size_t j=0;j<m->sources.file_count;++j)free(m->sources.files[j].path);
++    free(m->sources.files);free(m->sources.contexts);free(m->sources.lines);free(m->global_debug);
+     free(m->globals); free(m->functions); free(m->path); free(m->expanded_source); free(m->debug_path); bl_ir_init(m);
+ }
+ const char *bl_ir_last_error(const BLIRModule *m) { return m ? m->error : ""; }
+@@ -88,7 +92,10 @@ static void collect(BLIRModule *m, BLIRFunction *f, const BLNode *n) {
+         if (find(*names, *count, n->as.var_decl.name) != BL_IR_NONE) {
+             error(m, n, "duplicate declaration '%s'", n->as.var_decl.name); return;
+         }
+-        add_name(names, count, cap, n->as.var_decl.name); break;
++        BLIRId id=add_name(names, count, cap, n->as.var_decl.name);
++        BPPDebugVariable **debug=f?&f->local_debug:&m->global_debug;
++        *debug=grow(*debug,*count,sizeof **debug);
++        (*debug)[id]=(BPPDebugVariable){copy(n->as.var_decl.type_name),n->span};break;
+     }
+     case AST_IF:
+         collect(m, f, n->as.if_stmt.then_branch); collect(m, f, n->as.if_stmt.else_branch); break;
+@@ -109,7 +116,7 @@ static BLIRId block_new(Lower *l) {
+ }
+ static BLIRInst inst(BLIROp op, const BLNode *n) {
+     BLIRInst i; memset(&i, 0, sizeof i); i.op = op;
+-    i.dst = i.a = i.b = i.c = BL_IR_NONE; i.line = n ? n->line : 1; i.column = n ? n->column : 1; return i;
++    i.dst = i.a = i.b = i.c = BL_IR_NONE; i.line = n ? n->line : 1; i.column = n ? n->column : 1; if(n)i.span=n->span;return i;
+ }
+ static void emit(Lower *l, BLIRInst i) {
+     if (l->m->error[0]) { free(i.text); free(i.args); return; }
+@@ -252,14 +259,14 @@ static void stmt(Lower *l, const BLNode *n) {
+ static void lower_function(BLIRModule *m, BLIRId id, const BLNode *body) {
+     Lower l = {m, &m->functions[id], 0, id == 0}; l.block = block_new(&l); stmt(&l, body);
+     if (!m->error[0] && !ended(&l)) {
+-        BLIRId r = expr(&l, NULL); BLIRInst i = inst(BL_IR_RETURN, body); i.a = r; emit(&l, i);
++        BLIRId r = expr(&l, NULL); BLIRInst i = inst(BL_IR_RETURN, NULL); i.a = r; emit(&l, i);
+     }
+ }
+ int bl_ir_compile(BLIRModule *m, const char *path, const BLNode *program) {
+     if (!m) return 0;
+     bl_ir_dispose(m); m->path = copy(path ? path : "<memory>");
+     if (!program || program->kind != AST_PROGRAM) { error(m, program, "expected AST_PROGRAM"); return 0; }
+-    add_function(m, "<module>");
++    add_function(m, "<module>");m->functions[0].span=program->span;
+     /* Declare every function before lowering to support recursion/forward calls. */
+     for (size_t j = 0; j < program->as.list.count; ++j) {
+         const BLNode *n = program->as.list.items[j];
+@@ -268,11 +275,13 @@ int bl_ir_compile(BLIRModule *m, const char *path, const BLNode *program) {
+             error(m, n, "duplicate or reserved function '%s'", n->as.proc_def.name); break;
+         }
+         BLIRId id = add_function(m, n->as.proc_def.name); BLIRFunction *f = &m->functions[id];
+-        f->param_count = n->as.proc_def.param_count;
++        f->span=n->span;f->param_count = n->as.proc_def.param_count;
+         for (size_t k = 0; k < f->param_count; ++k) {
+             const char *p = n->as.proc_def.params[k];
+             if (find(f->locals, f->local_count, p) != BL_IR_NONE) { error(m, n, "duplicate parameter '%s'", p); break; }
+             add_name(&f->locals, &f->local_count, &f->local_capacity, p);
++            f->local_debug=grow(f->local_debug,f->local_count,sizeof *f->local_debug);
++            f->local_debug[k]=(BPPDebugVariable){copy("dynamic"),n->as.proc_def.param_spans?n->as.proc_def.param_spans[k]:n->span};
+         }
+         collect(m, f, n->as.proc_def.body);
+     }
+diff --git a/src/lexer.c b/src/lexer.c
+index 39c7fa5..d7cc136 100755
+--- a/src/lexer.c
++++ b/src/lexer.c
+@@ -57,6 +57,7 @@ static BLToken bl_make_token(BLTokenKind kind, const char *start, size_t length,
+     token.length = length;
+     token.line = line;
+     token.column = column;
++    token.end_line=line;token.end_column=column;
+     token.number = 0;
+     return token;
+ }
+@@ -94,7 +95,7 @@ void bl_lexer_init(BLLexer *lexer, const char *path, const char *source) {
+     lexer->column = 1;
+ }
+ 
+-BLToken bl_lexer_next(BLLexer *lexer) {
++static BLToken bl_lexer_next_inner(BLLexer *lexer) {
+     bl_lexer_skip_space(lexer);
+ 
+     int line = lexer->line;
+@@ -171,3 +172,9 @@ BLToken bl_lexer_next(BLLexer *lexer) {
+ 
+     return bl_make_token(TOK_EOF, start, 0, line, column);
+ }
++
++BLToken bl_lexer_next(BLLexer *lexer) {
++    BLToken token=bl_lexer_next_inner(lexer);
++    token.end_line=lexer->line;token.end_column=lexer->column;
++    return token;
++}
+diff --git a/src/locations.c b/src/locations.c
+index dfff114..b91fa94 100755
+--- a/src/locations.c
++++ b/src/locations.c
+@@ -16,7 +16,12 @@ static void clobbers(FILE *o,unsigned flags){
+ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
+     if(!bl_ir_validate_pass(m,"location-map backend input"))return 0;
+     fputs("{\"target\":",o);quote(o,bpp_target_name(t));
++    fprintf(o,",\"preserve_access_observability\":%s",m->preserve_access_observability?"true":"false");
+     fputs(",\"source\":",o);quote(o,m->path);
++    fputs(",\"source_files\":[",o);for(size_t j=0;j<m->sources.file_count;++j){if(j)fputc(',',o);fprintf(o,"{\"id\":%zu,\"path\":",j+1);quote(o,m->sources.files[j].path);fputc('}',o);}fputc(']',o);
++    fputs(",\"import_contexts\":[",o);for(size_t j=0;j<m->sources.context_count;++j){BPPImportContext c=m->sources.contexts[j];if(j)fputc(',',o);fprintf(o,"{\"id\":%zu,\"file\":%zu,\"parent\":%zu,\"line\":%d,\"column\":%d}",j+1,c.file,c.parent,c.line,c.column);}fputc(']',o);
++    fputs(",\"globals\":[",o);for(size_t j=0;j<m->global_count;++j){if(j)fputc(',',o);fputs("{\"name\":",o);quote(o,m->globals[j]);
++        if(m->global_debug){BPPDebugVariable d=m->global_debug[j];fputs(",\"declared_type\":",o);quote(o,d.type_name);fprintf(o,",\"source_file\":%zu,\"line\":%d,\"column\":%d",d.span.file,d.span.line,d.span.column);}fputc('}',o);}fputc(']',o);
+     fprintf(o,",\"redundant_access_metrics\":{\"slot_loads\":%zu,\"slot_stores\":%zu,\"branches\":%zu,\"helper_calls\":%zu,\"eliminated_slot_loads\":%zu,\"eliminated_slot_stores\":%zu,\"value_numbered_expressions\":%zu,\"effect_barriers\":%zu}",m->redundant_access_metrics.slot_loads,m->redundant_access_metrics.slot_stores,m->redundant_access_metrics.branches,m->redundant_access_metrics.helper_calls,m->redundant_access_metrics.eliminated_slot_loads,m->redundant_access_metrics.eliminated_slot_stores,m->redundant_access_metrics.value_numbered_expressions,m->redundant_access_metrics.effect_barriers);
+     fputs(",\"functions\":[",o);
+     for(size_t f=0;f<m->function_count;++f){BPPRegPlan p;
+@@ -37,7 +42,9 @@ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
+         for(size_t b=0;b<m->functions[f].block_count;++b){if(b)fputc(',',o);fprintf(o,"{\"index\":%zu,\"loop_depth\":%u,\"static_weight\":%zu,\"hot_successor\":",b,(unsigned)p.block_loop_depth[b],p.block_weight[b]);if(p.block_hot_successor[b]==SIZE_MAX)fputs("null",o);else fprintf(o,"%zu",p.block_hot_successor[b]);fprintf(o,",\"hot_probability\":%u}",(unsigned)p.block_hot_probability[b]);}
+         fputs("],\"locals\":[",o);
+         for(size_t j=0;j<m->functions[f].local_count;++j){if(j)fputc(',',o);
+-    fputs("{\"name\":",o);quote(o,m->functions[f].locals[j]);fprintf(o,",\"physical_slot\":%zu,\"offset\":%zu,\"flag_offset\":%zu}",p.local_map[j],local_offset+p.local_map[j]*BPP_CG_VALUE_BYTES,flags_offset+p.local_map[j]);}
++    fputs("{\"name\":",o);quote(o,m->functions[f].locals[j]);
++    if(m->functions[f].local_debug){BPPDebugVariable d=m->functions[f].local_debug[j];fputs(",\"declared_type\":",o);quote(o,d.type_name);fprintf(o,",\"source_file\":%zu,\"line\":%d,\"column\":%d",d.span.file,d.span.line,d.span.column);}
++    fprintf(o,",\"physical_slot\":%zu,\"offset\":%zu,\"flag_offset\":%zu,\"storage\":\"tagged-value-slot\",\"lifetime_required\":true}",p.local_map[j],local_offset+p.local_map[j]*BPP_CG_VALUE_BYTES,flags_offset+p.local_map[j]);}
+         fputs("],\"allocation_segments\":[",o);int comma=0;
+         for(size_t r=0;r<p.register_count;++r)for(size_t j=p.segment_offsets[r];j<p.segment_offsets[r+1];++j){const BPPRegSegment *seg=&p.segments[j];if(comma++)fputc(',',o);
+             BPPRegLocation loc=bpp_reg_location_at(&p,r,seg->begin);
+@@ -50,14 +57,25 @@ int bpp_emit_locations(BLIRModule *m,FILE *o,BPPTarget t){
+         fputs("],\"instructions\":[",o);int instruction_comma=0;
+         for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){BLIRInst *i=&m->functions[f].blocks[b].insts[k];
+     if(instruction_comma++)fputc(',',o);
+-    size_t pos=bpp_reg_position(&p,b,k);fprintf(o,"{\"block\":%zu,\"instruction\":%zu,\"position\":%zu,\"line\":%d,\"column\":%d,\"optimized_out\":%s,\"clobbers\":",b,k,pos,i->line,i->column,i->dst!=BL_IR_NONE&&p.begin[i->dst]==SIZE_MAX?"true":"false");clobbers(o,bpp_reg_clobber_at(&p,b,k));
++    size_t pos=bpp_reg_position(&p,b,k);fprintf(o,"{\"block\":%zu,\"instruction\":%zu,\"position\":%zu,\"line\":%d,\"column\":%d,\"optimized_out\":%s,\"clobbers\":",b,k,pos,i->line,i->column,i->dst!=BL_IR_NONE&&p.begin[i->dst]==SIZE_MAX?"true":"false");clobbers(o,bpp_reg_clobber_at(&p,b,k));fprintf(o,",\"source_file\":%zu,\"import_context\":%zu,\"end_line\":%d,\"end_column\":%d",i->span.file,i->span.context,i->span.end_line,i->span.end_column);
+     fputs(",\"spill_candidates\":[",o);int spill_comma=0;for(size_t r=0;r<p.register_count;++r){BPPSpillReason reason=bpp_reg_spill_reason_before(&p,b,k,r);BPPRegLocation loc=bpp_reg_location_at(&p,r,pos);if(reason==BPP_SPILL_NONE||loc.kind!=BPP_LOC_REGISTER)continue;if(spill_comma++)fputc(',',o);fprintf(o,"{\"vreg\":%zu,\"physical\":",r);quote(o,phys_name(t,loc.physical));fprintf(o,",\"spill_cell\":%zu,\"reason\":",loc.spill_cell);quote(o,bpp_reg_spill_reason_name(reason));fputc('}',o);}fputs("]}",o);}
+         fputs("]}",o);bpp_reg_plan_destroy(&p);
+     }fputs("]}\n",o);return !ferror(o);
+ }
+ 
+-void bpp_asm_source(FILE *o,const BLIRModule *m){if(!m->debug_path)return;fputs(".file 1 ",o);quote(o,m->debug_path?m->debug_path:m->path);fputc('\n',o);}
+-void bpp_asm_location(FILE *o,const BLIRInst *i){if(i->line>0)fprintf(o,"    .loc 1 %d %d\n",i->line,i->column>0?i->column:0);}
++void bpp_asm_source(FILE *o,const BLIRModule *m,BPPTarget t){
++    if(!m->debug_path)return;
++    if(!m->sources.file_count){fputs(".file 1 ",o);quote(o,m->path);fputc('\n',o);return;}
++    for(size_t j=0;j<m->sources.file_count;++j){fprintf(o,t==BPP_WINDOWS_X64?".cv_file %zu ":".file %zu ",j+1);quote(o,m->sources.files[j].path);fputc('\n',o);}
++}
++void bpp_asm_location(FILE *o,const BLIRInst *i,BPPTarget t,size_t f,int prologue_end){
++    /* Compiler-generated cleanup must not masquerade as source line 1. */
++    if(!i->span.file){if(t!=BPP_WINDOWS_X64)fputs("    .loc 1 0 0 is_stmt 0\n",o);return;}
++    if(i->line>0){
++        if(t==BPP_WINDOWS_X64)fprintf(o,"    .cv_loc %zu %zu %d %d\n",f,i->span.file,i->line,i->column>0?i->column:0);
++        else fprintf(o,"    .loc %zu %d %d is_stmt 1%s\n",i->span.file,i->line,i->column>0?i->column:0,prologue_end?" prologue_end":"");
++    }
++}
+ static const char *phys_name(BPPTarget t,unsigned p){
+     static char x64[32];const BPPBackendCapabilities *c=bpp_target_capabilities(t);const BPPRegisterInfo *r=bpp_target_register(t,p);if(!c||!p)return "spill";if(!r)return "?";
+     if(c->isa==BPP_ISA_ARM64)return r->name;
+diff --git a/src/optimize.c b/src/optimize.c
+index 2e80587..82fcd0b 100755
+--- a/src/optimize.c
++++ b/src/optimize.c
+@@ -341,7 +341,8 @@ int bpp_ir_optimize(BLIRModule *m) {
+         if(!reachable[f]){
+             for(size_t b=0;b<fn.block_count;++b){for(size_t k=0;k<fn.blocks[b].count;++k){free(fn.blocks[b].insts[k].text);free(fn.blocks[b].insts[k].args);}free(fn.blocks[b].insts);}
+             for(size_t j=0;j<fn.local_count;++j)free(fn.locals[j]);
+-            free(fn.name);free(fn.locals);free(fn.blocks);continue;
++            if(fn.local_debug)for(size_t j=0;j<fn.local_count;++j)free(fn.local_debug[j].type_name);
++            free(fn.local_debug);free(fn.name);free(fn.locals);free(fn.blocks);continue;
+         }
+         for(size_t b=0;b<fn.block_count;++b)for(size_t k=0;k<fn.blocks[b].count;++k){BLIRInst *i=&fn.blocks[b].insts[k];if(i->op==BL_IR_CALL&&i->a!=BL_IR_NONE)i->a=map[i->a];}
+         m->functions[dest++]=fn;
+diff --git a/src/parser.c b/src/parser.c
+index e620302..1f4f750 100755
+--- a/src/parser.c
++++ b/src/parser.c
+@@ -25,13 +25,15 @@ static void bl_parser_set_error(BLParser *parser, int line, int column, const ch
+     vsnprintf(message, sizeof(message), fmt, args);
+     va_end(args);
+ 
+-    size_t size = strlen(parser->path ? parser->path : "<input>") + strlen(message) + 64;
++    const char *path=parser->path?parser->path:"<input>";
++    if(parser->source_map&&line>0&&(size_t)line<=parser->source_map->line_count){BPPSourceLine at=parser->source_map->lines[line-1];path=parser->source_map->files[at.file-1].path;line=at.line;}
++    size_t size = strlen(path) + strlen(message) + 64;
+     parser->error = (char *)calloc(size, 1);
+     if (!parser->error) {
+         perror("calloc");
+         exit(1);
+     }
+-    snprintf(parser->error, size, "%s:%d:%d: %s", parser->path ? parser->path : "<input>", line, column, message);
++    snprintf(parser->error, size, "%s:%d:%d: %s", path, line, column, message);
+ }
+ 
+ static char *bl_token_text(BLToken token) {
+@@ -67,10 +69,18 @@ static BLNode *bl_new_node(BLParser *parser, BLNodeKind kind, int line, int colu
+     node->kind = kind;
+     node->line = line;
+     node->column = column;
++    node->span=(BPPSourceSpan){0,0,line,column,line,column+1};
++    BLToken t=parser->previous;
++    if(t.line==line&&t.column==column){node->span.end_line=t.end_line;node->span.end_column=t.end_column;}
+     bl_parser_track_node(parser, node);
+     return node;
+ }
+ 
++static BLNode *bl_finish_node(BLParser *p,BLNode *n) {
++    if(n){n->span.end_line=p->previous.end_line;n->span.end_column=p->previous.end_column;}
++    return n;
++}
++
+ static void bl_advance(BLParser *parser) {
+     parser->previous = parser->current;
+     parser->current = bl_lexer_next(&parser->lexer);
+@@ -175,7 +185,7 @@ static BLNode *bl_parse_block(BLParser *parser) {
+         node->as.list.count = count + 1;
+     }
+     if (!bl_expect(parser, TOK_RBRACE, "expected '}'")) return NULL;
+-    return node;
++    return bl_finish_node(parser,node);
+ }
+ 
+ static BLNode *bl_parse_primary(BLParser *parser) {
+@@ -184,13 +194,13 @@ static BLNode *bl_parse_primary(BLParser *parser) {
+     if (bl_match(parser, TOK_NUMBER)) {
+         BLNode *node = bl_new_node(parser, AST_NUMBER, token.line, token.column);
+         node->as.number.value = token.number;
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+ 
+     if (bl_match(parser, TOK_STRING)) {
+         BLNode *node = bl_new_node(parser, AST_STRING, token.line, token.column);
+         node->as.string.text = bl_token_text(token);
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+ 
+     if (parser->current.kind == TOK_IDENT) {
+@@ -199,7 +209,7 @@ static BLNode *bl_parse_primary(BLParser *parser) {
+         if (!name) return NULL;
+         BLNode *node = bl_new_node(parser, AST_IDENT, ident.line, ident.column);
+         node->as.ident.name = name;
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+ 
+     if (bl_match(parser, TOK_LPAREN)) {
+@@ -220,7 +230,7 @@ static BLNode *bl_parse_primary(BLParser *parser) {
+         }
+         node->as.call.args[0] = bl_parse_primary(parser);
+         node->as.call.arg_count = 1;
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+ 
+     if (bl_match(parser, TOK_REALLOC)) {
+@@ -236,7 +246,7 @@ static BLNode *bl_parse_primary(BLParser *parser) {
+         node->as.call.args[0] = bl_parse_primary(parser);
+         node->as.call.args[1] = bl_parse_primary(parser);
+         node->as.call.arg_count = 2;
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+ 
+     bl_parser_set_error(parser, token.line, token.column, "unexpected token");
+@@ -248,6 +258,7 @@ static BLNode *bl_parse_postfix(BLParser *parser) {
+     while (!parser->error) {
+         if (bl_match(parser, TOK_LPAREN)) {
+             BLNode *node = bl_new_node(parser, AST_CALL, expr->line, expr->column);
++            node->span.line=expr->span.line;node->span.column=expr->span.column;
+             node->as.call.callee = expr;
+             while (!parser->error && parser->current.kind != TOK_RPAREN) {
+                 BLNode *arg = bl_parse_expression(parser);
+@@ -264,7 +275,7 @@ static BLNode *bl_parse_postfix(BLParser *parser) {
+                 if (!bl_match(parser, TOK_COMMA)) break;
+             }
+             if (!bl_expect(parser, TOK_RPAREN, "expected ')' after arguments")) return NULL;
+-            expr = node;
++            bl_finish_node(parser,node);expr = node;
+             continue;
+         }
+ 
+@@ -272,9 +283,10 @@ static BLNode *bl_parse_postfix(BLParser *parser) {
+             BLNode *index = bl_parse_expression(parser);
+             if (!bl_expect(parser, TOK_RBRACKET, "expected ']'")) return NULL;
+             BLNode *node = bl_new_node(parser, AST_INDEX, expr->line, expr->column);
++            node->span.line=expr->span.line;node->span.column=expr->span.column;
+             node->as.index.object = expr;
+             node->as.index.index = index;
+-            expr = node;
++            bl_finish_node(parser,node);expr = node;
+             continue;
+         }
+ 
+@@ -289,7 +301,7 @@ static BLNode *bl_parse_unary(BLParser *parser) {
+         BLNode *node = bl_new_node(parser, AST_UNARY, token.line, token.column);
+         node->as.unary.op = token.kind;
+         node->as.unary.expr = bl_parse_unary(parser);
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+     return bl_parse_postfix(parser);
+ }
+@@ -302,9 +314,10 @@ static BLNode *bl_parse_factor(BLParser *parser) {
+         BLNode *right = bl_parse_unary(parser);
+         BLNode *node = bl_new_node(parser, AST_BINARY, op.line, op.column);
+         node->as.binary.op = op.kind;
++        node->span.line=expr->span.line;node->span.column=expr->span.column;
+         node->as.binary.left = expr;
+         node->as.binary.right = right;
+-        expr = node;
++        bl_finish_node(parser,node);expr = node;
+     }
+     return expr;
+ }
+@@ -317,9 +330,10 @@ static BLNode *bl_parse_term(BLParser *parser) {
+         BLNode *right = bl_parse_factor(parser);
+         BLNode *node = bl_new_node(parser, AST_BINARY, op.line, op.column);
+         node->as.binary.op = op.kind;
++        node->span.line=expr->span.line;node->span.column=expr->span.column;
+         node->as.binary.left = expr;
+         node->as.binary.right = right;
+-        expr = node;
++        bl_finish_node(parser,node);expr = node;
+     }
+     return expr;
+ }
+@@ -332,9 +346,10 @@ static BLNode *bl_parse_comparison(BLParser *parser) {
+         BLNode *right = bl_parse_term(parser);
+         BLNode *node = bl_new_node(parser, AST_BINARY, op.line, op.column);
+         node->as.binary.op = op.kind;
++        node->span.line=expr->span.line;node->span.column=expr->span.column;
+         node->as.binary.left = expr;
+         node->as.binary.right = right;
+-        expr = node;
++        bl_finish_node(parser,node);expr = node;
+     }
+     return expr;
+ }
+@@ -347,9 +362,10 @@ static BLNode *bl_parse_equality(BLParser *parser) {
+         BLNode *right = bl_parse_comparison(parser);
+         BLNode *node = bl_new_node(parser, AST_BINARY, op.line, op.column);
+         node->as.binary.op = op.kind;
++        node->span.line=expr->span.line;node->span.column=expr->span.column;
+         node->as.binary.left = expr;
+         node->as.binary.right = right;
+-        expr = node;
++        bl_finish_node(parser,node);expr = node;
+     }
+     return expr;
+ }
+@@ -361,9 +377,10 @@ static BLNode *bl_parse_assignment(BLParser *parser) {
+         BLToken eq = parser->previous;
+         BLNode *value = bl_parse_assignment(parser);
+         BLNode *node = bl_new_node(parser, AST_ASSIGN, eq.line, eq.column);
++        node->span.line=expr->span.line;node->span.column=expr->span.column;
+         node->as.assign.target = expr;
+         node->as.assign.value = value;
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+     return expr;
+ }
+@@ -406,6 +423,9 @@ static BLNode *bl_parse_proc_definition(BLParser *parser) {
+         }
+         node->as.proc_def.params = params;
+         node->as.proc_def.params[count] = bl_token_text(param);
++        BPPSourceSpan *spans=realloc(node->as.proc_def.param_spans,(count+1)*sizeof *spans);
++        if(!spans){perror("parameter spans");exit(1);}node->as.proc_def.param_spans=spans;
++        spans[count]=(BPPSourceSpan){0,0,param.line,param.column,param.end_line,param.end_column};
+         node->as.proc_def.param_count = count + 1;
+         if (!bl_match(parser, TOK_COMMA)) break;
+     }
+@@ -413,7 +433,7 @@ static BLNode *bl_parse_proc_definition(BLParser *parser) {
+     if (!bl_expect(parser, TOK_RPAREN, "expected ')' after parameters")) return NULL;
+     if (!bl_expect(parser, TOK_LBRACE, "expected '{' before procedure body")) return NULL;
+     node->as.proc_def.body = bl_parse_block(parser);
+-    return node;
++    return bl_finish_node(parser,node);
+ }
+ 
+ static BLNode *bl_parse_macro_definition(BLParser *parser) {
+@@ -444,7 +464,7 @@ static BLNode *bl_parse_if_statement(BLParser *parser) {
+     if (bl_match(parser, TOK_ELSE)) {
+         node->as.if_stmt.else_branch = bl_parse_statement(parser);
+     }
+-    return node;
++    return bl_finish_node(parser,node);
+ }
+ 
+ static BLNode *bl_parse_while_statement(BLParser *parser) {
+@@ -454,10 +474,10 @@ static BLNode *bl_parse_while_statement(BLParser *parser) {
+     node->as.while_stmt.condition = bl_parse_expression(parser);
+     if (!bl_expect(parser, TOK_RPAREN, "expected ')' after condition")) return NULL;
+     node->as.while_stmt.body = bl_parse_statement(parser);
+-    return node;
++    return bl_finish_node(parser,node);
+ }
+ 
+-static BLNode *bl_parse_statement(BLParser *parser) {
++static BLNode *bl_parse_statement_inner(BLParser *parser) {
+     if (bl_match(parser, TOK_HASH)) {
+         if (!bl_expect(parser, TOK_DEFINE, "expected define after '#'")) return NULL;
+         if (!bl_expect(parser, TOK_PROC, "expected proc after '#define'")) return NULL;
+@@ -493,21 +513,21 @@ static BLNode *bl_parse_statement(BLParser *parser) {
+         BLNode *node = bl_new_node(parser, AST_RETURN, parser->previous.line, parser->previous.column);
+         node->as.ret_stmt.value = bl_parse_expression(parser);
+         if (!bl_expect(parser, TOK_SEMI, "expected ';' after return")) return NULL;
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+ 
+     if (bl_match(parser, TOK_FREE)) {
+         BLNode *node = bl_new_node(parser, AST_FREE, parser->previous.line, parser->previous.column);
+         node->as.free_stmt.expr = bl_parse_expression(parser);
+         if (!bl_expect(parser, TOK_SEMI, "expected ';' after free")) return NULL;
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+ 
+     if (bl_match(parser, TOK_DELETE)) {
+         BLNode *node = bl_new_node(parser, AST_DELETE, parser->previous.line, parser->previous.column);
+         node->as.delete_stmt.expr = bl_parse_expression(parser);
+         if (!bl_expect(parser, TOK_SEMI, "expected ';' after delete")) return NULL;
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+ 
+     if (bl_match(parser, TOK_NEW)) {
+@@ -524,7 +544,7 @@ static BLNode *bl_parse_statement(BLParser *parser) {
+             node->as.var_decl.init = bl_parse_expression(parser);
+         }
+         if (!bl_expect(parser, TOK_SEMI, "expected ';' after variable declaration")) return NULL;
+-        return node;
++        return bl_finish_node(parser,node);
+     }
+ 
+     BLNode *expr = bl_parse_expression(parser);
+@@ -532,7 +552,15 @@ static BLNode *bl_parse_statement(BLParser *parser) {
+     if (!bl_expect(parser, TOK_SEMI, "expected ';' after expression")) return NULL;
+     BLNode *node = bl_new_node(parser, AST_EXPR_STMT, expr->line, expr->column);
+     node->as.expr_stmt.expr = expr;
+-    return node;
++    return bl_finish_node(parser,node);
++}
++
++static BLNode *bl_parse_statement(BLParser *parser) {
++    BLToken first=parser->current;
++    BLNode *n=bl_parse_statement_inner(parser);
++    if(n){n->span.line=first.line;n->span.column=first.column;
++        n->span.end_line=parser->previous.end_line;n->span.end_column=parser->previous.end_column;}
++    return n;
+ }
+ 
+ void bl_parser_init(BLParser *parser, const char *path, const char *source) {
+@@ -591,6 +619,7 @@ void bl_parser_dispose(BLParser *parser) {
+                     free(node->as.proc_def.params[j]);
+                 }
+                 free(node->as.proc_def.params);
++                free(node->as.proc_def.param_spans);
+                 break;
+             default:
+                 break;
+diff --git a/src/target.c b/src/target.c
+index aa22a89..ed19d8b 100755
+--- a/src/target.c
++++ b/src/target.c
+@@ -71,7 +71,7 @@ int bpp_emit_native(BLIRModule *m,FILE *out,int print,BPPTarget t){
+  FILE *scratch=tmpfile();if(!scratch)return 0;
+  int ok=bl_emit_arm64(m,scratch,print,t);rewind(scratch);char line[16384];
+  while(ok&&fgets(line,sizeof line,scratch)){
+-  if(!strncmp(line,".file ",6)){fputs(line,out);continue;}
++  if(!strncmp(line,".file ",6)||strstr(line,".asciz ")){fputs(line,out);continue;}
+   if(!strncmp(line,".section __TEXT,__text",sizeof(".section __TEXT,__text")-1)){fputs(".text\n",out);continue;}
+   if(!strncmp(line,".section __TEXT,__cstring",sizeof(".section __TEXT,__cstring")-1)||!strncmp(line,".section __TEXT,__const",sizeof(".section __TEXT,__const")-1)){fputs(".section .rodata\n",out);continue;}
+   if(!strncmp(line,".subsections_via_symbols",23)){fputs(".section .note.GNU-stack,\"\",%progbits\n",out);continue;}
+diff --git a/tests/check_debug_metadata.sh b/tests/check_debug_metadata.sh
+new file mode 100644
+index 0000000..8e0f6be
+--- /dev/null
++++ b/tests/check_debug_metadata.sh
+@@ -0,0 +1,148 @@
++#!/bin/sh
++# Strict, explicit gate: missing inspection tools fail, rather than silently skip.
++set -eu
++compiler=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
++assembler=${BPP_ASSEMBLER:-clang}
++dwarfdump=${BPP_DWARFDUMP:-llvm-dwarfdump}
++readobj=${BPP_READOBJ:-llvm-readobj}
++readelf=${BPP_READELF:-readelf}
++for tool in "$assembler" "$dwarfdump" "$readobj"; do command -v "$tool" >/dev/null; done
++task_dir=$(mktemp -d)
++cleanup() {
++    status=$?
++    if [ "$status" -ne 0 ]; then
++        for log in "$task_dir/verify" "$task_dir/gdb.log" "$task_dir/lldb.log" "$task_dir/gdb-error.log" "$task_dir/lldb-error.log" "$task_dir/gdb-unwind.log" "$task_dir/error.log"; do
++            if [ -f "$log" ]; then cat "$log" >&2; fi
++        done
++    fi
++    rm -rf "$task_dir"
++    exit "$status"
++}
++trap cleanup EXIT
++trap 'exit 1' HUP INT TERM
++"$compiler" --list-targets > "$task_dir/targets"
++count=0
++while IFS="$(printf '\t')" read -r target triple format rest; do
++    for mode in optimized baseline; do
++        if [ "$mode" = baseline ]; then set -- --no-opt; else set --; fi
++        object="$task_dir/$target-$mode.o"
++        "$compiler" --debug-info --target "$target" --emit-asm "$@" -o "$task_dir/input.s" tests/debug/main.bpp
++        "$assembler" -target "$triple" -g -x assembler -c "$task_dir/input.s" -o "$object"
++        "$readobj" --sections --unwind "$object" > "$task_dir/sections"
++        if [ "$target" = windows-x86_64 ]; then
++            "$readobj" --codeview "$object" > "$task_dir/metadata"
++            grep -F 'DisplayName: work' "$task_dir/metadata" >/dev/null
++            grep -F 'VarName: count' "$task_dir/metadata" >/dev/null
++            grep -F 'DefRangeRegisterRelSym' "$task_dir/metadata" >/dev/null
++            grep -F 'work.bpp' "$task_dir/metadata" >/dev/null
++            grep -F 'leaf.bpp' "$task_dir/metadata" >/dev/null
++            grep -F 'UnwindInfo' "$task_dir/sections" >/dev/null
++        else
++            "$dwarfdump" --verify "$object" > "$task_dir/verify" 2>&1
++            grep -F 'No errors.' "$task_dir/verify" >/dev/null
++            "$dwarfdump" --debug-info --debug-loc --debug-line "$object" > "$task_dir/metadata"
++            grep -F 'DW_TAG_formal_parameter' "$task_dir/metadata" >/dev/null
++            grep -F 'DW_TAG_variable' "$task_dir/metadata" >/dev/null
++            grep -F 'DW_AT_location' "$task_dir/metadata" >/dev/null
++            grep -F 'DW_OP_breg' "$task_dir/metadata" >/dev/null
++            grep -F 'work.bpp' "$task_dir/metadata" >/dev/null
++            grep -F 'leaf.bpp' "$task_dir/metadata" >/dev/null
++            if [ "$target" = linux-x86_64 ] || [ "$target" = linux-arm64 ]; then
++                "$readelf" --debug-dump=info,loc,decodedline,frames,macro "$object" > "$task_dir/elf"
++                grep -F 'DW_TAG_subprogram' "$task_dir/elf" >/dev/null
++                grep -F 'DW_CFA_def_cfa' "$task_dir/elf" >/dev/null
++                [ "$(grep -c 'DW_MACINFO_start_file' "$task_dir/elf")" = 3 ]
++                [ "$(grep -c 'DW_MACINFO_end_file' "$task_dir/elf")" = 3 ]
++            fi
++        fi
++        # Synthesized null/return instructions have no source span; an empty
++        # procedure still needs valid procedure and line-table records.
++        "$compiler" --debug-info --target "$target" --emit-asm "$@" -o "$task_dir/empty.s" tests/debug/empty.bpp
++        "$assembler" -target "$triple" -g -x assembler -c "$task_dir/empty.s" -o "$task_dir/empty.o"
++        if [ "$target" = windows-x86_64 ]; then
++            "$readobj" --codeview "$task_dir/empty.o" > "$task_dir/empty-metadata"
++            grep -F 'DisplayName: empty' "$task_dir/empty-metadata" >/dev/null
++        else
++            "$dwarfdump" --verify "$task_dir/empty.o" > "$task_dir/verify" 2>&1
++            grep -F 'No errors.' "$task_dir/verify" >/dev/null
++        fi
++        count=$((count+1))
++    done
++done < "$task_dir/targets"
++[ "$count" = 8 ]
++
++# Both host debuggers must read the same live values and refuse the former owner
++# of a recycled slot. File/line stepping must enter an original imported file.
++"$compiler" --debug-info --print-result -o "$task_dir/program" tests/debug/main.bpp
++actual=$("$task_dir/program")
++[ "$actual" = "$(printf '6\n6')" ]
++"$dwarfdump" --verify "$task_dir/program" > "$task_dir/verify" 2>&1
++for backend in native c; do
++    "$compiler" --debug-info --backend "$backend" -o "$task_dir/error-$backend" tests/debug/error-main.bpp
++    if "$task_dir/error-$backend" > "$task_dir/error.out" 2> "$task_dir/error.log"; then
++        echo "Runtime error unexpectedly succeeded ($backend)" >&2;exit 1
++    fi
++    grep -F 'error-lib.bpp:2:13: division by zero' "$task_dir/error.log" >/dev/null
++done
++debuggers=${BPP_DEBUGGERS:-gdb,lldb}
++case ",$debuggers," in
++    *,gdb,*)
++        gdb=${BPP_GDB:-gdb}
++        cat > "$task_dir/gdb.commands" <<'GDB'
++set pagination off
++set disable-randomization off
++break work
++run
++printf "ENTRY_N=%lld\n", n.as.i
++print count
++break work.bpp:6
++continue
++printf "LOOP_COUNT=%lld SUM=%lld\n", count.as.i, sum.as.i
++print n
++step
++bt
++break leaf
++continue
++bt
++GDB
++        "$gdb" -q -batch -x "$task_dir/gdb.commands" "$task_dir/program" > "$task_dir/gdb.log" 2>&1
++        grep -F 'ENTRY_N=3' "$task_dir/gdb.log" >/dev/null
++        grep -F 'LOOP_COUNT=3 SUM=0' "$task_dir/gdb.log" >/dev/null
++        grep -F '<optimized out>' "$task_dir/gdb.log" >/dev/null
++        grep -F 'leaf.bpp:2' "$task_dir/gdb.log" >/dev/null
++        # Two recursive source frames, in addition to the caller and module.
++        [ "$(grep -Ec '^#[0-9]+.*leaf .*leaf.bpp' "$task_dir/gdb.log")" -ge 3 ]
++        "$gdb" -q -batch -ex 'set disable-randomization off' -ex 'break fail' \
++            -ex run -ex 'break bpp_a_op' -ex continue -ex bt -ex continue \
++            "$task_dir/error-native" > "$task_dir/gdb-error.log" 2>&1
++        grep -F 'error-lib.bpp:2' "$task_dir/gdb-error.log" >/dev/null
++        grep -F 'division by zero' "$task_dir/gdb-error.log" >/dev/null
++        "$gdb" -q -batch -ex 'set disable-randomization off' -ex 'break *work' \
++            -ex run -ex bt -ex 'break *L_cleanup_2' -ex continue -ex bt \
++            -ex 'break main.bpp:3' -ex continue \
++            -ex 'printf "ROOT_RESULT=%lld\n", result.as.i' \
++            "$task_dir/program" > "$task_dir/gdb-unwind.log" 2>&1
++        [ "$(grep -c 'in <module>' "$task_dir/gdb-unwind.log")" -ge 2 ]
++        grep -F 'ROOT_RESULT=6' "$task_dir/gdb-unwind.log" >/dev/null
++        ;;
++esac
++case ",$debuggers," in
++    *,lldb,*)
++        lldb=${BPP_LLDB:-lldb}
++        "$lldb" -b -o 'settings set target.disable-aslr false' \
++            -o 'breakpoint set --file work.bpp --line 6' -o run \
++            -o 'frame variable count sum n' -o 'thread step-in' -o bt \
++            "$task_dir/program" > "$task_dir/lldb.log" 2>&1
++        grep -F 'i = 3' "$task_dir/lldb.log" >/dev/null
++        grep -F 'i = 0' "$task_dir/lldb.log" >/dev/null
++        grep -F 'variable not available' "$task_dir/lldb.log" >/dev/null
++        grep -F 'leaf.bpp:2' "$task_dir/lldb.log" >/dev/null
++        "$lldb" -b -o 'settings set target.disable-aslr false' \
++            -o 'breakpoint set --name fail' -o run \
++            -o 'breakpoint set --name bpp_a_op' -o continue -o bt -o continue \
++            "$task_dir/error-native" > "$task_dir/lldb-error.log" 2>&1
++        grep -F 'error-lib.bpp:2' "$task_dir/lldb-error.log" >/dev/null
++        grep -F 'division by zero' "$task_dir/lldb-error.log" >/dev/null
++        ;;
++esac
++printf 'Passed metadata inspection for %s target/mode pairs; selected host debugger checks: %s\n' "$count" "$debuggers"
+diff --git a/tests/check_debug_pdb.sh b/tests/check_debug_pdb.sh
+new file mode 100644
+index 0000000..5bb9cc7
+--- /dev/null
++++ b/tests/check_debug_pdb.sh
+@@ -0,0 +1,27 @@
++#!/bin/sh
++# Metadata round trip only. These link stubs are never executed and do not
++# establish Windows runtime or debugger support.
++set -eu
++compiler=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
++assembler=${BPP_ASSEMBLER:-clang}
++linker=${BPP_LLD_LINK:-lld-link}
++pdbutil=${BPP_PDBUTIL:-llvm-pdbutil}
++for tool in "$assembler" "$linker" "$pdbutil"; do command -v "$tool" >/dev/null; done
++task_dir=$(mktemp -d)
++trap 'rm -rf "$task_dir"' EXIT HUP INT TERM
++"$compiler" --debug-info --target windows-x86_64 --emit-asm -o "$task_dir/program.s" tests/debug/main.bpp
++"$assembler" -target x86_64-pc-windows-msvc -c "$task_dir/program.s" -o "$task_dir/program.obj"
++awk '$1 == "call" && $2 !~ /^L_/ {print $2}' "$task_dir/program.s" > "$task_dir/helpers.unsorted"
++sort -u "$task_dir/helpers.unsorted" > "$task_dir/helpers"
++printf '.text\n' > "$task_dir/stubs.s"
++while read -r symbol; do printf '.globl %s\n%s:\n ret\n' "$symbol" "$symbol" >> "$task_dir/stubs.s"; done < "$task_dir/helpers"
++"$assembler" -target x86_64-pc-windows-msvc -c "$task_dir/stubs.s" -o "$task_dir/stubs.obj"
++"$linker" /entry:main /nodefaultlib /subsystem:console /debug \
++    "/out:$task_dir/metadata-only.exe" "/pdb:$task_dir/program.pdb" \
++    "$task_dir/program.obj" "$task_dir/stubs.obj"
++"$pdbutil" dump -types -symbols -l "$task_dir/program.pdb" > "$task_dir/pdb.txt"
++grep -F 'work' "$task_dir/pdb.txt" >/dev/null
++grep -F 'count' "$task_dir/pdb.txt" >/dev/null
++grep -F 'BLValue' "$task_dir/pdb.txt" >/dev/null
++grep -F 'work.bpp' "$task_dir/pdb.txt" >/dev/null
++printf 'Passed CodeView-to-PDB metadata round trip (no Windows execution)\n'
+diff --git a/tests/debug/empty.bpp b/tests/debug/empty.bpp
+new file mode 100644
+index 0000000..8ab6c83
+--- /dev/null
++++ b/tests/debug/empty.bpp
+@@ -0,0 +1,2 @@
++define proc empty() {}
++return empty();
+diff --git a/tests/debug/error-lib.bpp b/tests/debug/error-lib.bpp
+new file mode 100644
+index 0000000..90251c3
+--- /dev/null
++++ b/tests/debug/error-lib.bpp
+@@ -0,0 +1,3 @@
++define proc fail(n) {
++    return n/0;
++}
+diff --git a/tests/debug/error-main.bpp b/tests/debug/error-main.bpp
+new file mode 100644
+index 0000000..3a5b216
+--- /dev/null
++++ b/tests/debug/error-main.bpp
+@@ -0,0 +1,2 @@
++import "error-lib.bpp";
++return fail(3);
+diff --git a/tests/debug/leaf.bpp b/tests/debug/leaf.bpp
+new file mode 100644
+index 0000000..067afe0
+--- /dev/null
++++ b/tests/debug/leaf.bpp
+@@ -0,0 +1,4 @@
++define proc leaf(n) {
++    if(n<=1) { return n; }
++    return leaf(n-1)+1;
++}
+diff --git a/tests/debug/main.bpp b/tests/debug/main.bpp
+new file mode 100644
+index 0000000..2b685c1
+--- /dev/null
++++ b/tests/debug/main.bpp
+@@ -0,0 +1,4 @@
++import "work.bpp";
++new int result=work(3);
++println(result);
++return result;
+diff --git a/tests/debug/work.bpp b/tests/debug/work.bpp
+new file mode 100644
+index 0000000..af7d0b6
+--- /dev/null
++++ b/tests/debug/work.bpp
+@@ -0,0 +1,10 @@
++import "leaf.bpp";
++define proc work(n) {
++    new int count=n;
++    new int sum=0;
++    while(count>0) {
++        sum=sum+leaf(count);
++        count=count-1;
++    }
++    return sum;
++}
+diff --git a/tests/run_tests.sh b/tests/run_tests.sh
+index 9e191ec..0b4927b 100755
+--- a/tests/run_tests.sh
++++ b/tests/run_tests.sh
+@@ -181,13 +181,23 @@ for target in macos-arm64 linux-x86_64 linux-arm64 windows-x86_64; do
+ done
+ printf '%s\n' 'new int x=1;x=1;return x;' > "$task_dir/redundant-store.bpp"
+ "$project_compiler" --emit-map -o "$task_dir/redundant-store.json" "$task_dir/redundant-store.bpp"
+-grep -E '"eliminated_slot_stores":[1-9][0-9]*' "$task_dir/redundant-store.json" >/dev/null
++if grep -F '"preserve_access_observability":true' "$task_dir/redundant-store.json" >/dev/null; then
++    preserve_access=1
++    grep -F '"eliminated_slot_stores":0' "$task_dir/redundant-store.json" >/dev/null
++else
++    preserve_access=0
++    grep -E '"eliminated_slot_stores":[1-9][0-9]*' "$task_dir/redundant-store.json" >/dev/null
++fi
+ "$project_compiler" --debug-info --emit-map -o "$task_dir/redundant-store-debug.json" "$task_dir/redundant-store.bpp"
+ grep -F '"eliminated_slot_stores":0' "$task_dir/redundant-store-debug.json" >/dev/null
+ for target in macos-arm64 linux-x86_64 linux-arm64 windows-x86_64; do
+     "$project_compiler" --target "$target" --asm-comments --emit-asm -o "$task_dir/redundant-store-$target.s" "$task_dir/redundant-store.bpp"
+     "$project_compiler" --no-opt --target "$target" --asm-comments --emit-asm -o "$task_dir/redundant-store-noopt-$target.s" "$task_dir/redundant-store.bpp"
+-    grep -F 'access-traffic function=<module> slot-loads=0 slot-stores=1' "$task_dir/redundant-store-$target.s" >/dev/null
++    if [ "$preserve_access" = 1 ]; then
++        grep -F 'access-traffic function=<module> slot-loads=1 slot-stores=2' "$task_dir/redundant-store-$target.s" >/dev/null
++    else
++        grep -F 'access-traffic function=<module> slot-loads=0 slot-stores=1' "$task_dir/redundant-store-$target.s" >/dev/null
++    fi
+     grep -F 'access-traffic function=<module> slot-loads=1 slot-stores=2' "$task_dir/redundant-store-noopt-$target.s" >/dev/null
+ done
+ printf '%s\n' '<module> 2 3' > "$task_dir/allocation.profile"
+diff --git a/tests/test_source.c b/tests/test_source.c
+new file mode 100644
+index 0000000..a13bf52
+--- /dev/null
++++ b/tests/test_source.c
+@@ -0,0 +1,56 @@
++#include "compiler.h"
++#include <assert.h>
++#include <stdio.h>
++#include <string.h>
++
++int main(void) {
++    BLCompiler c={0};BLIRModule m;bl_ir_init(&m);
++    assert(bl_compile_file(&c,"tests/debug/main.bpp",&m));
++    assert(m.sources.file_count==3&&m.sources.context_count==3);
++    assert(strstr(m.sources.files[0].path,"/main.bpp"));
++    assert(strstr(m.sources.files[1].path,"/work.bpp"));
++    assert(strstr(m.sources.files[2].path,"/leaf.bpp"));
++    assert(m.sources.contexts[0].parent==0);
++    assert(m.sources.contexts[1].parent==1&&m.sources.contexts[1].line==1);
++    assert(m.sources.contexts[2].parent==2&&m.sources.contexts[2].line==1);
++    assert(m.functions[0].span.file==1);
++    size_t leaf=0,work=0;
++    for(size_t f=0;f<m.function_count;++f){if(!strcmp(m.functions[f].name,"leaf"))leaf=f;if(!strcmp(m.functions[f].name,"work"))work=f;}
++    assert(leaf&&work);
++    assert(m.functions[leaf].span.file==3&&m.functions[leaf].span.line==1);
++    assert(m.functions[leaf].span.end_line==4);
++    assert(m.functions[leaf].local_debug[0].span.file==3);
++    assert(m.functions[leaf].local_debug[0].span.column==18);
++    assert(!strcmp(m.functions[work].local_debug[1].type_name,"int"));
++    assert(bpp_ir_optimize(&m));
++    for(size_t f=0;f<m.function_count;++f)for(size_t b=0;b<m.functions[f].block_count;++b)for(size_t k=0;k<m.functions[f].blocks[b].count;++k){
++        const BLIRInst *i=&m.functions[f].blocks[b].insts[k];
++        if(!i->span.file)continue; /* synthetic null return */
++        assert(i->span.file<=3&&i->span.context<=3);
++        assert(i->span.line>0&&i->span.end_line>=i->span.line);
++        assert(i->line>=i->span.line&&i->line<=i->span.end_line);
++        assert(i->span.end_line>i->span.line||i->span.end_column>i->span.column);
++    }
++    bl_ir_dispose(&m);
++    /* Imported lines must not shift diagnostics for subsequent root code. */
++    assert(!bl_compile_source(&c,"tests/debug/main.bpp","import \"work.bpp\";\nreturn missing;\n",&m));
++    assert(strstr(c.last_error,"main.bpp:2:8:"));
++    assert(!bl_compile_source(&c,"tests/debug/main.bpp","import \"work.bpp\";\nnew int x=;\n",&m));
++    assert(strstr(c.last_error,"main.bpp:2:"));
++    /* Existing macros are declarations discarded by the parser, not expansion.
++     * They must not perturb the following statement's source coordinates. */
++    assert(bl_compile_source(&c,"tests/debug/main.bpp","define macro name \"ignored\";\nreturn 7;\n",&m));
++    assert(m.functions[0].blocks[0].insts[0].span.line==2);
++    assert(bl_compile_source(&c,"tests/debug/main.bpp","return \"a\nb\";",&m));
++    const BLIRInst *string=&m.functions[0].blocks[0].insts[0];
++    assert(string->op==BL_IR_STRING);
++    assert(string->span.line==1&&string->span.column==8);
++    assert(string->span.end_line==2&&string->span.end_column==3);
++    assert(bl_compile_source(&c,NULL,NULL,&m));
++    assert(m.sources.file_count==1&&m.sources.line_count==0);
++    assert(m.functions[0].blocks[0].insts[0].span.file==0);
++    assert(m.functions[0].blocks[0].insts[1].span.file==0);
++    bl_ir_dispose(&m);bl_compiler_dispose(&c);
++    puts("Original source spans and nested import provenance tests passed");
++    return 0;
++}
+diff --git a/tests/test_value_facts.c b/tests/test_value_facts.c
+index c4ef69a..6a4b53c 100755
+--- a/tests/test_value_facts.c
++++ b/tests/test_value_facts.c
+@@ -20,7 +20,7 @@ static void check_join_delete_and_free(void) {
+     BLIRInst b3[] = { op(BL_IR_LOAD_LOCAL, 3, 0, NONE), op(BL_IR_NOT, 4, 3, NONE), op(BL_IR_RETURN, NONE, 4, NONE) };
+     b0[0].integer = 1; b1[0].integer = 7; b2[0].integer = 8;
+     BLIRBlock blocks[] = {{ b0, 2, 2 }, { b1, 3, 3 }, { b2, 3, 3 }, { b3, 3, 3 }};
+-    BLIRFunction fn = { "join", NULL, 1, 1, 0, blocks, 4, 4, 5 };
++    BLIRFunction fn = { .name="join", .local_count=1, .local_capacity=1, .blocks=blocks, .block_count=4, .block_capacity=4, .register_count=5 };
+     BLIRModule m; memset(&m, 0, sizeof m); m.functions = &fn; m.function_count = 1;
+     BPPValueFacts facts; assert(bpp_value_facts_create(&m, 0, &facts));
+     BPPValueFact regs[5], locals[1], globals[1];
+@@ -55,8 +55,8 @@ static void check_mutation_rules(void) {
+     code[0].text = "s"; code[2].integer = 9;
+     BLIRBlock blocks[] = {{ code, sizeof code / sizeof *code, sizeof code / sizeof *code }};
+     BLIRFunction fs[] = {
+-        { "module", NULL, 1, 1, 0, blocks, 1, 1, 8 },
+-        { "recursive", NULL, 0, 0, 0, blocks, 1, 1, 8 }
++        { .name="module", .local_count=1, .local_capacity=1, .blocks=blocks, .block_count=1, .block_capacity=1, .register_count=8 },
++        { .name="recursive", .blocks=blocks, .block_count=1, .block_capacity=1, .register_count=8 }
+     };
+     BLIRModule m; memset(&m, 0, sizeof m); m.functions = fs; m.function_count = 2; m.global_count = 1;
+     BPPValueFacts facts; assert(bpp_value_facts_create(&m, 0, &facts));
+@@ -79,7 +79,7 @@ static void check_constant_branch_merge(void) {
+     BLIRInst b4[] = { op(BL_IR_LOAD_GLOBAL,5,0,NONE), op(BL_IR_RETURN,NONE,5,NONE) };
+     b0[0].integer=0;b0[2].integer=1;b2[0].integer=6;b3[0].integer=8;b1[1].c=3;
+     BLIRBlock blocks[]={{b0,5,5},{b1,2,2},{b2,3,3},{b3,3,3},{b4,2,2}};
+-    BLIRFunction fn={"constants",NULL,0,0,0,blocks,5,5,6};
++    BLIRFunction fn={.name="constants",.blocks=blocks,.block_count=5,.block_capacity=5,.register_count=6};
+     BLIRModule m;memset(&m,0,sizeof m);m.functions=&fn;m.function_count=1;m.global_count=2;
+     BPPValueFacts facts;assert(bpp_value_facts_create(&m,0,&facts));
+     BPPValueFact r[6],l[1],g[2];bpp_value_facts_begin_block(&facts,4,r,l,g);
+@@ -94,7 +94,7 @@ static void check_loop_invariant_merge(void) {
+     BLIRInst b3[] = { op(BL_IR_LOAD_GLOBAL,3,0,NONE), op(BL_IR_RETURN,NONE,3,NONE) };
+     b0[0].integer=7;b1[1].c=3;
+     BLIRBlock blocks[]={{b0,3,3},{b1,2,2},{b2,2,2},{b3,2,2}};
+-    BLIRFunction fn={"loop",NULL,1,1,1,blocks,4,4,4};
++    BLIRFunction fn={.name="loop",.local_count=1,.local_capacity=1,.param_count=1,.blocks=blocks,.block_count=4,.block_capacity=4,.register_count=4};
+     BLIRModule m;memset(&m,0,sizeof m);m.functions=&fn;m.function_count=1;m.global_count=1;
+     BPPValueFacts facts;assert(bpp_value_facts_create(&m,0,&facts));
+     BPPValueFact r[4],l[1],g[1];bpp_value_facts_begin_block(&facts,2,r,l,g);

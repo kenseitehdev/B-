@@ -1,0 +1,10 @@
+--- a/src/raw_native.c
++++ b/src/raw_native.c
+@@ -231,7 +231,6 @@
+     for (size_t p = 0; p < raw->fn->param_count; ++p) {
+         fprintf(out, "    movq %zu(%s), %%rax\n    movq %%rax, %zu(%%r12)\n    movb $1, %zu(%%r12)\n", p * 8, args, raw->locals + p * 8, raw->flags + p);
+     }
+-    block_label(out, raw->function, 0); fputs(":\n", out);
+     for (size_t b = 0; b < raw->fn->block_count; ++b) {
+         raw->block = b; block_label(out, raw->function, b); fputs(":\n", out);
+         for (size_t k = 0; k < raw->fn->blocks[b].count; ++k) {

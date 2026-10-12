@@ -248,17 +248,18 @@ Current implementation: arithmetic, comparisons, core branches, user-procedure c
 
 ### 14. Debug metadata
 
-Current implementation: assembler source/line directives, host unwind data, and `--emit-map` local offsets/IR positions. It does not yet describe optimized variable locations in standard debug records.
+Current implementation: source/line tables and DWARF5 procedure/type/scope records on Mach-O ARM64 and ELF x86-64 raw-native output. The raw backend emits source-variable location lists for definitely initialized frame slots; optimized backends omit unavailable locations. `--emit-map` exposes allocator transitions for IR values and identifies the assigned value's location at each source-variable write. Named B++ locals currently retain canonical frame homes; Windows emits SEH unwind directives but not CodeView/PDB debug records. Metadata CI installs LLVM inspection tools and GDB on Linux; the local Linux gate passes with `readelf`. Native macOS and Windows debugger runs still require their CI runners.
 
-- [ ] Preserve original source spans through imports, macros, lowering, folding, DCE and block reordering.
-- [ ] Represent source files and include/import stacks instead of mapping all expanded code to one sidecar.
-- [ ] Emit procedure names, parameter names/types, lexical scopes, and source-file tables.
-- [ ] Emit DWARF location lists/register locations and Windows CodeView/PDB-compatible information as appropriate.
-- [ ] Track a variable that moves between register and spill slot over time.
-- [ ] Describe optimized-out variables honestly instead of reporting stale frame cells.
-- [ ] Keep unwind rules correct through prologue/epilogue, stack probes, veneers, helper calls, and every return/error path.
-- [ ] Add metadata inspection tests with `llvm-dwarfdump`, `readelf`, `llvm-readobj`, and platform-native tools.
-- [ ] Test source stepping through loops, calls, recursive frames, imports and runtime errors on each supported debugger.
+- [x] Preserve original source spans through imports, macros, lowering, folding, DCE and block reordering.
+- [x] Represent source files and include/import stacks instead of mapping all expanded code to one sidecar.
+- [x] Emit DWARF5 procedure, parameter and variable DIE names/types with function scopes and source-file tables on Mach-O ARM64 and ELF x86-64. Parameters use an explicitly unspecified B++ value type because the language has no parameter type syntax; local declarations retain their source type. B++ locals are function-scoped, so there are no nested lexical blocks.
+- [x] Emit DWARF5 location lists for raw-native source locals on Mach-O ARM64 and ELF x86-64, using frame locations only while definitely initialized. [ ] Emit allocator-register locations and Windows CodeView/PDB records.
+- [x] Expose allocator register/spill segments over IR positions in `--emit-map`; the allocator regression suite includes a value that transitions from a register to a spill slot. Source-variable write events identify their assigned IR value and its location at the write. [ ] Track source-variable values across their full live ranges and add DWARF register/spill locations. Named locals are not promoted from their canonical frame homes today, so presenting those IR-value transitions as source-variable locations would be inaccurate.
+- [x] Leave optimized-backend source-variable location lists empty when no trustworthy location is available, so debuggers report the variable unavailable instead of reading stale frame cells. `--emit-map` labels these locations `unavailable_no_trustworthy_location`; raw-backend map entries identify their exact slot only while initialized. An empty DWARF location description is the standard representation for a variable with no executable location.
+- [x] Emit unwind rules for raw x86-64 and ARM64 frames and Windows x64 SEH prologues; x86-64 CFI includes saved-register transitions through the shared epilogue. ARM64 rules keep CFA anchored to x29 across stack probes and helper calls.
+- [x] Add unwind inspection for ELF procedure FDEs, saved-register restores, and canonical CFA restoration; cross-target assembly tests cover ARM64 CFI and Windows x64 SEH directives. [ ] Validate unwind records through stack probes, veneers, helper calls, and every return/error path with native unwinders on each ABI.
+- [x] Add metadata inspection checks for generated assembly and ELF DWARF info/location/unwind metadata with `readelf`; Mach-O DWARF/dSYM is checked with `dwarfdump` on macOS. CI installs `llvm-dwarfdump` and `llvm-readobj` on Unix/Windows runners and invokes them when present. [ ] Record successful native CI runs for these tools across the supported matrix.
+- [x] Add debugger stepping checks for loops, calls, recursive frames, imports, and runtime faults in the macOS LLDB test and Linux GDB test. [ ] Add Windows debugger stepping after CodeView/PDB records are emitted and validate LLDB/GDB runs on the native CI runners.
 
 ### 15. Native sanitizer instrumentation
 

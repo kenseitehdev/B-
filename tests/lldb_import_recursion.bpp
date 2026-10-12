@@ -1,0 +1,7 @@
+import "lldb_recursive_helper.bpp"
+
+define proc main() {
+    new byte count = 3;
+    new byte result = recursive_calls(count);
+    return imported_fault() + result;
+}

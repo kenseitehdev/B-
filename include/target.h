@@ -50,6 +50,7 @@ int bpp_emit_x64(BLIRModule *,FILE *,int,int);
 int bpp_ir_optimize(BLIRModule *);
 void bpp_asm_source(FILE *,const BLIRModule *);
 void bpp_asm_location(FILE *,const BLIRModule *,const BLIRInst *);
+void bpp_asm_compile_unit(FILE *,const BLIRModule *,BPPTarget,const char *,const char *,const char *,const char *,const char *);
 void bpp_asm_instruction_comment(FILE *,const BLIRFunction *,size_t,size_t,size_t,const BPPRegPlan *,BPPTarget,int);
 int bpp_emit_locations(BLIRModule *,FILE *,BPPTarget);
 #endif

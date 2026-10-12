@@ -69,6 +69,8 @@ typedef struct {
     size_t block_count, block_capacity, register_count;
     size_t source_file;
     int source_line, source_column;
+    char **local_types;        /* NULL for untyped parameters; source type names for declarations */
+    size_t local_type_capacity;
 } BLIRFunction;
 
 typedef struct {
