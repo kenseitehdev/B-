@@ -9,7 +9,7 @@ cleanup() {
     result=$?
     if [ "$result" -ne 0 ] || [ "${BPP_KEEP_DEBUG_METADATA_TMP:-0}" = 1 ]; then
         echo "Preserved debug metadata test files at $work" >&2
-        for log in "$work/gdb-variables.txt" "$work/variables.txt" "$work/verify.txt"; do
+        for log in "$work/gdb-variables.txt" "$work/variables.txt" "$work/state-variables.txt" "$work/verify.txt"; do
             if [ -f "$log" ]; then tail -80 "$log" >&2; fi
         done
         if [ "${CI:-}" = true ]; then
@@ -309,7 +309,7 @@ if [ "$(uname -s)" = Darwin ]; then
     grep -F 'library.bpp' "$work/lines.txt" >/dev/null
 
     if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v lldb >/dev/null 2>&1; then
-        "$bpp" --debug-info -o "$work/lldb-runtime-error" tests/lldb_runtime_error.bpp
+        "$bpp" --native-sanitizers --debug-info -o "$work/lldb-runtime-error" tests/lldb_runtime_error.bpp
         lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file lldb_runtime_error.bpp --line 6' \
             -o 'breakpoint set --file lldb_runtime_error.bpp --line 15' \
@@ -327,7 +327,7 @@ if [ "$(uname -s)" = Darwin ]; then
             grep -F ' at lldb_runtime_error.bpp:15' >/dev/null
         grep -F 'main at lldb_runtime_error.bpp:21' "$work/lldb.txt" >/dev/null
 
-        "$bpp" --debug-info -o "$work/lldb-import-recursion" tests/lldb_import_recursion.bpp
+        "$bpp" --native-sanitizers --debug-info -o "$work/lldb-import-recursion" tests/lldb_import_recursion.bpp
         lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file lldb_recursive_helper.bpp --line 3' \
             -o 'breakpoint set --file lldb_recursive_helper.bpp --line 10' \
@@ -373,6 +373,37 @@ if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v lldb >/dev/null 2>&1; 
     grep -F 'increment' "$work/variables.txt" >/dev/null
 fi
 
+# Binary64 states/rates must expose payload values, not their object address bits.
+if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ]; then
+    cat >"$work/states.bpp" <<'EOF'
+define proc main(){
+    new state current=0.5;
+    new rate speed=velocity(-1.0,current,3);
+    return current+speed;
+}
+EOF
+    "$bpp" --debug-info -o "$work/states" "$work/states.bpp"
+    state_program="$work/states"
+    if [ -f "$work/states.exe" ]; then state_program="$work/states.exe"; fi
+    if command -v lldb >/dev/null 2>&1; then
+        lldb --batch -o 'settings set use-color false' \
+            -o 'breakpoint set --file states.bpp --line 4' -o run \
+            -o 'frame variable -P 1 current speed' -o 'process kill' -o quit \
+            "$state_program" >"$work/state-variables.txt" 2>&1
+        if [ "${BPP_REQUIRE_WINDOWS_DEBUGGER:-0}" = 1 ]; then
+            test "$(grep -Ec 'value = 0.5' "$work/state-variables.txt")" -ge 2
+        else
+            grep -E 'current = 0.5' "$work/state-variables.txt" >/dev/null
+            grep -E 'speed = 0.5' "$work/state-variables.txt" >/dev/null
+        fi
+    elif command -v gdb >/dev/null 2>&1; then
+        gdb --batch -ex 'set pagination off' -ex 'set confirm off' \
+            -ex 'break states.bpp:4' -ex run -ex 'print current' -ex 'print speed' \
+            -ex quit "$state_program" >"$work/state-variables.txt" 2>&1
+        test "$(grep -Ec '= 0.5$' "$work/state-variables.txt")" -ge 2
+    fi
+fi
+
 # Linux native debugger coverage mirrors the LLDB smoke test above. Keep the
 # breakpoints on source locations so this checks the line table, not symbols
 # supplied by the host C compiler. The second fixture verifies imported source
@@ -384,7 +415,7 @@ if [ "$(uname -s)" = Linux ] && [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && comm
     grep -E '= 41$' "$work/gdb-variables.txt" >/dev/null
     grep -E '= 42$' "$work/gdb-variables.txt" >/dev/null
     grep -F 'increment' "$work/gdb-variables.txt" >/dev/null
-    "$bpp" --debug-info -o "$work/gdb-runtime-error" tests/lldb_runtime_error.bpp
+    "$bpp" --native-sanitizers --debug-info -o "$work/gdb-runtime-error" tests/lldb_runtime_error.bpp
     gdb --batch \
         -ex 'set pagination off' \
         -ex 'set confirm off' \
@@ -400,7 +431,7 @@ if [ "$(uname -s)" = Linux ] && [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && comm
     grep -F 'main' "$work/gdb.txt" >/dev/null
     grep -E 'SIGSEGV|SIGBUS|Program received signal|B\+\+ sanitizer:' "$work/gdb.txt" >/dev/null
 
-    "$bpp" --debug-info -o "$work/gdb-import-recursion" tests/lldb_import_recursion.bpp
+    "$bpp" --native-sanitizers --debug-info -o "$work/gdb-import-recursion" tests/lldb_import_recursion.bpp
     gdb --batch \
         -ex 'set pagination off' \
         -ex 'set confirm off' \

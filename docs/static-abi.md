@@ -106,8 +106,8 @@ The manifest is deliberately small and deterministic:
 ```text
 bppabi 1
 name math
-abi 1.1
-runtime 2
+abi 2.0
+runtime 3
 archive linux-x86_64 libmath.bpp.a 123456 01ab23cd45ef6789
 dependency numbers
 export add 2
@@ -147,7 +147,7 @@ identity, imported procedure symbol, arity, and owning library index. It is the
 handoff format for future buildFile/link-map work, not an object-file map.
 
 A final executable still links the matching `runtime.o`, `value.o`,
-`codegen_runtime.o`, and `bpp_abi.o` from the same B++ build revision. On ELF
+`codegen_runtime.o`, `truth.o`, and `bpp_abi.o` from the same B++ build revision. On ELF
 x86-64 it uses the current non-PIE model required by the large internal-label
 code model. This is a manifest resolver and host-link stage, not the later
 custom object linker: archive indexing, object parsing, duplicate-symbol
@@ -174,7 +174,7 @@ It exports `xf_version()`, `xf_run_string(source)`, and `xf_run_file(path)`.
 The bridge uses the same descriptor and manifest validation as a B++-produced
 archive. It embeds XF core only: the legacy XF LambdaScript and former
 ByteLang sub-bridges are intentionally excluded because they target a
-different runtime boundary. Runtime failures become B++ diagnostics.
+different runtime boundary. Recoverable runtime failures become B++ uncertainty with retained diagnostic context.
 
 The supplied XF snapshot declares but does not define `interp_init` and
 `interp_free`; the bridge carries a narrowly scoped compatibility source file
