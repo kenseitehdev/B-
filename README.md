@@ -309,3 +309,7 @@ not collect object cycles, and no static type system is introduced.
 The roadmap remains: codegen, ABI, assembler, linker, buildFile (build tool and
 recipe format), xf static library for bl, debugger, sanitizers. This snapshot
 stays in codegen; the remaining codegen gates are listed explicitly before ABI work.
+
+Platform/driver baselines and source/path protections are defined in
+[docs/platform-support.md](docs/platform-support.md). Run `make BUILD_MODE=release check-platform`
+for native path checks and inspection of all four target object formats.

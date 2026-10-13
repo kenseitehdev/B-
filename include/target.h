@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdio.h>
 typedef struct BPPRegPlan BPPRegPlan;
-typedef enum { BPP_MACOS_ARM64, BPP_LINUX_X64, BPP_LINUX_ARM64, BPP_WINDOWS_X64 } BPPTarget;
+typedef enum { BPP_TARGET_UNSUPPORTED = -1, BPP_MACOS_ARM64 = 0, BPP_LINUX_X64, BPP_LINUX_ARM64, BPP_WINDOWS_X64 } BPPTarget;
 typedef enum { BPP_ISA_ARM64, BPP_ISA_X86_64 } BPPISA;
 typedef enum { BPP_FORMAT_MACHO, BPP_FORMAT_ELF, BPP_FORMAT_COFF } BPPObjectFormat;
 typedef enum { BPP_LOWER_UNSUPPORTED, BPP_LOWER_NATIVE, BPP_LOWER_RUNTIME, BPP_LOWER_MIXED } BPPLowering;
@@ -22,8 +22,22 @@ enum { BPP_REG_ALLOCATABLE=1u, BPP_REG_CALLER_SAVED=2u, BPP_REG_CALLEE_SAVED=4u,
        BPP_REG_ARGUMENT=64u, BPP_REG_RETURN=128u };
 enum { BPP_CALL_RUNTIME=1u, BPP_CALL_USER=2u, BPP_CALL_EXTERNAL=4u, BPP_CALL_ANY=7u };
 typedef struct { unsigned id; const char *name; unsigned class_mask,width_bits,flags,save_cost,call_clobbers; } BPPRegisterInfo;
-typedef struct { BPPTarget id; const char *name, *triple; BPPISA isa; BPPObjectFormat format; unsigned pointer_bits, integer_bits, allocatable_payload_registers; } BPPBackendCapabilities;
 typedef struct { BPPRangeKind kind; const char *name, *relocation; long long minimum, maximum; } BPPRangeLimit;
+/* One descriptor owns object-format and ABI conventions. ISA-specific register
+ * inventories and instruction selection remain separate, queried by target. */
+typedef struct {
+    BPPTarget id;
+    const char *name, *triple;
+    BPPISA isa;
+    BPPObjectFormat format;
+    unsigned pointer_bits, integer_bits, allocatable_payload_registers;
+    const char *symbol_prefix, *text_section, *cstring_section, *readonly_section;
+    const char *data_section, *bss_section, *nonexec_stack;
+    const char *helper_convention, *unwind_convention, *stack_probe_symbol;
+    unsigned stack_alignment, shadow_space, abi_red_zone, stack_probe_page;
+    const BPPRangeLimit *ranges;
+    size_t range_count;
+} BPPBackendCapabilities;
 typedef struct { BPPRangeKind kind; const char *source_label, *target_label; unsigned long long source_offset, target_offset; int line, column; } BPPRangeCheckSite;
 size_t bpp_target_count(void);
 const BPPBackendCapabilities *bpp_target_at(size_t index);
@@ -42,6 +56,7 @@ const char *bpp_lowering_name(BPPLowering lowering);
 int bpp_target_validate_ir(BLIRModule *module,BPPTarget target,const char *backend);
 const char *bpp_target_name(BPPTarget target);
 int bpp_target_parse(const char *name, BPPTarget *target);
+BPPTarget bpp_target_for_host(const char *os, const char *architecture);
 BPPTarget bpp_host_target(void);
 int bpp_host_supported(void);
 int bpp_emit_native(BLIRModule *,FILE *,int,BPPTarget);

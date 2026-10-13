@@ -2,9 +2,9 @@
 
 ## Queryable target records
 
-`include/target.h` is the authoritative target registry. Each record declares
+`src/target.c` is the authoritative target registry, exposed by `include/target.h`. Each record declares
 the target name, assembler triple, object format, ISA, pointer and language
-integer widths, and payload register count. Add a target there before exposing
+integer widths, payload register count, object/symbol/section conventions, relocation ranges, helper ABI and stack/unwind rules. See [platform support](platform-support.md). Add a target there before exposing
 it to users. Do not maintain separate target-name or triple lists in the CLI,
 emitter, tests, or build rules.
 
@@ -19,7 +19,7 @@ bpp --target-info linux-x86_64
 ```
 
 `--list-targets` prints tab-separated name, assembler triple, object format,
-ISA, pointer width, and payload register count. `--target-info` prints those
+ISA, pointer width, payload register count, object/symbol/section conventions, relocation ranges, helper ABI and stack/unwind rules. See [platform support](platform-support.md). `--target-info` prints those
 fields and one lowering classification per IR opcode.
 
 ## Unsupported operations

@@ -76,7 +76,7 @@ static void build_info(void){
 static int target_query(int argc,char **argv){
     if(argc==2&&!strcmp(argv[1],"--build-info")){build_info();return 1;}
     if(argc==2&&!strcmp(argv[1],"--list-targets")){for(size_t i=0;i<bpp_target_count();++i){const BPPBackendCapabilities *c=bpp_target_at(i);printf("%s\t%s\t%s\t%s\t%u\t%u\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->allocatable_payload_registers);}return 1;}
-    if(argc==3&&!strcmp(argv[1],"--target-info")){BPPTarget t;if(!bpp_target_parse(argv[2],&t))return -1;const BPPBackendCapabilities *c=bpp_target_capabilities(t);size_t count=0,range_count=0;const BPPRegisterInfo *regs=bpp_target_register_inventory(t,&count);const BPPRangeLimit *ranges=bpp_target_range_limits(t,&range_count);printf("target=%s\ntriple=%s\nformat=%s\nisa=%s\npointer_bits=%u\ninteger_bits=%u\nallocatable_payload_registers=%u\nregister_inventory_count=%zu\nrange_limit_count=%zu\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->integer_bits,c->allocatable_payload_registers,count,range_count);for(size_t r=0;r<count;++r)printf("register.%s=id:%u,class:%u,width:%u,flags:%u,save_cost:%u,call_clobbers:%u\n",regs[r].name,regs[r].id,regs[r].class_mask,regs[r].width_bits,regs[r].flags,regs[r].save_cost,regs[r].call_clobbers);for(size_t r=0;r<range_count;++r)printf("range.%s=relocation:%s,min:%lld,max:%lld\n",ranges[r].name,ranges[r].relocation,ranges[r].minimum,ranges[r].maximum);for(int op=0;op<BL_IR_OPCODE_COUNT;++op)printf("ir.%s=%s\n",bl_ir_op_name((BLIROp)op),bpp_lowering_name(bpp_target_ir_lowering(t,(BLIROp)op)));return 1;}return 0;
+    if(argc==3&&!strcmp(argv[1],"--target-info")){BPPTarget t;if(!bpp_target_parse(argv[2],&t))return -1;const BPPBackendCapabilities *c=bpp_target_capabilities(t);size_t count=0,range_count=0;const BPPRegisterInfo *regs=bpp_target_register_inventory(t,&count);const BPPRangeLimit *ranges=bpp_target_range_limits(t,&range_count);printf("target=%s\ntriple=%s\nformat=%s\nisa=%s\npointer_bits=%u\ninteger_bits=%u\nallocatable_payload_registers=%u\nregister_inventory_count=%zu\nrange_limit_count=%zu\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->integer_bits,c->allocatable_payload_registers,count,range_count);printf("symbol_prefix=%s\ntext_section=%s\nreadonly_section=%s\ndata_section=%s\nbss_section=%s\nnonexec_stack=%s\nhelper_convention=%s\nunwind_convention=%s\nstack_probe_symbol=%s\nstack_alignment=%u\nshadow_space=%u\nabi_red_zone=%u\nstack_probe_page=%u\n",c->symbol_prefix,c->text_section,c->readonly_section,c->data_section,c->bss_section,c->nonexec_stack,c->helper_convention,c->unwind_convention,c->stack_probe_symbol,c->stack_alignment,c->shadow_space,c->abi_red_zone,c->stack_probe_page);for(size_t r=0;r<count;++r)printf("register.%s=id:%u,class:%u,width:%u,flags:%u,save_cost:%u,call_clobbers:%u\n",regs[r].name,regs[r].id,regs[r].class_mask,regs[r].width_bits,regs[r].flags,regs[r].save_cost,regs[r].call_clobbers);for(size_t r=0;r<range_count;++r)printf("range.%s=relocation:%s,min:%lld,max:%lld\n",ranges[r].name,ranges[r].relocation,ranges[r].minimum,ranges[r].maximum);for(int op=0;op<BL_IR_OPCODE_COUNT;++op)printf("ir.%s=%s\n",bl_ir_op_name((BLIROp)op),bpp_lowering_name(bpp_target_ir_lowering(t,(BLIROp)op)));return 1;}return 0;
 }
 static int verification_trace(void){const char *enabled=getenv("BPP_VERIFICATION_TRACE");return enabled&&*enabled;}
 static int run_command(char *const *command) {
@@ -113,15 +113,39 @@ static int run_command(char *const *command) {
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 #endif
 }
+#ifdef _WIN32
+static HANDLE source_identity_handle(const char *path){
+    int length=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,NULL,0);
+    if(!length)return INVALID_HANDLE_VALUE;
+    wchar_t *wide=calloc((size_t)length,sizeof *wide);
+    if(!wide)return INVALID_HANDLE_VALUE;
+    MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,wide,length);
+    HANDLE handle=CreateFileW(wide,FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,NULL);
+    free(wide);return handle;
+}
+#endif
 static int same_file(const char *a,const char *b){
     if(!strcmp(a,b))return 1;
 #ifdef _WIN32
     char *full_a=_fullpath(NULL,a,0),*full_b=_fullpath(NULL,b,0);
     int same=full_a&&full_b&&!_stricmp(full_a,full_b);free(full_a);free(full_b);
     if(same)return 1;
+    HANDLE ha=source_identity_handle(a),hb=source_identity_handle(b);
+    BY_HANDLE_FILE_INFORMATION ia,ib;
+    int identical=ha!=INVALID_HANDLE_VALUE&&hb!=INVALID_HANDLE_VALUE&&GetFileInformationByHandle(ha,&ia)&&GetFileInformationByHandle(hb,&ib)&&
+        ia.dwVolumeSerialNumber==ib.dwVolumeSerialNumber&&ia.nFileIndexHigh==ib.nFileIndexHigh&&ia.nFileIndexLow==ib.nFileIndexLow;
+    if(ha!=INVALID_HANDLE_VALUE)CloseHandle(ha);
+    if(hb!=INVALID_HANDLE_VALUE)CloseHandle(hb);
+    if(identical)return 1;
 #endif
     struct stat sa,sb;
     return !stat(a,&sa)&&!stat(b,&sb)&&sa.st_ino&&sa.st_dev==sb.st_dev&&sa.st_ino==sb.st_ino;
+}
+static int output_is_source(const BLIRModule *module,const char *output){
+    if(!output)return 0;
+    for(size_t i=0;i<module->source_file_count;++i)
+        if(same_file(module->source_files[i].path,output))return 1;
+    return 0;
 }
 static int is_main_source(const char *path) {
     if (!path) return 0;
@@ -147,6 +171,10 @@ static int archive_identity(const char *path, size_t *size_out, unsigned long lo
 }
 static char *library_archive_path(const char *manifest_output, const char *name) {
     const char *slash = manifest_output ? strrchr(manifest_output, '/') : NULL;
+#ifdef _WIN32
+    const char *backslash=manifest_output?strrchr(manifest_output,'\\'):NULL;
+    if(backslash&&(!slash||backslash>slash))slash=backslash;
+#endif
     size_t directory = slash ? (size_t)(slash - manifest_output + 1) : 0;
     size_t bytes = directory + strlen("lib") + strlen(name) + strlen(".bpp.a") + 1;
     char *path = calloc(bytes, 1); if (!path) { perror("calloc"); return NULL; }
@@ -327,6 +355,10 @@ int main(int argc, char **argv) {
         path = argv[j];
     }
     if (!path && !emit_library && !emit_library_manifest_mode) path = "main.bpp";
+    if(!bpp_target_capabilities(target)){
+        fputs("unsupported host OS/architecture; select an explicitly supported --target for cross-target output\n",stderr);
+        free(library_paths);return 2;
+    }
     int compiler_has_sanitizers=BPP_SANITIZERS[0]!=0;
     if (!path || (mode == 1 && output) || (asm_comments && mode != 4) || (emit_library&&mode!=4&&mode!=5&&mode!=8) || (emit_library&&!library_name) || (emit_library_manifest_mode&&!library_name) || (!emit_library&&!emit_library_manifest_mode&&library_name) || (native_checks&&(strict_native_runtime||emit_library)) || (benchmark_metrics&&(!emit_library||mode!=4||compiler_has_sanitizers||strict_native_runtime||native_checks))) { usage(argv[0]); free(library_paths); return 2; }
     if(!mode&&!bpp_target_is_host(target)){
@@ -339,6 +371,9 @@ int main(int argc, char **argv) {
     if(alloc_profile){char profile_error[512];if(!bpp_reg_profile_load(alloc_profile,profile_error,sizeof profile_error)){fprintf(stderr,"B++: invalid allocation profile: %s\n",profile_error);free(library_paths);return 2;}}
     BLCompiler compiler = {0}; compiler.target=target; compiler.library_paths=library_paths; compiler.library_path_count=library_path_count; BLIRModule ir; bl_ir_init(&ir);
     int ok = bl_compile_file(&compiler, path, &ir);
+    if(ok&&output_is_source(&ir,destination)){
+        snprintf(ir.error,sizeof ir.error,"output must differ from every source file, including imports");ok=0;
+    }
     if (ok && !emit_library && !emit_library_manifest_mode) {
         int declares_main = 0;
         for (size_t f = 1; f < ir.function_count; ++f)
@@ -368,7 +403,7 @@ int main(int argc, char **argv) {
         if(base){size_t size=strlen(base)+32;ir.debug_path=calloc(size,1);
             if(!ir.debug_path)ok=0;
             else{snprintf(ir.debug_path,size,"%s.bpp-source",base);FILE *source=NULL;
-                if(same_file(path,ir.debug_path))fputs("debug snapshot must differ from source\n",stderr);
+                if(output_is_source(&ir,ir.debug_path))fputs("debug snapshot must differ from every source file, including imports\n",stderr);
                 else source=fopen(ir.debug_path,"w");
                 if(!source)ok=0;else{if(fputs(ir.expanded_source,source)==EOF)ok=0;if(fclose(source))ok=0;}}
         }

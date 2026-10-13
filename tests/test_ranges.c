@@ -12,6 +12,24 @@ static BLIRModule module(void) {
 }
 
 int main(void) {
+    assert(bpp_target_for_host("macos","arm64")==BPP_MACOS_ARM64);
+    assert(bpp_target_for_host("linux","x86_64")==BPP_LINUX_X64);
+    assert(bpp_target_for_host("linux","aarch64")==BPP_LINUX_ARM64);
+    assert(bpp_target_for_host("windows","AMD64")==BPP_WINDOWS_X64);
+    assert(bpp_target_for_host("macos","x86_64")==BPP_TARGET_UNSUPPORTED);
+    assert(bpp_target_for_host("windows","arm64")==BPP_TARGET_UNSUPPORTED);
+    assert(bpp_target_for_host("freebsd","x86_64")==BPP_TARGET_UNSUPPORTED);
+    assert(bpp_target_for_host("linux","riscv64")==BPP_TARGET_UNSUPPORTED);
+    assert(bpp_target_for_host(NULL,"arm64")==BPP_TARGET_UNSUPPORTED);
+    assert(bpp_target_capabilities(BPP_TARGET_UNSUPPORTED)==NULL);
+    assert(bpp_host_supported()==(bpp_target_capabilities(bpp_host_target())!=NULL));
+    for(size_t i=0;i<bpp_target_count();++i){
+        const BPPBackendCapabilities *c=bpp_target_at(i);size_t n=0;
+        assert(c->stack_alignment==16&&c->stack_probe_page==4096);
+        assert(c->symbol_prefix&&c->text_section&&c->helper_convention);
+        assert(bpp_target_range_limits(c->id,&n)==c->ranges&&n==c->range_count);
+        assert(c->shadow_space==(c->id==BPP_WINDOWS_X64?32u:0u));
+    }
     for(BPPTarget target=BPP_MACOS_ARM64;target<=BPP_WINDOWS_X64;target=(BPPTarget)(target+1)) {
         size_t count=0;const BPPRangeLimit *limits=bpp_target_range_limits(target,&count);
         assert(limits&&count);
