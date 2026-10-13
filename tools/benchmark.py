@@ -152,15 +152,24 @@ def main():
     elif Path("/proc/cpuinfo").exists():
         matches = re.findall(r"^(?:model name|Hardware)\s*:\s*(.*)", Path("/proc/cpuinfo").read_text(), re.M)
         cpu = matches[0] if matches else cpu
-    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    git = shutil.which("git")
+    revision = os.environ.get("GITHUB_SHA")
+    revision_origin = "github-actions" if revision else "unavailable"
+    if not revision and git:
+        probe = subprocess.run([git, "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=30)
+        if probe.returncode == 0:
+            revision, revision_origin = probe.stdout.strip(), "git-head"
     target_info = subprocess.check_output([str(compiler), "--target-info", target], text=True, timeout=30)
     triple = next(line.split("=",1)[1] for line in target_info.splitlines() if line.startswith("triple="))
-    dirty = subprocess.run(["git", "status", "--porcelain", "--", "src", "include", "tools", "Makefile", "tests/benchmark_runner.c"], cwd=ROOT, capture_output=True, text=True).stdout
-    dirty = any(not Path(line[3:]).name.startswith("._") for line in dirty.splitlines())
+    dirty = None
+    if git:
+        probe = subprocess.run([git, "status", "--porcelain", "--", "src", "include", "tools", "Makefile", "tests/benchmark_runner.c"], cwd=ROOT, capture_output=True, text=True, timeout=30)
+        if probe.returncode == 0:
+            dirty = any(not Path(line[3:]).name.startswith("._") for line in probe.stdout.splitlines())
     host = {"os": platform.platform(), "architecture": platform.machine(), "cpu": cpu,
             "hostname_hash": hashlib.sha256(platform.node().encode()).hexdigest()[:24], "machine_id": args.machine_id or hashlib.sha256((platform.node()+platform.machine()).encode()).hexdigest()[:24],
             "machine_id_kind": "explicit" if args.machine_id else "host-fingerprint",
-            "compiler_revision": revision, "compiler_worktree_dirty": dirty, "compiler_sha256": checksum(compiler),
+            "compiler_revision": revision, "compiler_revision_origin": revision_origin, "compiler_worktree_dirty": dirty, "compiler_sha256": checksum(compiler),
             "host_cc": cc_path, "host_cc_identity": subprocess.check_output([cc_path, "--version"], text=True, timeout=30).splitlines()[0],
             "sanitizers": info["sanitizers"], "compiler_build_optimization": info.get("optimization"), "target": target, "target_triple": triple,
             "benchmark_driver_sha256": checksum(Path(__file__)), "fixture_source_sha256": checksum(ROOT/"tests/benchmark_runner.c"),

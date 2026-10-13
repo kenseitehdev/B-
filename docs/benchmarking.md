@@ -20,7 +20,9 @@ Set a stable machine ID explicitly for repeated hardware baselines. Otherwise
 the driver hashes hostname/architecture as a host fingerprint; this is not a
 hardware serial or a guarantee across renamed/replaced hosts. CPU, OS, target
 triple, tool identity, compiler binary/revision and dirty status, runtime-object
-hashes, source, flags and exact measurement commands are retained.
+hashes, source, flags and exact measurement commands are retained. Revision
+identity comes from GitHub Actions or an available Git checkout; outside both,
+revision/dirty status are explicitly unavailable while binary hashes remain.
 
 ## Measurement boundaries
 
