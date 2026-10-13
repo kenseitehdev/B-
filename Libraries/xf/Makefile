@@ -61,7 +61,7 @@ $(MANIFEST): $(ARCHIVE) $(MANIFEST_TOOL) Makefile
 	$(MANIFEST_TOOL) "$(TARGET)" "$(ARCHIVE)" "$@"
 
 test: all
-	@printf '%s\n' 'import library "xf";' 'xf_run_string("BEGIN { print(6 * 7); }");' 'return xf_version();' > "$(BUILD_DIR)/smoke.bpp"
+	@printf '%s\n' 'import library "xf";' 'new ptr source = malloc 24; source[0] = 66; source[1] = 69; source[2] = 71; source[3] = 73; source[4] = 78; source[5] = 32; source[6] = 123; source[7] = 32; source[8] = 112; source[9] = 114; source[10] = 105; source[11] = 110; source[12] = 116; source[13] = 40; source[14] = 54; source[15] = 32; source[16] = 42; source[17] = 32; source[18] = 55; source[19] = 41; source[20] = 59; source[21] = 32; source[22] = 125; source[23] = 0; xf_run_string(source); free source; return xf_version();' > "$(BUILD_DIR)/smoke.bpp"
 	$(BPP_ROOT)/bin/release/bpp -L . --print-result -o "$(BUILD_DIR)/smoke" "$(BUILD_DIR)/smoke.bpp"
 	"$(BUILD_DIR)/smoke" | grep -Fx '42'
 

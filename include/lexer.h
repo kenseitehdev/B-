@@ -46,7 +46,8 @@ typedef enum {
     TOK_PERCENT,
     TOK_BANG,
     TOK_DOT,
-    TOK_INVALID
+    TOK_INVALID,
+    TOK_AMP, TOK_PIPE, TOK_CARET, TOK_TILDE, TOK_REAL, TOK_TAU, TOK_LOG_AND, TOK_LOG_OR, TOK_LOG_XOR, TOK_LOG_NOT
 } BLTokenKind;
 
 typedef struct {
@@ -56,6 +57,7 @@ typedef struct {
     int line;
     int column;
     long long number;
+    double real;
 } BLToken;
 
 typedef struct {

@@ -2,6 +2,7 @@
 #define BYTELANG_VALUE_H
 
 #include <stddef.h>
+#include "truth.h"
 
 typedef struct BLObject BLObject;
 typedef struct BLValue BLValue;
@@ -15,7 +16,7 @@ typedef enum {
 typedef enum {
     BLO_STRING = 1,
     BLO_BUFFER = 2,
-    BLO_ARRAY = 3
+    BLO_ARRAY = 3, BLO_STATE = 4
 } BLObjectKind;
 
 struct BLValue {
@@ -37,11 +38,14 @@ typedef struct {
     size_t size;
 } BLString;
 
-typedef struct {
+typedef struct BLBuffer {
     BLObject base;
     unsigned char *data;
     size_t size;
     int owned;
+    struct BLBuffer *owner;
+    size_t offset, generation;
+    unsigned char *defined;
 } BLBuffer;
 
 typedef struct {
@@ -51,6 +55,9 @@ typedef struct {
     int owned;
 } BLArray;
 
+typedef struct { BLObject base; BPPStateValue state; char diagnostic[512]; } BLState;
+BLValue bl_value_state(BPPStateValue state, const char *diagnostic);
+BLState *bl_value_as_state(BLValue value);
 BLValue bl_value_null(void);
 BLValue bl_value_int(long long value);
 BLValue bl_value_string_copy(const char *text);

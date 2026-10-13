@@ -23,7 +23,7 @@ typedef enum {
     AST_DELETE,
     AST_PROC_DEF,
     AST_IF,
-    AST_WHILE
+    AST_WHILE, AST_REAL
 } BLNodeKind;
 
 typedef struct BLNode BLNode;
@@ -40,6 +40,7 @@ struct BLNode {
         struct {
             long long value;
         } number;
+        struct { double value; } real;
         struct {
             char *text;
         } string;

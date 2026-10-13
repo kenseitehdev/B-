@@ -54,7 +54,8 @@ static int raw_op_supported(BLIROp op) {
     case BL_IR_LOAD_LOCAL: case BL_IR_STORE_LOCAL:
     case BL_IR_LOAD_GLOBAL: case BL_IR_STORE_GLOBAL:
     case BL_IR_INIT_LOCAL: case BL_IR_INIT_GLOBAL:
-    case BL_IR_NEG: case BL_IR_NOT:
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_BIT_NOT:
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR:
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE:
     case BL_IR_MALLOC: case BL_IR_REMALLOC:
@@ -128,21 +129,24 @@ static void xcall(const Raw *raw, const char *name) {
  * from the checked frame. Eight pushes preserve 16-byte call alignment. */
 static const char *const xscratch[]={"%rax","%rcx","%rdx","%r8","%r9","%r10","%r11"};
 static void xsave(const Raw *raw){
-    /* A debugger may single-step this sequence with TF set. Restoring that
-     * bit after the helper call would keep trapping inside unrelated C code. */
-    fputs("    pushfq\n    andq $-257, (%rsp)\n",raw->out);
     for(size_t s=0;s<7;++s)fprintf(raw->out,"    pushq %s\n",xscratch[s]);
+    /* Preserve only arithmetic flags. PUSHFQ/POPFQ also copy debugger control
+     * flags, so single-stepping can otherwise leave TF set across C calls.
+     * SETO/LAHF do not change flags; restore the incoming RAX before args. */
+    fputs("    seto %al\n    lahf\n    pushq %rax\n    movq 56(%rsp), %rax\n",raw->out);
     if(raw->windows)fputs("    subq $32, %rsp\n",raw->out);
 }
 static size_t xsaved(const Raw *raw,const char *reg){
-    for(size_t s=0;s<7;++s)if(!strcmp(reg,xscratch[s]))return (6-s)*8+(raw->windows?32:0);
+    for(size_t s=0;s<7;++s)if(!strcmp(reg,xscratch[s]))return (7-s)*8+(raw->windows?32:0);
     return SIZE_MAX;
 }
 static void xrestore(const Raw *raw,const char *result){
     if(result)fprintf(raw->out,"    movq %%rax, %zu(%%rsp)\n",xsaved(raw,result));
     if(raw->windows)fputs("    addq $32, %rsp\n",raw->out);
+    /* 0+127 clears OF; 1+127 sets OF. SAHF restores SF/ZF/AF/PF/CF without
+     * changing OF or the debugger's live control flags. POPs preserve them. */
+    fputs("    popq %rax\n    addb $127, %al\n    sahf\n",raw->out);
     for(size_t s=7;s-- >0;)fprintf(raw->out,"    popq %s\n",xscratch[s]);
-    fputs("    popfq\n",raw->out);
 }
 static void xsite(const Raw *raw,const BLIRInst *i){
     if(!raw->module->instrument_native)return;
@@ -243,10 +247,15 @@ static void xemit_inst(Raw *raw, const BLIRInst *inst) {
         xread(raw,"(%rax)","%rax",8); fprintf(out, "    movq %%rax, %s\n", raw->windows ? "%rcx" : "%rdi"); xcall(raw, raw->module->instrument_native?"bpp_s_free":"free"); break;
     }
     case BL_IR_RELEASE: if(raw->module->debug_path)fputs("    nop\n",out);break;
+    case BL_IR_BIT_NOT:
+        xvalue(raw,inst->a,"%rax");fputs("    notq %rax\n",out);xstore(raw,inst->dst,"%rax");break;
+    case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:
+        xvalue(raw,inst->a,"%rax");xvalue(raw,inst->b,"%rdx");
+        fprintf(out,"    %s %%rdx, %%rax\n",inst->op==BL_IR_BIT_AND?"andq":inst->op==BL_IR_BIT_OR?"orq":"xorq");xstore(raw,inst->dst,"%rax");break;
     case BL_IR_NEG:
         xvalue(raw, inst->a, "%rax"); fputs("    negq %rax\n    jno ", out); label(raw, "arith"); fputs("\n    movl $1, ", out); fputs(raw->windows ? "%ecx\n" : "%edi\n", out); xtrap(raw); label(raw, "arith"); fputs(":\n", out); xstore(raw, inst->dst, "%rax"); break;
     case BL_IR_NOT:
-        xvalue(raw, inst->a, "%rax"); fputs("    testq %rax, %rax\n    movl $0, %eax\n    sete %al\n", out); xstore(raw, inst->dst, "%rax"); break;
+        xvalue(raw, inst->a, "%rax"); fputs("    testq %rax, %rax\n    setg %dl\n    setl %al\n    movzbl %dl, %edx\n    movzbl %al, %eax\n    subq %rdx, %rax\n", out); xstore(raw, inst->dst, "%rax"); break;
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL:
         xvalue(raw, inst->a, "%rax"); xvalue(raw, inst->b, "%rdx");
         fprintf(out, "    %s %%rdx, %%rax\n    jno ", inst->op == BL_IR_ADD ? "addq" : inst->op == BL_IR_SUB ? "subq" : "imulq");
@@ -255,7 +264,7 @@ static void xemit_inst(Raw *raw, const BLIRInst *inst) {
         xvalue(raw, inst->a, "%rax"); xvalue(raw, inst->b, "%rcx"); fputs("    testq %rcx, %rcx\n    jne ", out); label(raw, "divisor"); fputs("\n    movl $1, ", out); fputs(raw->windows ? "%ecx\n" : "%edi\n", out); xtrap(raw); label(raw, "divisor"); fputs(":\n", out);
         fputs("    cmpq $-1, %rcx\n    jne ", out); label(raw, "divide"); fputs("\n    movabsq $0x8000000000000000, %rdx\n    cmpq %rdx, %rax\n    jne ", out); label(raw, "divide"); fputs("\n    movl $1, ", out); fputs(raw->windows ? "%ecx\n" : "%edi\n", out); xtrap(raw); label(raw, "divide"); fputs(":\n    cqto\n    idivq %rcx\n", out); xstore(raw, inst->dst, inst->op == BL_IR_DIV ? "%rax" : "%rdx"); break;
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE:
-        xvalue(raw, inst->a, "%rax"); xvalue(raw, inst->b, "%rdx"); fprintf(out, "    cmpq %%rdx, %%rax\n    movl $0, %%eax\n    set%s %%al\n", xcondition(inst->op)); xstore(raw, inst->dst, "%rax"); break;
+        xvalue(raw, inst->a, "%rax"); xvalue(raw, inst->b, "%rdx"); fprintf(out, "    cmpq %%rdx, %%rax\n    movl $0, %%eax\n    set%s %%al\n    leaq -1(%%rax,%%rax), %%rax\n", xcondition(inst->op)); xstore(raw, inst->dst, "%rax"); break;
     case BL_IR_MALLOC:
         xvalue(raw, inst->a, "%rax"); fprintf(out, "    movq %%rax, %s\n", raw->windows ? "%rcx" : "%rdi"); xcall(raw, raw->module->instrument_native?"bpp_s_malloc":"malloc"); xstore(raw, inst->dst, "%rax"); break;
     case BL_IR_REMALLOC:
@@ -322,7 +331,7 @@ static void xemit_function(Raw *raw) {
             if(raw->module->debug_path){bpp_asm_location(out,raw->module,inst);if(raw->windows)bpp_asm_codeview_location(out,raw->module,inst,raw->function);debug_pc_label(raw,"begin");}
             xsite(raw,inst);
             if (inst->op == BL_IR_JUMP) { fprintf(out, "    jmp L_raw_f%zu_b%zu\n", raw->function, inst->a); if(raw->module->debug_path)debug_pc_label(raw,"end"); continue; }
-            if (inst->op == BL_IR_BRANCH) { xvalue(raw, inst->a, "%rax"); fputs("    testq %rax, %rax\n    jne ", out); block_label(out, raw->function, inst->b); fputs("\n    jmp ", out); block_label(out, raw->function, inst->c); fputc('\n', out); if(raw->module->debug_path)debug_pc_label(raw,"end"); continue; }
+            if (inst->op == BL_IR_BRANCH) { xvalue(raw, inst->a, "%rax"); fputs("    testq %rax, %rax\n    jg ", out); block_label(out, raw->function, inst->b); fputs("\n    jmp ", out); block_label(out, raw->function, inst->c); fputc('\n', out); if(raw->module->debug_path)debug_pc_label(raw,"end"); continue; }
             if (inst->op == BL_IR_RETURN) { xvalue(raw, inst->a, "%rax"); fputs("    movq 16(%r12), %rdx\n    movq %rax, (%rdx)\n    jmp ", out); procedure_done_label(out, raw); fputc('\n',out); if(raw->module->debug_path)debug_pc_label(raw,"end"); continue; }
             xemit_inst(raw, inst);
             if(raw->module->debug_path)debug_pc_label(raw,"end");
@@ -441,11 +450,16 @@ static void aemit_inst(Raw *raw, const BLIRInst *inst) {
     case BL_IR_DELETE_LOCAL: case BL_IR_DELETE_GLOBAL: {int g=inst->op==BL_IR_DELETE_GLOBAL;alocal_address(raw,inst->a,g,0);fputs("    str xzr, [x9]\n",out);alocal_address(raw,inst->a,g,1);fputs("    strb wzr, [x9]\n",out);break;}
     case BL_IR_MFREE_LOCAL: case BL_IR_MFREE_GLOBAL: {int g=inst->op==BL_IR_MFREE_GLOBAL;acheck_initialized(raw,inst->a,g);alocal_address(raw,inst->a,g,0);aread(raw,"x0",8);acall(raw,raw->module->instrument_native?"bpp_s_free":"free");break;}
     case BL_IR_RELEASE: if(raw->module->debug_path)fputs("    nop\n",out);break;
+    case BL_IR_BIT_NOT:
+        avalue(raw,inst->a,"x10");fputs("    mvn x10, x10\n",out);astore(raw,inst->dst,"x10");break;
+    case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:
+        avalue(raw,inst->a,"x10");avalue(raw,inst->b,"x11");
+        fprintf(out,"    %s x10, x10, x11\n",inst->op==BL_IR_BIT_AND?"and":inst->op==BL_IR_BIT_OR?"orr":"eor");astore(raw,inst->dst,"x10");break;
     case BL_IR_NEG: avalue(raw,inst->a,"x10");fputs("    negs x10, x10\n    b.vs ",out);label(raw,"trap");fputs("\n",out);astore(raw,inst->dst,"x10");fputs("    b ",out);label(raw,"done");fputs("\n",out);label(raw,"trap");fputs(":\n",out);atrap(raw);label(raw,"done");fputs(":\n",out);break;
-    case BL_IR_NOT: avalue(raw,inst->a,"x10");fputs("    cmp x10, #0\n    cset x10, eq\n",out);astore(raw,inst->dst,"x10");break;
+    case BL_IR_NOT: avalue(raw,inst->a,"x10");fputs("    cmp x10, #0\n    cset x11, lt\n    cset x10, gt\n    sub x10, x11, x10\n",out);astore(raw,inst->dst,"x10");break;
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: avalue(raw,inst->a,"x10");avalue(raw,inst->b,"x11"); if(inst->op==BL_IR_ADD)fputs("    adds x10, x10, x11\n    b.vs ",out);else if(inst->op==BL_IR_SUB)fputs("    subs x10, x10, x11\n    b.vs ",out);else fputs("    mul x12, x10, x11\n    smulh x13, x10, x11\n    asr x14, x12, #63\n    cmp x13, x14\n    b.ne ",out);label(raw,"trap");fputs("\n",out); if(inst->op==BL_IR_MUL)fputs("    mov x10, x12\n",out);astore(raw,inst->dst,"x10");fputs("    b ",out);label(raw,"done");fputs("\n",out);label(raw,"trap");fputs(":\n",out);atrap(raw);label(raw,"done");fputs(":\n",out);break;
     case BL_IR_DIV: case BL_IR_MOD: avalue(raw,inst->a,"x10");avalue(raw,inst->b,"x11");fputs("    cbnz x11, ",out);label(raw,"divisor");fputs("\n",out);atrap(raw);label(raw,"divisor");fputs(":\n",out);aimmediate(out,"x12",UINT64_MAX);fputs("    cmp x11, x12\n    b.ne ",out);label(raw,"divide");fputs("\n",out);aimmediate(out,"x12",UINT64_C(0x8000000000000000));fputs("    cmp x10, x12\n    b.ne ",out);label(raw,"divide");fputs("\n",out);atrap(raw);label(raw,"divide");fputs(":\n    sdiv x12, x10, x11\n",out);if(inst->op==BL_IR_DIV)fputs("    mov x10, x12\n",out);else fputs("    msub x10, x12, x11, x10\n",out);astore(raw,inst->dst,"x10");break;
-    case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: {const char *cc=inst->op==BL_IR_EQ?"eq":inst->op==BL_IR_NE?"ne":inst->op==BL_IR_LT?"lt":inst->op==BL_IR_LE?"le":inst->op==BL_IR_GT?"gt":"ge";avalue(raw,inst->a,"x10");avalue(raw,inst->b,"x11");fprintf(out,"    cmp x10, x11\n    cset x10, %s\n",cc);astore(raw,inst->dst,"x10");break;}
+    case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: {const char *cc=inst->op==BL_IR_EQ?"eq":inst->op==BL_IR_NE?"ne":inst->op==BL_IR_LT?"lt":inst->op==BL_IR_LE?"le":inst->op==BL_IR_GT?"gt":"ge";avalue(raw,inst->a,"x10");avalue(raw,inst->b,"x11");fprintf(out,"    cmp x10, x11\n    cset x10, %s\n    lsl x10, x10, #1\n    sub x10, x10, #1\n",cc);astore(raw,inst->dst,"x10");break;}
     case BL_IR_MALLOC: avalue(raw,inst->a,"x0");acall(raw,raw->module->instrument_native?"bpp_s_malloc":"malloc");astore(raw,inst->dst,"x0");break;
     case BL_IR_REMALLOC: avalue(raw,inst->a,"x0");avalue(raw,inst->b,"x1");acall(raw,raw->module->instrument_native?"bpp_s_realloc":"realloc");astore(raw,inst->dst,"x0");break;
     case BL_IR_BYTE_LOAD: avalue(raw,inst->a,"x10");avalue(raw,inst->b,"x11");if(raw->module->instrument_native){fputs("    mov x0, x10\n    mov x1, x11\n",out);acall(raw,"bpp_s_byte_load");fputs("    mov x10, x0\n",out);}else fputs("    ldrb w10, [x10, x11]\n",out);astore(raw,inst->dst,"x10");break;
@@ -522,7 +536,7 @@ static void aemit_function(Raw *raw) {
             }
             if(i->op==BL_IR_BRANCH){
                 avalue(raw,i->a,"x10");
-                fprintf(out,"    cbnz x10, L_raw_f%zu_b%zu\n"
+                fprintf(out,"    cmp x10, #0\n    b.gt L_raw_f%zu_b%zu\n"
                             "    b L_raw_f%zu_b%zu\n",
                         raw->function,i->b,raw->function,i->c);
                 if(raw->module->debug_path)debug_pc_label(raw,"end");

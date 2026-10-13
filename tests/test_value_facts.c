@@ -30,7 +30,7 @@ static void check_join_delete_and_free(void) {
     bpp_value_facts_transfer(&facts, &b3[0], regs, locals, globals);
     assert(regs[3].kind == BPP_VALUE_INT && regs[3].truth == BPP_TRUTH_TRUE);
     bpp_value_facts_transfer(&facts, &b3[1], regs, locals, globals);
-    assert(regs[4].kind == BPP_VALUE_INT && regs[4].integer_known && regs[4].integer == 0);
+    assert(regs[4].kind == BPP_VALUE_INT && regs[4].integer_known && regs[4].integer == -1);
     bpp_value_facts_destroy(&facts);
 }
 
@@ -65,7 +65,7 @@ static void check_mutation_rules(void) {
         bpp_value_facts_transfer(&facts, &code[k], r, l, g);
         if (k == 4) assert(r[2].kind == BPP_VALUE_INT && r[2].integer_known && r[2].integer == 9);
         if (k == 7) assert(r[4].kind == BPP_VALUE_UNKNOWN); /* call invalidated global */
-        if (k == 9) assert(r[5].kind == BPP_VALUE_NULL && r[5].truth == BPP_TRUTH_FALSE);
+        if (k == 9) assert(r[5].kind == BPP_VALUE_UNKNOWN && l[0].initialized == 2);
         if (k == 13) assert(r[7].kind == BPP_VALUE_BUFFER && r[7].truth == BPP_TRUTH_TRUE);
     }
     bpp_value_facts_destroy(&facts);

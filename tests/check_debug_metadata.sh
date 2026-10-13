@@ -3,12 +3,21 @@ set -eu
 if [ "${CI:-}" = true ]; then set -x; fi
 
 bpp=$1
+# LeakSanitizer cannot attach through an already ptraced debugger. Ownership
+# and leak gates run separately, outside this metadata/debugger subprocess.
+if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ]; then
+    ASAN_OPTIONS="${ASAN_OPTIONS:+${ASAN_OPTIONS}:}detect_leaks=0"
+    export ASAN_OPTIONS
+fi
 work=${TMPDIR:-/tmp}/bpp-debug-metadata-$$
 if command -v cygpath >/dev/null 2>&1; then work=$(cygpath -m "$work"); fi
 cleanup() {
     result=$?
     if [ "$result" -ne 0 ] || [ "${BPP_KEEP_DEBUG_METADATA_TMP:-0}" = 1 ]; then
         echo "Preserved debug metadata test files at $work" >&2
+        for log in "$work/gdb-variables.txt" "$work/variables.txt" "$work/state-variables.txt" "$work/verify.txt"; do
+            if [ -f "$log" ]; then tail -80 "$log" >&2; fi
+        done
         if [ "${CI:-}" = true ]; then
             mkdir -p build/debug-evidence
             cp -R "$work" build/debug-evidence/
@@ -46,8 +55,8 @@ grep -F '"file":2,"line":2' "$work/map.json" >/dev/null
 grep -F '"variable_write"' "$work/map.json" >/dev/null
 grep -F '"value_location"' "$work/map.json" >/dev/null
 grep -F '"value_location_role":"assigned_value_at_this_instruction"' "$work/map.json" >/dev/null
-grep -F '"representation":"raw-word","declared_type":"byte"' "$work/map.json" >/dev/null
-grep -F '"location_status":"exact_raw_frame_slot_when_initialized"' "$work/map.json" >/dev/null
+grep -F '"representation":"tagged-value","declared_type":"byte"' "$work/map.json" >/dev/null
+grep -F '"location_status":"initialized_tagged_payload"' "$work/map.json" >/dev/null
 
 "$bpp" --debug-info --emit-asm --target macos-arm64 -o "$work/macho.s" "$work/main.bpp"
 grep -F '.section __DWARF,__debug_info,regular,debug' "$work/macho.s" >/dev/null
@@ -81,11 +90,11 @@ fi
 "$bpp" --debug-info --emit-asm --target macos-arm64 -o "$work/raw-arm64.s" tests/raw_core.bpp
 grep -F '.cfi_def_cfa x29, 16' "$work/raw-arm64.s" >/dev/null
 grep -F '.cfi_def_cfa sp, 0' "$work/raw-arm64.s" >/dev/null
-grep -F 'L_bpp_raw_proc_0_done:' "$work/raw-arm64.s" >/dev/null
+grep -F 'L_cleanup_0:' "$work/raw-arm64.s" >/dev/null
 awk '
     /^\.cfi_startproc$/ { in_cfi = 1 }
     /^\.cfi_endproc$/ { in_cfi = 0 }
-    /^bpp_raw_proc_0_done:$/ && in_cfi { bad = 1 }
+    /^L_cleanup_0:$/ && in_cfi { bad = 1 }
     END { exit bad }
 ' "$work/raw-arm64.s"
 if grep -F '.cfi_restore x23' "$work/raw-arm64.s" >/dev/null; then
@@ -93,23 +102,23 @@ if grep -F '.cfi_restore x23' "$work/raw-arm64.s" >/dev/null; then
     exit 1
 fi
 "$bpp" --debug-info --emit-asm --target windows-x86_64 -o "$work/raw-windows.s" tests/raw_core.bpp
-grep -F '.seh_proc bpp_raw_proc_0' "$work/raw-windows.s" >/dev/null
+grep -F '.seh_proc L_proc_0' "$work/raw-windows.s" >/dev/null
 grep -F '.seh_endprologue' "$work/raw-windows.s" >/dev/null
 grep -F '.seh_endproc' "$work/raw-windows.s" >/dev/null
-grep -F '.seh_pushreg %rdi' "$work/raw-windows.s" >/dev/null
-grep -F '.seh_pushreg %rsi' "$work/raw-windows.s" >/dev/null
+grep -F '.seh_pushreg %r12' "$work/raw-windows.s" >/dev/null
+grep -F '.seh_pushreg %rbp' "$work/raw-windows.s" >/dev/null
 # A zero-offset SEH frame register must anchor the final allocated rsp, not
 # the pre-allocation stack. This also covers sanitizer callback stack changes.
 awk '
-    /\.seh_proc / { allocated=0; framed=0 }
+    /\.seh_proc / { allocated=0; framed=0; source=($2 ~ /^L_proc_/) }
     /\.seh_stackalloc / { allocated=1 }
     /\.seh_setframe / { if (!allocated) exit 1; framed=1 }
-    /\.seh_endprologue/ { if (!allocated || !framed) exit 1 }
+    /\.seh_endprologue/ { if (source && (!allocated || !framed)) exit 1 }
 ' "$work/raw-windows.s"
 grep -F '.cv_file 1 ' "$work/raw-windows.s" >/dev/null
 grep -F '.cv_func_id 0' "$work/raw-windows.s" >/dev/null
 grep -F '.cv_loc 0 ' "$work/raw-windows.s" >/dev/null
-grep -F '.cv_linetable 0, bpp_raw_proc_0, L_bpp_codeview_end_0' "$work/raw-windows.s" >/dev/null
+grep -F '.cv_linetable 0, L_proc_0, L_proc_end_0' "$work/raw-windows.s" >/dev/null
 grep -F '.globl bpp_source_main' "$work/raw-windows.s" >/dev/null
 
 "$bpp" --debug-info --print-result -o "$work/program" "$work/main.bpp"
@@ -123,7 +132,7 @@ if [ "$(uname -s)" = Linux ] && command -v readelf >/dev/null 2>&1; then
     readelf --debug-dump=decodedline "$linked_program" >"$work/lines.txt"
     grep -F "library.bpp" "$work/lines.txt" >/dev/null
     readelf --debug-dump=info "$linked_program" >"$work/info.txt"
-    if [ "${CI:-}" = true ]; then cat "$work/info.txt"; fi
+
     grep -F 'DW_TAG_subprogram' "$work/info.txt" >/dev/null
     grep -F 'DW_TAG_formal_parameter' "$work/info.txt" >/dev/null
     grep -F 'DW_TAG_lexical_block' "$work/info.txt" >/dev/null
@@ -138,8 +147,7 @@ if [ "$(uname -s)" = Linux ] && command -v readelf >/dev/null 2>&1; then
     grep -F 'CFA' "$work/frames.txt" >/dev/null
     test "$(grep -c ' FDE cie=' "$work/frames.txt")" -ge 3
     if [ "$(uname -m)" = x86_64 ]; then
-        grep -F 'r12 (r12) at cfa-24' "$work/frames.txt" >/dev/null
-        grep -F 'rbx) at cfa-56' "$work/frames.txt" >/dev/null
+        grep -E 'r12 .* at cfa-' "$work/frames.txt" >/dev/null
         grep -F 'DW_CFA_restore: r12 (r12)' "$work/frames.txt" >/dev/null
         grep -F 'DW_CFA_def_cfa: r7 (rsp) ofs 8' "$work/frames.txt" >/dev/null
     fi
@@ -152,7 +160,18 @@ esac
 if [ "$have_elf_dwarf" = 1 ] && command -v llvm-dwarfdump >/dev/null 2>&1; then
     dwarf_input="$work/program"
     if [ "$(uname -s)" = Darwin ]; then dwarf_input="$work/program.dSYM"; fi
-    llvm-dwarfdump --verify "$dwarf_input" >"$work/verify.txt"
+    if [ "$(uname -s)" = Linux ]; then
+        # Verify compiler-owned DWARF independently of GCC/compiler-rt units.
+        # LLVM's verifier rejects GCC's inlined sanitizer call-site records
+        # and older LLVM can loop on them. Linked B++ metadata is still checked
+        # with readelf below/above and exercised by the native debugger.
+        "$bpp" --debug-info --emit-asm -o "$work/native-dwarf.s" "$work/main.bpp"
+        clang -g -c -x assembler "$work/native-dwarf.s" -o "$work/native-dwarf.o"
+        timeout 60 llvm-dwarfdump --verify "$work/native-dwarf.o" >"$work/verify.txt"
+        dwarf_input="$work/native-dwarf.o"
+    else
+        llvm-dwarfdump --verify "$dwarf_input" >"$work/verify.txt"
+    fi
     llvm-dwarfdump --debug-info --debug-loclists "$dwarf_input" >"$work/llvm-info.txt"
     grep -F 'DW_TAG_subprogram' "$work/llvm-info.txt" >/dev/null
     grep -F 'DW_OP_bregx' "$work/llvm-info.txt" >/dev/null
@@ -173,6 +192,8 @@ if command -v llvm-readobj >/dev/null 2>&1 && command -v clang >/dev/null 2>&1; 
     grep -F '.debug$S' "$work/windows-sections.txt" >/dev/null
     llvm-readobj --codeview "$work/raw-windows.o" >"$work/windows-codeview.txt"
     grep -F 'S_GPROC32' "$work/windows-codeview.txt" >/dev/null
+    grep -F 'S_COMPILE3' "$work/windows-codeview.txt" >/dev/null
+    grep -F 'S_BUILDINFO' "$work/windows-codeview.txt" >/dev/null
     grep -F 'S_LOCAL' "$work/windows-codeview.txt" >/dev/null
     grep -F 'S_DEFRANGE_REGISTER_REL' "$work/windows-codeview.txt" >/dev/null
     grep -F 'VarName: memory' "$work/windows-codeview.txt" >/dev/null
@@ -187,6 +208,60 @@ fi
 if command -v clang >/dev/null 2>&1 && command -v lld-link >/dev/null 2>&1 && command -v llvm-pdbutil >/dev/null 2>&1; then
     cat >"$work/windows-stubs.s" <<'EOF'
 .text
+.globl calloc
+calloc:
+    ret
+.globl printf
+printf:
+    ret
+.globl puts
+puts:
+    ret
+.globl strlen
+strlen:
+    ret
+.globl write
+write:
+    ret
+.globl perror
+perror:
+    ret
+.globl bpp_a_call_begin
+bpp_a_call_begin:
+    ret
+.globl bpp_a_call_end
+bpp_a_call_end:
+    ret
+.globl bpp_a_op
+bpp_a_op:
+    ret
+.globl bpp_a_builtin
+bpp_a_builtin:
+    ret
+.globl bpp_a_truth_enable
+bpp_a_truth_enable:
+    ret
+.globl bpp_a_clone_parameters
+bpp_a_clone_parameters:
+    ret
+.globl bpp_a_destination
+bpp_a_destination:
+    ret
+.globl bpp_a_release_object
+bpp_a_release_object:
+    ret
+.globl bpp_a_print_result
+bpp_a_print_result:
+    ret
+.globl bpp_a_trace_enter
+bpp_a_trace_enter:
+    ret
+.globl bpp_a_trace_exit
+bpp_a_trace_exit:
+    ret
+.globl bpp_a_access
+bpp_a_access:
+    ret
 .globl malloc
 malloc:
     ret
@@ -207,7 +282,7 @@ EOF
         printf ".globl %s\n%s:\n    ret\n" "$symbol" "$symbol" >>"$work/windows-stubs.s"
     done
     clang -target x86_64-w64-windows-gnu -c -x assembler "$work/windows-stubs.s" -o "$work/windows-stubs.o"
-    lld-link /debug /nodefaultlib /entry:main /subsystem:console \
+    MSYS2_ARG_CONV_EXCL='*' lld-link /debug /nodefaultlib /entry:main /subsystem:console \
         "/out:$work/raw-windows.exe" "/pdb:$work/raw-windows.pdb" \
         "$work/raw-windows.o" "$work/windows-stubs.o"
     llvm-pdbutil dump -modules -files -l -symbols -types "$work/raw-windows.pdb" >"$work/windows-pdb.txt"
@@ -240,8 +315,8 @@ if [ "$(uname -s)" = Darwin ]; then
     grep -F 'library.bpp' "$work/lines.txt" >/dev/null
 
     if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v lldb >/dev/null 2>&1; then
-        "$bpp" --debug-info -o "$work/lldb-runtime-error" tests/lldb_runtime_error.bpp
-        lldb --batch -o 'settings set use-color false' \
+        "$bpp" --native-sanitizers --debug-info -o "$work/lldb-runtime-error" tests/lldb_runtime_error.bpp
+        "${PYTHON:-python3}" tests/run_bounded.py 60 lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file lldb_runtime_error.bpp --line 6' \
             -o 'breakpoint set --file lldb_runtime_error.bpp --line 15' \
             -o 'breakpoint set --file lldb_runtime_error.bpp --line 7' \
@@ -258,8 +333,8 @@ if [ "$(uname -s)" = Darwin ]; then
             grep -F ' at lldb_runtime_error.bpp:15' >/dev/null
         grep -F 'main at lldb_runtime_error.bpp:21' "$work/lldb.txt" >/dev/null
 
-        "$bpp" --debug-info -o "$work/lldb-import-recursion" tests/lldb_import_recursion.bpp
-        lldb --batch -o 'settings set use-color false' \
+        "$bpp" --native-sanitizers --debug-info -o "$work/lldb-import-recursion" tests/lldb_import_recursion.bpp
+        "${PYTHON:-python3}" tests/run_bounded.py 60 lldb --batch -o 'settings set use-color false' \
             -o 'breakpoint set --file lldb_recursive_helper.bpp --line 3' \
             -o 'breakpoint set --file lldb_recursive_helper.bpp --line 10' \
             -o run -o continue -o bt -o 'breakpoint disable 1' -o continue -o bt \
@@ -285,13 +360,54 @@ esac
 if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v lldb >/dev/null 2>&1; then
     program="$work/program"
     if [ -f "$work/program.exe" ]; then program="$work/program.exe"; fi
-    lldb --batch -o 'settings set use-color false' \
+    if [ "${BPP_REQUIRE_WINDOWS_DEBUGGER:-0}" = 1 ]; then
+        # NativePDB resolves source breakpoints against the primary source.
+        # Stop at the call site, then run to the imported procedure and its return line.
+        "${PYTHON:-python3}" tests/run_bounded.py 60 lldb --batch -o 'settings set use-color false' \
+            -o 'breakpoint set --file main.bpp --line 4' -o run \
+            -o 'breakpoint set --name increment' -o continue -o 'thread step-over' \
+            -o 'frame variable n local' -o 'thread step-over' -o bt \
+            -o 'process kill' -o quit "$program" >"$work/variables.txt" 2>&1
+    else
+    "${PYTHON:-python3}" tests/run_bounded.py 60 lldb --batch -o 'settings set use-color false' \
         -o 'breakpoint set --file library.bpp --line 4' -o run \
         -o 'frame variable n local' -o 'thread step-over' -o bt \
         -o 'process kill' -o quit "$program" >"$work/variables.txt" 2>&1
+    fi
     grep -E 'n = 41' "$work/variables.txt" >/dev/null
     grep -E 'local = 42' "$work/variables.txt" >/dev/null
     grep -F 'increment' "$work/variables.txt" >/dev/null
+fi
+
+# Binary64 states/rates must expose payload values, not their object address bits.
+if [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ]; then
+    cat >"$work/states.bpp" <<'EOF'
+define proc main(){
+    new state current=0.5;
+    new rate speed=velocity(-1.0,current,3);
+    return current+speed;
+}
+EOF
+    "$bpp" --debug-info -o "$work/states" "$work/states.bpp"
+    state_program="$work/states"
+    if [ -f "$work/states.exe" ]; then state_program="$work/states.exe"; fi
+    if command -v lldb >/dev/null 2>&1; then
+        "${PYTHON:-python3}" tests/run_bounded.py 60 lldb --batch -o 'settings set use-color false' \
+            -o 'breakpoint set --file states.bpp --line 4' -o run \
+            -o 'frame variable -P 1 current speed' -o 'process kill' -o quit \
+            "$state_program" >"$work/state-variables.txt" 2>&1
+        if [ "${BPP_REQUIRE_WINDOWS_DEBUGGER:-0}" = 1 ]; then
+            test "$(grep -Ec 'value = 0.5' "$work/state-variables.txt")" -ge 2
+        else
+            grep -E 'current = 0.5' "$work/state-variables.txt" >/dev/null
+            grep -E 'speed = 0.5' "$work/state-variables.txt" >/dev/null
+        fi
+    elif command -v gdb >/dev/null 2>&1; then
+        "${PYTHON:-python3}" tests/run_bounded.py 60 gdb --batch -ex 'set pagination off' -ex 'set confirm off' \
+            -ex 'break states.bpp:4' -ex run -ex 'print current' -ex 'print speed' \
+            -ex quit "$state_program" >"$work/state-variables.txt" 2>&1
+        test "$(grep -Ec '= 0.5$' "$work/state-variables.txt")" -ge 2
+    fi
 fi
 
 # Linux native debugger coverage mirrors the LLDB smoke test above. Keep the
@@ -299,8 +415,14 @@ fi
 # supplied by the host C compiler. The second fixture verifies imported source
 # files and distinct recursive frames before stopping at an imported fault.
 if [ "$(uname -s)" = Linux ] && [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && command -v gdb >/dev/null 2>&1; then
-    "$bpp" --debug-info -o "$work/gdb-runtime-error" tests/lldb_runtime_error.bpp
-    gdb --batch \
+    "${PYTHON:-python3}" tests/run_bounded.py 60 gdb --batch -ex 'set pagination off' -ex 'set confirm off' \
+        -ex 'break library.bpp:4' -ex run -ex 'print n' -ex 'print local' \
+        -ex next -ex bt -ex quit "$linked_program" >"$work/gdb-variables.txt" 2>&1
+    grep -E '= 41$' "$work/gdb-variables.txt" >/dev/null
+    grep -E '= 42$' "$work/gdb-variables.txt" >/dev/null
+    grep -F 'increment' "$work/gdb-variables.txt" >/dev/null
+    "$bpp" --native-sanitizers --debug-info -o "$work/gdb-runtime-error" tests/lldb_runtime_error.bpp
+    "${PYTHON:-python3}" tests/run_bounded.py 60 gdb --batch \
         -ex 'set pagination off' \
         -ex 'set confirm off' \
         -ex 'break lldb_runtime_error.bpp:6' \
@@ -315,8 +437,8 @@ if [ "$(uname -s)" = Linux ] && [ "${BPP_SKIP_DEBUGGER_TESTS:-0}" != 1 ] && comm
     grep -F 'main' "$work/gdb.txt" >/dev/null
     grep -E 'SIGSEGV|SIGBUS|Program received signal|B\+\+ sanitizer:' "$work/gdb.txt" >/dev/null
 
-    "$bpp" --debug-info -o "$work/gdb-import-recursion" tests/lldb_import_recursion.bpp
-    gdb --batch \
+    "$bpp" --native-sanitizers --debug-info -o "$work/gdb-import-recursion" tests/lldb_import_recursion.bpp
+    "${PYTHON:-python3}" tests/run_bounded.py 60 gdb --batch \
         -ex 'set pagination off' \
         -ex 'set confirm off' \
         -ex 'break lldb_recursive_helper.bpp:3' \

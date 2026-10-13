@@ -28,7 +28,7 @@ host_asm="$task_dir/$host_target.s"
 host_exe="$task_dir/strict-native-host"
 "$bpp" --strict-native-runtime --emit-asm --target "$host_target" -o "$host_asm" "$source"
 ! grep -E 'bpp_(a|n)_' "$host_asm"
-cc -x assembler "$host_asm" -o "$host_exe"
+"${BPP_STRICT_CC:-cc}" -x assembler "$host_asm" -o "$host_exe"
 "$host_exe" >"$task_dir/output"
 grep -Fx 'A*' "$task_dir/output"
 

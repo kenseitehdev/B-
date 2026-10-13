@@ -120,7 +120,11 @@ BLToken bl_lexer_next(BLLexer *lexer) {
         while (isdigit(bl_lexer_peek(lexer))) {
             bl_lexer_advance(lexer);
         }
+        int real=0;
+        if(bl_lexer_peek(lexer)=='.'&&isdigit(bl_lexer_peek_next(lexer))){real=1;bl_lexer_advance(lexer);while(isdigit(bl_lexer_peek(lexer)))bl_lexer_advance(lexer);}
+        if(bl_lexer_peek(lexer)=='e'||bl_lexer_peek(lexer)=='E'){real=1;bl_lexer_advance(lexer);if(bl_lexer_peek(lexer)=='+'||bl_lexer_peek(lexer)=='-')bl_lexer_advance(lexer);while(isdigit(bl_lexer_peek(lexer)))bl_lexer_advance(lexer);}
         size_t length = (size_t)((lexer->source + lexer->index) - start);
+        if(real){BLToken token=bl_make_token(TOK_REAL,start,length,line,column);char *end=NULL;errno=0;token.real=strtod(start,&end);if(errno==ERANGE||!end||(size_t)(end-start)!=length)token.kind=TOK_INVALID;return token;}
         BLToken token = bl_make_token(TOK_NUMBER, start, length, line, column);
         char *end=NULL;errno=0;token.number = strtoll(start, &end, 10);
         if(errno==ERANGE||!end||(size_t)(end-start)!=length)token.kind=TOK_INVALID;
@@ -156,10 +160,15 @@ BLToken bl_lexer_next(BLLexer *lexer) {
         case '/': return bl_make_token(TOK_SLASH, start, 1, line, column);
         case '%': return bl_make_token(TOK_PERCENT, start, 1, line, column);
         case '.': return bl_make_token(TOK_DOT, start, 1, line, column);
+        case '&': return bl_make_token(TOK_AMP, start, 1, line, column);
+        case '|': return bl_make_token(TOK_PIPE, start, 1, line, column);
+        case '^': return bl_make_token(TOK_CARET, start, 1, line, column);
+        case '~': return bl_make_token(TOK_TILDE, start, 1, line, column);
         case '!':
             if (bl_lexer_match(lexer, '=')) return bl_make_token(TOK_NEQ, start, 2, line, column);
             return bl_make_token(TOK_BANG, start, 1, line, column);
         case '=':
+            if (bl_lexer_match(lexer, '>')) return bl_make_token(TOK_TAU, start, 2, line, column);
             if (bl_lexer_match(lexer, '=')) return bl_make_token(TOK_EQEQ, start, 2, line, column);
             return bl_make_token(TOK_EQUAL, start, 1, line, column);
         case '<':
@@ -170,5 +179,5 @@ BLToken bl_lexer_next(BLLexer *lexer) {
             return bl_make_token(TOK_GT, start, 1, line, column);
     }
 
-    return bl_make_token(TOK_EOF, start, 0, line, column);
+    return bl_make_token(TOK_INVALID, start, 1, line, column);
 }

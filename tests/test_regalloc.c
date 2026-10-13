@@ -175,7 +175,7 @@ int main(void) {
     assert(p.alloc_class[9]==BPP_ALLOC_TAGGED_PAIR); /* LLONG_MIN / -1 would overflow */
     assert(p.alloc_class[12]==BPP_ALLOC_TAGGED_PAIR); /* signed addition overflow */
     assert(p.alloc_class[13]==BPP_ALLOC_TAGGED_PAIR); /* negating LLONG_MIN */
-    assert(p.alloc_class[14]==BPP_ALLOC_REMATERIALIZABLE&&p.rematerialized_int[14]==0);
+    assert(p.alloc_class[14]==BPP_ALLOC_REMATERIALIZABLE&&p.rematerialized_int[14]==-1);
     assert(p.alloc_class[15]==BPP_ALLOC_REMATERIALIZABLE&&p.rematerialized_int[15]==1);
     /* Recomputing these proven-safe values has a distinct, weighted cost;
        they do not consume an ordinary payload-cache register. */

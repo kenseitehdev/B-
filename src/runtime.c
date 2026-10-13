@@ -1,3 +1,4 @@
+#include "../include/word_ops.h"
 #include "../include/runtime.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -5,7 +6,26 @@
 #include <string.h>
 #include <limits.h>
 #include <stdint.h>
+#include <math.h>
 
+static _Thread_local BLRuntime *truth_runtime;
+static _Thread_local BPPStateContext recent_context;
+static _Thread_local char recent_diagnostic[512];
+static _Thread_local unsigned long long error_serial;
+unsigned long long bl_rt_error_serial(BLRuntime *vm){return vm==truth_runtime?error_serial:0;}
+BLValue bl_rt_latest_error(BLRuntime *vm){return vm==truth_runtime?bl_value_state((BPPStateValue){0,recent_context},recent_diagnostic):bl_value_null();}
+void bl_rt_truth_enable(BLRuntime *vm,int reset){
+    if(reset||truth_runtime!=vm){memset(&recent_context,0,sizeof recent_context);recent_diagnostic[0]=0;}truth_runtime=vm;
+}
+static int state_number(BLValue value,BPPStateValue *out){
+    BLState *state=bl_value_as_state(value);if(state){*out=state->state;return 1;}
+    if(value.tag==BLV_INT){*out=(BPPStateValue){(double)value.as.i,{0}};return 1;}
+    if(value.tag==BLV_NULL){*out=(BPPStateValue){0,{0}};return 1;}return 0;
+}
+static BLValue state_result(BPPStateValue state,BLValue a,BLValue b){
+    BLState *left=bl_value_as_state(a),*right=bl_value_as_state(b);
+    return bl_value_state(state,left&&left->state.context.faults?left->diagnostic:right?right->diagnostic:NULL);
+}
 static void bl_rt_set_error(BLRuntime *vm, int line, int column, const char *fmt, ...) {
     if (vm->error) return;
     char message[512];
@@ -30,13 +50,31 @@ static BLValue bl_runtime_error(BLRuntime *vm, BLSite *node, const char *fmt, ..
     va_start(args, fmt);
     vsnprintf(message, sizeof(message), fmt, args);
     va_end(args);
+    if(vm==truth_runtime){++error_serial;recent_context=(BPPStateContext){.faults=BPP_TRUTH_RUNTIME_ERROR,.source_file=node?node->source_file:0,.line=(unsigned)(node?node->line:1),.column=(unsigned)(node?node->column:1),.cause=1};snprintf(recent_diagnostic,sizeof recent_diagnostic,"%s",message);return bl_value_state(bpp_truth_error(recent_context),message);}
     bl_rt_set_error(vm, node ? node->line : 1, node ? node->column : 1, "%s", message);
     return bl_value_null();
 }
 
+static BLValue state_runtime_error(BLRuntime *vm,BLSite *site,const char *message,BPPStateContext input){
+    BLValue result=bl_runtime_error(vm,site,"%s",message);
+    BLState *state=bl_value_as_state(result);
+    if(state){
+        state->state.context.faults|=input.faults;
+        state->state.context.start=input.start;
+        state->state.context.end=input.end;
+        state->state.context.dt=input.dt;
+        state->state.context.origin_start=input.faults?input.origin_start:input.start;
+        state->state.context.origin_end=input.faults?input.origin_end:input.end;
+        state->state.context.origin_dt=input.faults?input.origin_dt:input.dt;
+        recent_context=state->state.context;
+    }
+    return result;
+}
+
+void bl_rt_bridge_error(BLRuntime *vm,const char *message){BLSite site={1,1,0};bl_value_release(bl_runtime_error(vm,&site,"%s",message?message:"static bridge error"));}
 static int bl_value_require_int(BLRuntime *vm, BLSite *node, BLValue value, const char *context, long long *out) {
     if (value.tag != BLV_INT) {
-        bl_rt_set_error(vm, node->line, node->column, "%s expects integer operands", context);
+        bl_value_release(bl_runtime_error(vm,node,"%s expects integer operands",context));
         return 0;
     }
     if (out) *out = value.as.i;
@@ -299,6 +337,35 @@ static BLValue bl_builtin_print(BLValue *args, size_t argc, int newline) {
 }
 
 BLValue bl_rt_builtin(BLRuntime *vm, BLSite *call_node, const char *name, BLValue *args, size_t argc) {
+    if(!strcmp(name,"err"))return bl_value_state((BPPStateValue){0,recent_context},recent_diagnostic);
+    if(!strcmp(name,"__state_bits")){double value;if(argc!=1||args[0].tag!=BLV_INT)return bl_runtime_error(vm,call_node,"invalid real literal");memcpy(&value,&args[0].as.i,sizeof value);if(!isfinite(value))return bl_runtime_error(vm,call_node,"nonfinite real");return bl_value_state((BPPStateValue){value,{0}},NULL);}
+    if(!strcmp(name,"faults")||!strcmp(name,"error_line")||!strcmp(name,"error_file")){BLState *state=argc?bl_value_as_state(args[0]):NULL;return bl_value_int(state?(!strcmp(name,"faults")?(long long)state->state.context.faults:!strcmp(name,"error_file")?(long long)state->state.context.source_file:(long long)state->state.context.line):0);}
+    if(!strcmp(name,"state")||!strcmp(name,"velocity")||!strcmp(name,"AND")||!strcmp(name,"OR")||!strcmp(name,"XOR")||!strcmp(name,"NOT")||!strcmp(name,"TAU")||!strcmp(name,"IMPLIES")){
+        BPPStateValue a={0},b={0},c={0},r={0};
+        if(argc&&!state_number(args[0],&a))return bl_runtime_error(vm,call_node,"state operation requires numeric values");
+        if(argc>1&&!state_number(args[1],&b))return bl_runtime_error(vm,call_node,"state operation requires numeric values");
+        if(argc>2&&!state_number(args[2],&c))return bl_runtime_error(vm,call_node,"state operation requires numeric values");
+        uint32_t incoming_faults=a.context.faults|b.context.faults|c.context.faults;
+        if(!strcmp(name,"state"))r=bpp_truth_state(a.value,a.context);
+        else if(!strcmp(name,"velocity")){
+            r=bpp_truth_velocity(bpp_truth_state(a.value,a.context),bpp_truth_state(b.value,b.context),c.value);
+            if(c.context.faults){if(!(a.context.faults|b.context.faults)){BPPStateContext transition=r.context;r.context=c.context;r.context.start=transition.start;r.context.end=transition.end;r.context.dt=transition.dt;}r.context.faults|=c.context.faults|BPP_TRUTH_INVALID_INTERVAL;}
+        }
+        else {a=bpp_truth_state(a.value,a.context);b=bpp_truth_state(b.value,b.context);
+            if(!strcmp(name,"AND"))r=bpp_truth_and(a,b);else if(!strcmp(name,"OR"))r=bpp_truth_or(a,b);
+            else if(!strcmp(name,"XOR"))r=bpp_truth_xor(a,b);else if(!strcmp(name,"NOT"))r=bpp_truth_not(a);
+            else if(!strcmp(name,"TAU"))r=bpp_truth_tau(a,b);else r=bpp_truth_implies(a,b);}
+        if(r.context.faults&&!r.context.line){r.context.source_file=call_node?call_node->source_file:0;r.context.line=(unsigned)(call_node?call_node->line:1);r.context.column=(unsigned)(call_node?call_node->column:1);}
+        BLValue result=state_result(r,argc?args[0]:bl_value_null(),argc>1?args[1]:bl_value_null());
+        if(argc>2&&c.context.faults&&!(a.context.faults|b.context.faults)){BLState *state=bl_value_as_state(args[2]);if(state)snprintf(bl_value_as_state(result)->diagnostic,512,"%s",state->diagnostic);}
+        if(vm==truth_runtime && (r.context.faults & ~incoming_faults)){
+            ++error_serial;recent_context=r.context;
+            snprintf(recent_diagnostic,sizeof recent_diagnostic,"%s",r.context.faults&BPP_TRUTH_INVALID_INTERVAL?"invalid transition interval":"invalid truth state");
+            BLState *result_state=bl_value_as_state(result);
+            if(result_state)snprintf(result_state->diagnostic,sizeof result_state->diagnostic,"%s",recent_diagnostic);
+        }
+        return result;
+    }
     if (strcmp(name, "string_new") == 0) return bl_builtin_string_new(vm, call_node, args, argc);
     if (strcmp(name, "string_eq") == 0) return bl_builtin_string_eq(vm, call_node, args, argc);
     if (strcmp(name, "String.concat") == 0) return bl_builtin_string_concat(vm, call_node, args, argc);
@@ -337,13 +404,13 @@ BLValue bl_rt_load(BLRuntime *vm, BLSite *site, BLValue value, unsigned char ini
     return bl_value_clone(value);
 }
 void bl_rt_store(BLRuntime *vm, BLSite *site, BLValue *slot, unsigned char *initialized, BLValue value, int define, const char *name) {
-    if (!define && !*initialized) { (void)bl_runtime_error(vm, site, "uninitialized variable '%s'", name); return; }
+    if (!define && !*initialized) { bl_value_release(bl_runtime_error(vm, site, "uninitialized variable '%s'", name)); return; }
     BLValue cloned = bl_value_clone(value); bl_rt_move(slot, cloned); *initialized = 1;
 }
 void bl_rt_free(BLRuntime *vm, BLSite *site, BLValue value, unsigned char initialized, const char *name) {
-    if (!initialized) { (void)bl_runtime_error(vm, site, "uninitialized variable '%s'", name); return; }
+    if (!initialized) { bl_value_release(bl_runtime_error(vm, site, "uninitialized variable '%s'", name)); return; }
     if (bl_value_is_buffer(value)) {
-        BLBuffer *b = bl_value_as_buffer(value); if (b->owned) free(b->data);
+        BLBuffer *b = bl_value_as_buffer(value);if(b->owner||!b->owned){bl_value_release(bl_runtime_error(vm,site,"invalid free or double free"));return;} if (b->owned) free(b->data);free(b->defined);b->defined=NULL;++b->generation;
         b->data = NULL; b->size = 0; b->owned = 0;
     } else if (bl_value_is_array(value)) {
         BLArray *a = bl_value_as_array(value);
@@ -352,17 +419,91 @@ void bl_rt_free(BLRuntime *vm, BLSite *site, BLValue value, unsigned char initia
             free(a->items);
         }
         a->items = NULL; a->size = 0; a->owned = 0;
-    } else (void)bl_runtime_error(vm, site, "free expects buffer or array");
+    } else bl_value_release(bl_runtime_error(vm, site, "free expects buffer or array"));
 }
 BLValue bl_rt_unary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a) {
-    if (op == BL_IR_NOT) return bl_value_int(!bl_value_is_truthy(a));
-    if (a.tag != BLV_INT) return bl_runtime_error(vm, site, "unary '-' expects integer");
+    BLState *state=bl_value_as_state(a);if(state){BPPStateValue r=state->state;if(op==BL_IR_NOT||op==BL_IR_NEG)r=bpp_truth_not(r);else return bl_runtime_error(vm,site,"bitwise operations require integers");return state_result(r,a,bl_value_null());}
+    if (op == BL_IR_NOT) return bl_value_int(a.tag==BLV_INT?(a.as.i>0?-1:a.as.i<0?1:0):a.tag==BLV_OBJECT?-1:0);
+    if (a.tag != BLV_INT) return bl_runtime_error(vm, site, "unary operation expects integer");
+    if(op==BL_IR_BIT_NOT)return bl_value_int(bpp_word_bitop(op,a.as.i,0));
     if (a.as.i == LLONG_MIN) return bl_runtime_error(vm, site, "integer overflow");
     return bl_value_int(-a.as.i);
 }
+static BLBuffer *native_root(BLRuntime *vm,BLSite *site,BLValue value,size_t *offset){
+    BLBuffer *buffer=bl_value_as_buffer(value);
+    if(!buffer){bl_value_release(bl_runtime_error(vm,site,"memory operation requires a pointer"));return NULL;}
+    BLBuffer *root=buffer->owner?buffer->owner:buffer;
+    if(!root->owned||!root->data||(buffer->owner&&buffer->generation!=root->generation)){bl_value_release(bl_runtime_error(vm,site,"use-after-free or stale pointer"));return NULL;}
+    *offset=buffer->owner?buffer->offset:0;return root;
+}
+static BLValue memory_error(BLRuntime *vm,BLSite *site,const char *message){return bl_runtime_error(vm,site,"%s",message);}
+BLValue bl_rt_native_memory(BLRuntime *vm,BLSite *site,BLIROp op,BLValue a,BLValue b,BLValue c){
+    if(op==BL_IR_MALLOC){
+        if(a.tag!=BLV_INT||a.as.i<0)return memory_error(vm,site,"invalid allocation size");
+        BLValue value=bl_value_buffer(0);BLBuffer *buffer=bl_value_as_buffer(value);free(buffer->data);
+        size_t size=(size_t)a.as.i;buffer->data=malloc(size?size:1);buffer->defined=calloc(size?size:1,1);buffer->size=size;buffer->generation=1;
+        if(!buffer->data||!buffer->defined){bl_value_release(value);return memory_error(vm,site,"allocation failed");}return value;
+    }
+    if(op==BL_IR_REMALLOC&&a.tag==BLV_INT&&a.as.i==0)return bl_rt_native_memory(vm,site,BL_IR_MALLOC,b,bl_value_null(),bl_value_null());
+    size_t offset=0;BLBuffer *root=native_root(vm,site,a,&offset);
+    if(!root)return bl_rt_builtin(vm,site,"err",NULL,0);
+    if(op==BL_IR_REMALLOC){
+        if(offset||b.tag!=BLV_INT||b.as.i<0)return memory_error(vm,site,"invalid reallocation");
+        size_t size=(size_t)b.as.i;unsigned char *data=malloc(size?size:1),*defined=calloc(size?size:1,1);
+        if(!data||!defined){free(data);free(defined);return memory_error(vm,site,"allocation failed");}
+        size_t old=root->size<size?root->size:size;
+        /* Only copy bytes whose definedness is known, preserving MSAN shadow. */
+        for(size_t j=0;j<old;++j)if(!root->defined||root->defined[j]){data[j]=root->data[j];defined[j]=1;}
+        free(root->data);free(root->defined);root->data=data;root->defined=defined;root->size=size;++root->generation;
+        return bl_value_clone(a);
+    }
+    if(b.tag!=BLV_INT)return memory_error(vm,site,"memory index/length requires an integer");
+    long long index=b.as.i;size_t position;
+    if(index<0){unsigned long long magnitude=(unsigned long long)(-(index+1))+1;if(magnitude>offset)return memory_error(vm,site,"memory access out of bounds");position=offset-(size_t)magnitude;}
+    else {if((unsigned long long)index>SIZE_MAX-offset)return memory_error(vm,site,"memory access out of bounds");position=offset+(size_t)index;}
+    if(op==BL_IR_PRINT_RANGE){
+        if(index<0||offset>root->size||(size_t)index>root->size-offset)return memory_error(vm,site,"output range out of bounds");
+        for(size_t j=offset;j<offset+(size_t)index;++j)if(root->defined&&!root->defined[j])return memory_error(vm,site,"undefined output byte");
+        if(fwrite(root->data+offset,1,(size_t)index,stdout)!=(size_t)index)return memory_error(vm,site,"output failed");
+        return bl_value_null();
+    }
+    if(position>=root->size)return memory_error(vm,site,"memory access out of bounds");
+    if(op==BL_IR_BYTE_STORE){if(c.tag!=BLV_INT)return memory_error(vm,site,"byte store requires an integer");root->data[position]=(unsigned char)c.as.i;if(root->defined)root->defined[position]=1;return bl_value_null();}
+    if(root->defined&&!root->defined[position])return memory_error(vm,site,"undefined memory byte");
+    return bl_value_int(root->data[position]);
+}
+static BLValue native_offset(BLRuntime *vm,BLSite *site,BLValue pointer,long long delta){
+    size_t offset;BLBuffer *root=native_root(vm,site,pointer,&offset);if(!root)return bl_rt_builtin(vm,site,"err",NULL,0);
+    size_t position;if(delta<0){unsigned long long magnitude=(unsigned long long)(-(delta+1))+1;if(magnitude>offset)return memory_error(vm,site,"pointer offset out of bounds");position=offset-(size_t)magnitude;}
+    else{if((unsigned long long)delta>SIZE_MAX-offset)return memory_error(vm,site,"pointer offset out of bounds");position=offset+(size_t)delta;}
+    if(position>root->size)return memory_error(vm,site,"pointer offset out of bounds");
+    BLValue view=bl_value_buffer(0);BLBuffer *buffer=bl_value_as_buffer(view);free(buffer->data);buffer->data=root->data+position;buffer->size=root->size-position;buffer->owned=0;buffer->owner=root;buffer->offset=position;buffer->generation=root->generation;
+    BLValue owner={BLV_OBJECT,{.obj=&root->base}};bl_value_retain(owner);return view;
+}
 BLValue bl_rt_binary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a, BLValue b) {
+    if((op==BL_IR_EQ||op==BL_IR_NE)&&bl_value_is_buffer(a)&&bl_value_is_buffer(b)){
+        BLBuffer *left=bl_value_as_buffer(a),*right=bl_value_as_buffer(b);
+        if(left->generation||right->generation){BLBuffer *lr=left->owner?left->owner:left,*rr=right->owner?right->owner:right;
+            int equal=lr==rr&&left->generation==right->generation&&left->offset==right->offset;
+            return bl_value_int((op==BL_IR_EQ?equal:!equal)?1:-1);}
+    }
+    if(bl_value_is_buffer(a)&&b.tag==BLV_INT&&(op==BL_IR_ADD||op==BL_IR_SUB)){
+        if(op==BL_IR_SUB&&b.as.i==LLONG_MIN)return memory_error(vm,site,"pointer offset overflow");
+        return native_offset(vm,site,a,op==BL_IR_SUB?-b.as.i:b.as.i);}
+    if(op==BL_IR_ADD&&a.tag==BLV_INT&&bl_value_is_buffer(b))return native_offset(vm,site,b,a.as.i);
+    if(bl_value_as_state(a)||bl_value_as_state(b)){
+        BPPStateValue x,y;if(!state_number(a,&x)||!state_number(b,&y))return bl_runtime_error(vm,site,"numeric operation requires numbers");
+        BPPStateValue r=x.context.faults?x:y.context.faults?y:x;r.context.faults=x.context.faults|y.context.faults;
+        switch(op){case BL_IR_ADD:r.value=x.value+y.value;break;case BL_IR_SUB:r.value=x.value-y.value;break;case BL_IR_MUL:r.value=x.value*y.value;break;
+        case BL_IR_DIV:if(y.value==0)return state_runtime_error(vm,site,"division by zero",r.context);r.value=x.value/y.value;break;
+        case BL_IR_EQ:r.value=x.value==y.value?1:-1;break;case BL_IR_NE:r.value=x.value!=y.value?1:-1;break;
+        case BL_IR_LT:r.value=x.value<y.value?1:-1;break;case BL_IR_LE:r.value=x.value<=y.value?1:-1;break;case BL_IR_GT:r.value=x.value>y.value?1:-1;break;case BL_IR_GE:r.value=x.value>=y.value?1:-1;break;
+        default:return state_runtime_error(vm,site,"bitwise/remainder operation requires integers",r.context);}
+        if(!isfinite(r.value))return state_runtime_error(vm,site,"nonfinite numeric result",r.context);
+        return state_result(r,a,b);
+    }
     if (op == BL_IR_EQ || op == BL_IR_NE) {
-        int eq = bl_value_compare_eq(a, b); return bl_value_int(op == BL_IR_EQ ? eq : !eq);
+        int eq = bl_value_compare_eq(a, b); return bl_value_int((op == BL_IR_EQ ? eq : !eq)?1:-1);
     }
     if (op == BL_IR_ADD && (a.tag != BLV_INT || b.tag != BLV_INT)) {
         char *left = bl_value_to_cstring(a), *right = bl_value_to_cstring(b);
@@ -376,6 +517,7 @@ BLValue bl_rt_binary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a, BLValue 
     long long x, y, r = 0;
     if (!bl_value_require_int(vm, site, a, "binary operation", &x) || !bl_value_require_int(vm, site, b, "binary operation", &y)) return bl_value_null();
     switch (op) {
+    case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:r=bpp_word_bitop(op,x,y);break;
     case BL_IR_ADD: if (__builtin_add_overflow(x, y, &r)) goto overflow; break;
     case BL_IR_SUB: if (__builtin_sub_overflow(x, y, &r)) goto overflow; break;
     case BL_IR_MUL: if (__builtin_mul_overflow(x, y, &r)) goto overflow; break;
@@ -383,8 +525,8 @@ BLValue bl_rt_binary(BLRuntime *vm, BLSite *site, BLIROp op, BLValue a, BLValue 
         if (!y) return bl_runtime_error(vm, site, op == BL_IR_DIV ? "division by zero" : "modulo by zero");
         if (x == LLONG_MIN && y == -1) goto overflow;
         r = op == BL_IR_DIV ? x / y : x % y; break;
-    case BL_IR_LT: r = x < y; break; case BL_IR_LE: r = x <= y; break;
-    case BL_IR_GT: r = x > y; break; case BL_IR_GE: r = x >= y; break;
+    case BL_IR_LT: r = (x < y)?1:-1; break; case BL_IR_LE: r = (x <= y)?1:-1; break;
+    case BL_IR_GT: r = (x > y)?1:-1; break; case BL_IR_GE: r = (x >= y)?1:-1; break;
     default: return bl_runtime_error(vm, site, "unsupported binary operation");
     }
     return bl_value_int(r);
@@ -392,11 +534,11 @@ overflow: return bl_runtime_error(vm, site, "integer overflow");
 }
 static BLBuffer *indexed(BLRuntime *vm, BLSite *site, BLValue object, BLValue index) {
     if (!bl_value_is_buffer(object) || index.tag != BLV_INT) {
-        (void)bl_runtime_error(vm, site, "indexing expects buffer and integer"); return NULL;
+        bl_value_release(bl_runtime_error(vm, site, "indexing expects buffer and integer")); return NULL;
     }
     BLBuffer *b = bl_value_as_buffer(object);
     if (index.as.i < 0 || (unsigned long long)index.as.i >= b->size) {
-        (void)bl_runtime_error(vm, site, "buffer index out of bounds"); return NULL;
+        bl_value_release(bl_runtime_error(vm, site, "buffer index out of bounds")); return NULL;
     }
     return b;
 }
@@ -405,11 +547,11 @@ BLValue bl_rt_index(BLRuntime *vm, BLSite *site, BLValue object, BLValue index) 
 }
 void bl_rt_index_set(BLRuntime *vm, BLSite *site, BLValue object, BLValue index, BLValue value) {
     BLBuffer *b = indexed(vm, site, object, index); if (!b) return;
-    if (value.tag != BLV_INT) { (void)bl_runtime_error(vm, site, "buffer assignment expects integer"); return; }
+    if (value.tag != BLV_INT) { bl_value_release(bl_runtime_error(vm, site, "buffer assignment expects integer")); return; }
     b->data[(size_t)index.as.i] = (unsigned char)(value.as.i & 255);
 }
 void bl_rt_print_result(BLValue v) {
-    if (v.tag == BLV_NULL) return;
+    if (v.tag == BLV_NULL) {puts("0");return;}
     if (bl_value_is_buffer(v)) { BLBuffer *b = bl_value_as_buffer(v); printf("<buffer size=%zu owned=%d>\n", b->size, b->owned); }
     else if (bl_value_is_array(v)) { BLArray *a = bl_value_as_array(v); printf("<array size=%zu owned=%d>\n", a->size, a->owned); }
     else { char *s = bl_value_to_cstring(v); puts(s); free(s); }

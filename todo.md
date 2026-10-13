@@ -293,33 +293,48 @@ Current implementation: sanitized raw-native word/byte memory operations, pointe
 
 **Target release:** 1.0.16. All remaining cross-platform verification fixes from 1.0.14/1.0.15 belong here. Native generation and C-backend retirement are implemented; an incomplete or unsupported runtime probe is not a passed validation gate.
 
-Current evidence: hosted macOS ARM64 release, ASAN/UBSAN and TSAN pass; Linux Clang TSAN passes on x86-64/ARM64, Linux ARM64 ASAN/UBSAN passes after the discarded-procedure type-metadata leak fix, and Linux x86-64 MSAN native/differential/stress tests pass. Earlier successes do not certify the final revised compiler across the whole matrix. CI transcripts are retained with each run.
+Current evidence: all 18 jobs / 19 execution profiles pass on implementation `2c817e176897d0addfd7df624b01d4e136ac1f57` in [native CI run 47](https://github.com/kenseitehdev/B-/actions/runs/38329351396). Matching hosts cover macOS ARM64, Linux x86-64/ARM64 and Windows x86-64. Exact toolchains, sanitizer availability, job links and transcript artifact digests are recorded in `docs/verification-1.0.16.json`. The closing documentation commit does not change the tested implementation.
 
 Priority carryover:
 
-- [ ] Finish Linux ELF metadata and native GDB verification on x86-64/ARM64, including source stepping, imported recursion, variable values and unwinding. Validate the extra DWARF-terminator fix, readelf formatting checks and x86 callback trap-flag masking on matching runners.
-- [ ] Finish Windows x86-64 native portable sanitizer checks, CodeView/PDB inspection, LLDB stepping/variable values and SEH/stack-probe execution. Validate Windows temp/import paths, executable suffix handling, and ELF-only inspection guards.
-- [ ] Resolve unusually long GCC debug/TSAN jobs on both Linux architectures; retain toolchain/runtime probes and complete native intentional-fault/differential execution. Keep unsupported sanitizer combinations explicit.
-- [ ] Complete the final Clang/GCC/OS/architecture matrix with exact compiler revisions and retained transcripts; rerun Linux/Clang MSAN after the final verification fixes. Cross-assembly alone does not satisfy execution gates.
-- [ ] Keep CI runs bounded, cancel superseded runs and avoid duplicate push/PR verification jobs; remove invalid AppleDouble workflow metadata from the repository.
+- [x] Add AND, OR, XOR and bitwise NOT at the end of 1.0.16, with parser/IR/optimizer/native/static-ABI coverage.
+- [x] Define and implement TAU (`=>`) from the supplied table/equations, including fractional uncertainty/error propagation across all Boolean results and conditions. Accepted: `a => b = sign(b-a)`, signed truth in [-1,1], logical AND=min/OR=max/NOT=negation/XOR=max(min(a,-b),min(-a,b)), and conditions that threshold transition velocity rather than final state. Binary64 state representation, explicit velocity thresholds and retained error provenance are implemented with ABI 2.0/runtime revision 3; see `docs/truth-and-tau.md`.
 
-- [ ] Run all tests on every supported native OS/architecture; cross-assembly is a separate gate.
+- [x] Finish Linux ELF metadata and native GDB verification on x86-64/ARM64, including source stepping, imported recursion, variable values and unwinding. Validate the extra DWARF-terminator fix, readelf formatting checks and x86 callback trap-flag masking on matching runners.
+- [x] Finish Windows x86-64 native portable sanitizer checks, CodeView/PDB inspection, LLDB stepping/variable values and SEH/stack-probe execution. Validate Windows temp/import paths, executable suffix handling, and ELF-only inspection guards.
+- [x] Resolve unusually long GCC debug/TSAN jobs on both Linux architectures with indexed predecessor queries and incremental value-fact propagation; retain toolchain/runtime probes and complete native intentional-fault/differential execution. Keep unsupported sanitizer combinations explicit.
+- [x] Verify existing static linking and ABI v2 on each native runner: separately compiled archive producers/consumers, transitive dependencies and archive order, exports/arity, manifest/archive identity, and incompatible ABI/target rejection. Retain `check-static-abi` evidence alongside native executable tests.
+- [x] Complete the final Clang/GCC/OS/architecture matrix with exact compiler revisions and retained transcripts; rerun Linux/Clang MSAN after the final verification fixes. Cross-assembly alone does not satisfy execution gates.
+- [x] Keep CI runs bounded, cancel superseded runs and avoid duplicate push/PR verification jobs; remove invalid AppleDouble workflow metadata from the repository.
+
+- [x] Run all tests on every supported native OS/architecture; cross-assembly is a separate gate.
 - [x] Retire the temporary C backend at 1.0.15. Native modes compare fixed stdout/return expectations and independent seeded results; intentional-fault fixtures compare source location, category and exit behavior in both optimization modes.
-- [ ] Extend deterministic randomized programs across arithmetic, branch, loop, call, recursion, string, buffer, array and error behavior.
-- [ ] Add seed reporting and save the smallest reproducer for every generated failure.
-- [ ] Add deep recursion, stack exhaustion, many parameters, high live-value pressure, many locals, huge block count, large text section, and frame-probe boundary tests.
-- [ ] Test both optimized and `--no-opt` native modes for every fixture.
-- [ ] Test debug metadata builds and sanitizer builds separately from release.
-- [ ] Run the Linux/Clang MSAN job and retain its transcript; do not report MSAN as a macOS/Windows sanitizer mode or as full hand-emitted-assembly instrumentation.
-- [ ] Run native CI on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64 and retain logs/artifacts.
-- [ ] Add compiler warning-as-error builds on Clang and GCC-compatible toolchains where supported.
-- [ ] Fuzz lexer/parser/IR validator/optimizer/emitter with resource limits and sanitizer builds.
-- [ ] Test reproducible assembly/object output or document nondeterministic fields.
-- [ ] Gate a target release on its native runtime suite, ABI conformance, unwind, debug, and supported sanitizer checks.
+- [x] Extend deterministic randomized programs across supported arithmetic, branches, loops, calls, recursion and byte buffers; independently verify state/error propagation and reject unsupported runtime string/array source constructs.
+- [x] Add seed reporting and retain original inputs plus bounded minimized reproducers for generated failures; minimization is best effort within a fixed budget.
+- [x] Add deep recursion, stack exhaustion, many parameters, high live-value pressure, many locals, huge block count, large text section, and frame-probe boundary tests.
+- [x] Test both optimized and `--no-opt` native modes for semantic and positive stress fixtures; intentional stack exhaustion uses baseline native recursion.
+- [x] Test debug metadata builds and sanitizer builds separately from release.
+- [x] Run the Linux/Clang MSAN job and retain its transcript; do not report MSAN as a macOS/Windows sanitizer mode or as full hand-emitted-assembly instrumentation.
+- [x] Run native CI on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64 and retain logs/artifacts.
+- [x] Add compiler warning-as-error builds on Clang and GCC-compatible toolchains where supported.
+- [x] Fuzz lexer/parser/IR validator/optimizer/emitter with resource limits and sanitizer builds.
+- [x] Test reproducible assembly/object output or document nondeterministic fields.
+- [x] Gate a target release on its native runtime suite, ABI conformance, unwind, debug, and supported sanitizer checks.
 
-### 17. Performance and resource benchmarks
+### 17. Bake build tooling, static linking and performance
 
-Current implementation: a CSV harness compares C, native optimized and native `--no-opt` execution time plus executable size for loop/call/object workloads. Existing measurements are a smoke check, not an isolated baseline.
+**Planned target release:** 1.0.17, after the 1.0.16 verification work. Bake is a make-like build tool using a `Bakefile`; exact syntax and command behavior will be defined before implementation. Sanitizer integration belongs to the later debugger and is excluded from Bake's built-in commands, configuration and build profiles.
+
+- [ ] Define `Bakefile` syntax for named/default targets, dependencies, source files, compiler options, output paths, target platforms and executable/static-library outputs.
+- [ ] Define and implement the `bake` command and make-like target selection, alternate Bakefile selection, build, clean and ordinary test commands; document invocation and failure/exit behavior.
+- [ ] Implement dependency ordering and incremental rebuilding, including imported source files, changed options/toolchain/target, and changed static-library manifests or archives.
+- [ ] Drive the existing native compiler, assembler, archiver and linker with portable path/argument handling on all supported hosts; keep build outputs separated by target and profile.
+- [ ] Keep Bake builds free of sanitizer targets, flags, options and profiles, including implicit sanitizer activation inherited from compiler build defaults. Ordinary debug metadata is separate; sanitizers will be integrated with the debugger later.
+- [ ] Support creating and consuming target-specific static B++ archives and their `.bppabi` manifests through Bake, with manifest generation after archive creation and correct transitive archive ordering.
+- [ ] Preserve and validate the existing static-only ABI v2 contract: export symbols, arity, value layout, alignment/ownership, ABI/runtime revisions, target compatibility and archive identity. Broad FFI and dynamic loading remain outside this scope.
+- [ ] Add Bakefile examples and end-to-end builds for an executable, a static-library producer/consumer and transitive static dependencies; verify incremental rebuilds and ABI/target mismatch diagnostics on native runners.
+
+Benchmark status: the CSV harness measures native optimized and native `--no-opt` execution and executable size; earlier C comparisons remain historical evidence. Existing measurements are a smoke check, not an isolated baseline.
 
 - [ ] Separate compile time, assembly time, link time, startup time and steady-state execution time.
 - [ ] Add warmup, repeated samples, median/dispersion, environment metadata and stable machine identifiers.
@@ -332,7 +347,7 @@ Current implementation: a CSV harness compares C, native optimized and native `-
 
 ### 18. Target support and platform-specific integration
 
-The four emitters exist; only macOS ARM64 and Linux x86-64 have native release runs recorded. Keep each target's object, runtime, linker, debugger, and sanitizer checks separate.
+All four emitters have matching-host native release evidence in the 1.0.16 matrix: macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64. Keep each target's object, runtime, linker, debugger, and sanitizer checks separate. Broader platform policy and isolated benchmarks below remain future work.
 
 - [ ] Keep target IDs, triples, object formats, symbol prefixes, sections, relocations, stack rules and helper conventions in one target descriptor.
 - [ ] Validate host-target detection on Apple Silicon, Linux x86-64/ARM64, and Windows x86-64; reject unsupported hosts clearly.
@@ -350,10 +365,10 @@ The four emitters exist; only macOS ARM64 and Linux x86-64 have native release r
 - [x] Emit ARM64 Mach-O assembly.
 - [x] Assemble and link/run the release compiler and generated program on Apple Silicon.
 - [x] Pass unit, C/native execution, differential, cross-target assembly and large-procedure checks in the user-reported release run.
-- [ ] Run `make BUILD_MODE=debug test check-asan-hook` on the Mac and record the exact sanitizer runtimes available.
-- [ ] Run `make BUILD_MODE=tsan test` on the Mac.
+- [x] Run `make BUILD_MODE=debug test check-asan-hook` on the Mac and record the exact sanitizer runtimes available.
+- [x] Run `make BUILD_MODE=tsan test` on the Mac.
 - [ ] Run and archive repeated native benchmarks and frame/code-size results.
-- [ ] Inspect Mach-O unwind and debug output with Apple/LLVM tools; test backtraces through B++ calls/errors.
+- [x] Inspect Mach-O unwind and debug output with Apple/LLVM tools; test backtraces through B++ calls/errors.
 - [ ] Finish shared CG tasks required by the exit criteria before stage 2.
 
 ### Linux x86-64 — target profile v1
@@ -362,7 +377,7 @@ The four emitters exist; only macOS ARM64 and Linux x86-64 have native release r
 - [x] Pass release suite, 64-seed differential suite, large-procedure test and runtime/unit tests.
 - [x] Pass ASAN/UBSAN and TSAN test suites on the available Linux x86-64 host.
 - [x] Exercise the Windows calling convention with the Linux `ms_abi` bridge; keep it classified as a bridge test only.
-- [ ] Run LSAN on a host/container where its exit-time process scan works.
+- [x] Run LSAN on a host/container where its exit-time process scan works.
 - [ ] Run repeated isolated benchmarks and inspect CFI/source-line/backtrace behavior.
 - [ ] Finish shared CG tasks required by the exit criteria before stage 2.
 
@@ -370,10 +385,10 @@ The four emitters exist; only macOS ARM64 and Linux x86-64 have native release r
 
 - [x] Emit Linux ARM64 ELF assembly using the shared ARM64 instruction selector.
 - [x] Cross-assemble optimized and baseline objects.
-- [ ] Run the compiler and generated executables natively on Linux ARM64.
-- [ ] Pass unit tests, the C suite, the native suite, optimized/baseline differential suite and 5000-update stress case.
-- [ ] Run ASAN/UBSAN/TSAN/LSAN where the actual compiler runtime supports them; record unsupported combinations explicitly.
-- [ ] Inspect ELF relocations, CFI, stack probing, source lines and backtraces on ARM64.
+- [x] Run the compiler and generated executables natively on Linux ARM64.
+- [x] Pass unit tests, the native suite, optimized/baseline differential suite and 5000-update stress case. The retired C suite remains historical evidence.
+- [x] Run ASAN/UBSAN/TSAN/LSAN where the actual compiler runtime supports them; record unsupported combinations explicitly.
+- [x] Inspect ELF relocations, CFI, stack probing, source lines and backtraces on ARM64.
 - [ ] Run isolated benchmarks and compare with Linux x86-64 and macOS ARM64.
 - [ ] Finish shared CG tasks required by the exit criteria before stage 2.
 
@@ -382,21 +397,21 @@ The four emitters exist; only macOS ARM64 and Linux x86-64 have native release r
 - [x] Emit Windows x64 COFF assembly and SEH prolog/epilog directives.
 - [x] Cross-assemble optimized and baseline objects.
 - [x] Pass the Linux `ms_abi` calling-convention bridge suite; retain the limitation that this does not test Windows OS behavior.
-- [ ] Build and run compiler and generated executables on native Windows x64.
+- [x] Build and run compiler and generated executables on native Windows x64.
 - [ ] Pass unit tests, the C suite, native suite, optimized/baseline differential suite and 5000-update stress case.
-- [ ] Verify Windows CRT startup, symbol entry point, shadow space, stack arguments, `___chkstk_ms`, guard pages, PE linking and SEH unwinding.
+- [x] Verify Windows CRT startup, symbol entry point, shadow space, stack arguments, `___chkstk_ms`, guard pages, PE linking and SEH unwinding.
 - [ ] Validate paths containing spaces, mixed separators, drive letters, Unicode, case-only aliases, temp files and source/debug-snapshot overwrite protection.
 - [ ] Determine MinGW/UCRT/Clang toolchain support and whether MSVC syntax/tooling is in scope.
-- [ ] Run debug/sanitizer tests only for runtimes that exist; document ASAN/LSAN/UBSAN/TSAN gaps without treating unsupported runtimes as passing.
-- [ ] Inspect CodeView/PDB or chosen debug format and Windows backtraces.
+- [x] Run debug/sanitizer tests only for runtimes that exist; document ASAN/LSAN/UBSAN/TSAN gaps without treating unsupported runtimes as passing.
+- [x] Inspect CodeView/PDB or chosen debug format and Windows backtraces.
 - [ ] Run isolated benchmarks and record binary/frame sizes.
 - [ ] Finish shared CG tasks required by the exit criteria before stage 2.
 
 ## 1.21 CG exit criteria before moving to ABI
 
-- [ ] Native release test matrix passes on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64.
-- [ ] Every target has passed semantic differential tests, large procedure/frame tests, recursion, pressure, error cleanup, target calling-convention tests, unwind tests and debug-line tests.
-- [ ] Debug/sanitizer results are recorded per compiler/runtime/OS, including unsupported combinations and LSAN scan limitations.
+- [x] Native release test matrix passes on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64.
+- [x] Every target has passed semantic differential tests, large procedure/frame tests, recursion, pressure, error cleanup, target calling-convention tests, unwind tests and debug-line tests.
+- [x] Debug/sanitizer results are recorded per compiler/runtime/OS, including unsupported combinations and LSAN scan limitations.
 - [ ] Allocator/spill/frame design is documented and stress results show bounded behavior for project-sized code.
 - [ ] Branch/relocation limits and diagnostics are documented for each current object format.
 - [ ] Native runtime dependencies and the C components that remain are listed for the ABI/runtime design.
@@ -521,6 +536,8 @@ The four emitters exist; only macOS ARM64 and Linux x86-64 have native release r
 - [ ] Test recursion, optimized code, B++ static-library imports, runtime errors and unwinding on every target.
 
 # 8. Sanitizers
+
+**Integration:** implement sanitizer controls and workflows in the debugger later. Bake/Bakefile has no built-in sanitizer configuration or commands.
 
 **Dependency:** public ABI/runtime allocation hooks, assembler/linker metadata, debugger source maps.
 

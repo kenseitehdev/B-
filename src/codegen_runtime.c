@@ -19,6 +19,22 @@ struct BPPNativeFrame {
     const size_t *local_map;
     size_t root_count;
 };
+#ifndef __has_feature
+#define __has_feature(x) 0
+#endif
+#if __has_feature(memory_sanitizer)
+#include <sanitizer/msan_interface.h>
+static void native_msan_prepare(BPPNativeFrame *f){
+    /* IR validation and local initialization flags establish native-defined
+     * values. Assembly does not update MSAN's parameter or stack shadow. */
+    __msan_unpoison(f,sizeof *f);
+    __msan_unpoison(f->registers,f->cell_count*sizeof(BLValue));
+    __msan_unpoison(f->locals,f->local_count*sizeof(BLValue));
+    __msan_unpoison(f->local_initialized,f->local_count);
+}
+#else
+static void native_msan_prepare(BPPNativeFrame *f){(void)f;}
+#endif
 static const BPPNativeRuntimeHelper native_helpers[] = {
     {"bpp_n_enter", "native emitter", "frame initialization", "none; parameter ownership uses bpp_a_clone_parameters", "cannot report language errors", "not applicable", 1},
     {"bpp_a_clone_parameters", "legacy/unit helper", "parameter ownership initialization", "clones borrowed incoming parameters into local slots", "cannot report language errors", "C runtime sanitizer instrumentation", 1},
@@ -52,9 +68,17 @@ static void *allocate(size_t n, size_t size) {
     if (size && n > SIZE_MAX / size) { fputs("B++: frame allocation overflow\n", stderr); exit(1); }
     void *p = calloc(n ? n : 1, size); if (!p) { perror("calloc"); exit(1); } return p;
 }
+BPP_HOSTCALL void bpp_a_truth_enable(BPPNativeFrame *f,int reset){native_msan_prepare(f);bl_rt_truth_enable(f->vm,reset);}
+BPP_HOSTCALL int bpp_a_truthy(BPPNativeFrame *f,size_t reg){return bl_value_is_truthy(f->registers[slot(f,reg)]);}
+BPP_HOSTCALL void bpp_a_call_begin(BPPNativeFrame *f){native_msan_prepare(f);f->reserved=(size_t)bl_rt_error_serial(f->vm);}
+BPP_HOSTCALL void bpp_a_call_end(BPPNativeFrame *f,size_t dst){native_msan_prepare(f);BLValue *out=&f->registers[slot(f,dst)];if(out->tag==BLV_NULL&&f->reserved!=bl_rt_error_serial(f->vm))bl_rt_move(out,bl_rt_latest_error(f->vm));}
 BPP_HOSTCALL void bpp_a_integer(BPPNativeFrame *f, size_t dst, long long v) { bl_rt_move(&f->registers[slot(f,dst)], bl_value_int(v)); }
 BPP_HOSTCALL void bpp_a_string(BPPNativeFrame *f, size_t dst, const char *s) { bl_rt_move(&f->registers[slot(f,dst)], bl_value_string_copy(s)); }
 BPP_HOSTCALL void bpp_a_clone_parameters(BPPNativeFrame *f, const BLValue *args, size_t count) {
+    native_msan_prepare(f);
+#if __has_feature(memory_sanitizer)
+    if(count)__msan_unpoison(args,count*sizeof(BLValue));
+#endif
     for (size_t j = 0; j < count; ++j) {
         size_t local = local_slot(f, j);
         f->locals[local] = bl_value_clone(args[j]);
@@ -64,15 +88,26 @@ BPP_HOSTCALL void bpp_a_clone_parameters(BPPNativeFrame *f, const BLValue *args,
 BPP_HOSTCALL void bpp_a_arg(BPPNativeFrame *f, size_t arg, size_t reg) { f->args[arg] = f->registers[slot(f,reg)]; }
 BPP_HOSTCALL BLValue * bpp_a_args(BPPNativeFrame *f) { return f->args; }
 BPP_HOSTCALL BLValue * bpp_a_destination(BPPNativeFrame *f, size_t r) { bl_rt_move(&f->registers[slot(f,r)], bl_value_null()); return &f->registers[slot(f,r)]; }
-BPP_HOSTCALL void bpp_a_builtin(BPPNativeFrame *f, size_t dst, const char *name, size_t argc, int line, int column) {
-    BLSite site = {line, column}; bl_rt_move(&f->registers[slot(f,dst)], bl_rt_builtin(f->vm, &site, name, f->args, argc));
+BPP_HOSTCALL void bpp_a_builtin(BPPNativeFrame *f, size_t dst, const char *name, size_t argc, uint64_t line, int column) {
+    native_msan_prepare(f);
+#if __has_feature(memory_sanitizer)
+    if(argc)__msan_unpoison(f->args,argc*sizeof(BLValue));
+#endif
+    BLSite site = {(int)(uint32_t)line,column,(unsigned)(line>>32)}; bl_rt_move(&f->registers[slot(f,dst)], bl_rt_builtin(f->vm, &site, name, f->args, argc));
 }
 BPP_HOSTCALL int bpp_a_failed(BPPNativeFrame *f) { return f->vm->error != NULL; }
 /* Value operations only: control flow and user calls are native instructions.
  * Inputs and destinations are compile-time constants in the emitted assembly. */
-BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *f, size_t op, size_t dst, size_t a, size_t b, size_t c, int line, int column) {
-    BLSite site = {line, column}; BLValue v = bl_value_null();
+BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *f, size_t op, size_t dst, size_t a, size_t b, size_t c, uint64_t line, int column) {
+    native_msan_prepare(f);
+    BLSite site = {(int)(uint32_t)line,column,(unsigned)(line>>32)}; BLValue v = bl_value_null();unsigned long long serial=bl_rt_error_serial(f->vm);
     switch ((BLIROp)op) {
+    case BL_IR_MALLOC:v=bl_rt_native_memory(f->vm,&site,BL_IR_MALLOC,f->registers[slot(f,a)],bl_value_null(),bl_value_null());break;
+    case BL_IR_REMALLOC:case BL_IR_BYTE_LOAD:case BL_IR_BYTE_STORE:case BL_IR_PRINT_RANGE:
+        v=bl_rt_native_memory(f->vm,&site,(BLIROp)op,f->registers[slot(f,a)],f->registers[slot(f,b)],c!=BL_IR_NONE?f->registers[slot(f,c)]:bl_value_null());if(dst==BL_IR_NONE){bl_value_release(v);return;}break;
+    case BL_IR_MFREE_LOCAL:a=local_slot(f,a);bl_rt_free(f->vm,&site,f->locals[a],f->local_initialized[a],"local");return;
+    case BL_IR_MFREE_GLOBAL:bl_rt_free(f->vm,&site,f->globals[a],f->global_initialized[a],"global");return;
+    case BL_IR_PRINT_BYTE:if(f->registers[slot(f,a)].tag==BLV_INT)putchar((unsigned char)f->registers[slot(f,a)].as.i);return;
     case BL_IR_NULL: break;
     case BL_IR_LOAD_LOCAL: a=local_slot(f,a); v = bl_rt_load(f->vm, &site, f->locals[a], f->local_initialized[a], "local"); break;
     case BL_IR_LOAD_GLOBAL: v = bl_rt_load(f->vm, &site, f->globals[a], f->global_initialized[a], "global"); break;
@@ -80,7 +115,8 @@ BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *f, size_t op, size_t dst, size_t a, s
         a=local_slot(f,a);bl_rt_store(f->vm, &site, &f->locals[a], &f->local_initialized[a], f->registers[slot(f,b)], op == BL_IR_INIT_LOCAL, "local"); return;
     case BL_IR_INIT_GLOBAL: case BL_IR_STORE_GLOBAL:
         bl_rt_store(f->vm, &site, &f->globals[a], &f->global_initialized[a], f->registers[slot(f,b)], op == BL_IR_INIT_GLOBAL, "global"); return;
-    case BL_IR_NEG: case BL_IR_NOT: v = bl_rt_unary(f->vm, &site, (BLIROp)op, f->registers[slot(f,a)]); break;
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_BIT_NOT: v = bl_rt_unary(f->vm, &site, (BLIROp)op, f->registers[slot(f,a)]); break;
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR:
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE:
         v = bl_rt_binary(f->vm, &site, (BLIROp)op, f->registers[slot(f,a)], f->registers[slot(f,b)]); break;
@@ -91,14 +127,16 @@ BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *f, size_t op, size_t dst, size_t a, s
     case BL_IR_FREE_LOCAL: a=local_slot(f,a);bl_rt_free(f->vm, &site, f->locals[a], f->local_initialized[a], "local"); return;
     case BL_IR_FREE_GLOBAL: bl_rt_free(f->vm, &site, f->globals[a], f->global_initialized[a], "global"); return;
     case BL_IR_DELETE_LOCAL:
-        a=local_slot(f,a);bl_rt_store(f->vm, &site, &f->locals[a], &f->local_initialized[a], v, 0, "local"); return;
+        a=local_slot(f,a);bl_rt_store(f->vm, &site, &f->locals[a], &f->local_initialized[a], v, 0, "local");f->local_initialized[a]=0; return;
     case BL_IR_DELETE_GLOBAL:
-        bl_rt_store(f->vm, &site, &f->globals[a], &f->global_initialized[a], v, 0, "global"); return;
+        bl_rt_store(f->vm, &site, &f->globals[a], &f->global_initialized[a], v, 0, "global");f->global_initialized[a]=0; return;
     default: fputs("B++: invalid native value operation\n", stderr); abort();
     }
+    if(v.tag==BLV_NULL&&bl_rt_error_serial(f->vm)!=serial)v=bl_rt_latest_error(f->vm);
     bl_rt_move(&f->registers[slot(f,dst)], v);
 }
 BPP_HOSTCALL void bpp_a_cleanup_frame(BPPNativeFrame *f) {
+    native_msan_prepare(f);
     for (size_t j = 0; j < f->root_count; ++j) bl_value_release(f->registers[j]);
     for (size_t j = 0; j < f->local_count; ++j) bl_value_release(f->locals[j]);
 }

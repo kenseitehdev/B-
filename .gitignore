@@ -1,0 +1,4 @@
+
+# Finder metadata is not source or workflow configuration.
+._*
+**/._*

@@ -12,8 +12,9 @@ static int operands(const BLIRInst *i,unsigned char *used) {
     int changed=0;
 #define USE(value) do { BLIRId r_=(value); if(r_!=BL_IR_NONE&&!used[r_]) { used[r_]=1; changed=1; } } while(0)
     switch(i->op) {
-    case BL_IR_NEG:case BL_IR_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_RELEASE:case BL_IR_MALLOC:case BL_IR_PRINT_BYTE:USE(i->a);
+    case BL_IR_NEG:case BL_IR_NOT:case BL_IR_BIT_NOT:case BL_IR_TO_STRING_BUFFER:case BL_IR_BRANCH:case BL_IR_RETURN:case BL_IR_RELEASE:case BL_IR_MALLOC:case BL_IR_PRINT_BYTE:USE(i->a);
     break;
+    case BL_IR_BIT_AND:case BL_IR_BIT_OR:case BL_IR_BIT_XOR:
     case BL_IR_ADD:case BL_IR_SUB:case BL_IR_MUL:case BL_IR_DIV:case BL_IR_MOD:
     case BL_IR_EQ:case BL_IR_NE:case BL_IR_LT:case BL_IR_LE:case BL_IR_GT:case BL_IR_GE:
     case BL_IR_INDEX_GET:case BL_IR_INDEX_SET:case BL_IR_BYTE_LOAD:case BL_IR_BYTE_STORE:case BL_IR_REMALLOC:case BL_IR_PRINT_RANGE:USE(i->a);USE(i->b);
@@ -35,6 +36,7 @@ static int operands(const BLIRInst *i,unsigned char *used) {
 static int dce_produces_primitive(BLIROp op) {
     switch(op) {
     case BL_IR_NULL: case BL_IR_INT: case BL_IR_NEG: case BL_IR_SUB:
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR: case BL_IR_BIT_NOT:
     case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD: case BL_IR_NOT:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE:
     case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET: case BL_IR_BYTE_LOAD:
@@ -67,7 +69,8 @@ static void rewrite_uses(BLIRInst *i, const BLIRId *map, size_t n) {
 #define REP(field) do { if (i->field != BL_IR_NONE) i->field = representative(map, n, i->field); } while (0)
     switch (i->op) {
     case BL_IR_INIT_LOCAL: case BL_IR_STORE_LOCAL: case BL_IR_INIT_GLOBAL: case BL_IR_STORE_GLOBAL: REP(b); break;
-    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: case BL_IR_MALLOC: case BL_IR_PRINT_BYTE: REP(a); break;
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_BIT_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: case BL_IR_MALLOC: case BL_IR_PRINT_BYTE: REP(a); break;
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR:
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET: case BL_IR_BYTE_LOAD: case BL_IR_REMALLOC: case BL_IR_PRINT_RANGE: REP(a); REP(b); break;
     case BL_IR_INDEX_SET: case BL_IR_BYTE_STORE: REP(a); REP(b); REP(c); break;
@@ -125,7 +128,8 @@ static void mark_cross_block_uses(const BLIRInst *i, size_t block,
 #define MARK(field) do { BLIRId r_ = i->field; if (r_ != BL_IR_NONE && r_ < n && definition_block[r_] != block) cross_block[r_] = 1; } while (0)
     switch (i->op) {
     case BL_IR_INIT_LOCAL: case BL_IR_STORE_LOCAL: case BL_IR_INIT_GLOBAL: case BL_IR_STORE_GLOBAL: MARK(b); break;
-    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: case BL_IR_MALLOC: case BL_IR_PRINT_BYTE: MARK(a); break;
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_BIT_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: case BL_IR_MALLOC: case BL_IR_PRINT_BYTE: MARK(a); break;
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR:
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET: case BL_IR_BYTE_LOAD: case BL_IR_REMALLOC: case BL_IR_PRINT_RANGE: MARK(a); MARK(b); break;
     case BL_IR_INDEX_SET: case BL_IR_BYTE_STORE: MARK(a); MARK(b); MARK(c); break;
@@ -205,14 +209,15 @@ static int eliminate_redundant_accesses(BLIRModule *m, BLIRFunction *fn) {
                     drop[k] = 1;
                     ++m->redundant_access_metrics.eliminated_slot_stores;
                 }
-                slot_initialized[slot] = 1; slot_known[slot] = (unsigned char)source_known;
+                if(init||slot_initialized[slot]){slot_initialized[slot]=1;slot_known[slot]=(unsigned char)source_known;}else slot_known[slot]=0;
                 if (source_known) slot_values[slot] = value;
             }
             if (i->op == BL_IR_DELETE_LOCAL || i->op == BL_IR_DELETE_GLOBAL ||
                 i->op == BL_IR_FREE_LOCAL || i->op == BL_IR_FREE_GLOBAL) {
                 const int global = i->op == BL_IR_DELETE_GLOBAL || i->op == BL_IR_FREE_GLOBAL;
                 size_t slot = i->a + (global ? fn->local_count : 0);
-                slot_initialized[slot] = 1; slot_known[slot] = 0;
+                if(i->op==BL_IR_DELETE_LOCAL||i->op==BL_IR_DELETE_GLOBAL){slot_initialized[slot]=0;}
+                slot_known[slot] = 0;
             }
             if (i->dst != BL_IR_NONE) {
                 BLIRId previous = number_lookup_or_add(numbers, cap, generation, i);
@@ -450,8 +455,9 @@ int bpp_ir_optimize(BLIRModule *m) {
                     const BPPValueFact *slot=i->op==BL_IR_LOAD_LOCAL?(i->a<fn->local_count?&locals[i->a]:NULL):(i->a<m->global_count?&globals[i->a]:NULL);
                     if(bpp_value_fact_integer(slot,&v))constant=1;
                 } else if(i->op==BL_IR_NEG&&i->a<n&&bpp_value_fact_integer(&registers[i->a],&a)&&a!=LLONG_MIN){v=-a;constant=1;}
-                else if(i->op==BL_IR_NOT&&i->a<n&&registers[i->a].truth!=BPP_TRUTH_UNKNOWN){v=registers[i->a].truth==BPP_TRUTH_TRUE?0:1;constant=1;}
-                else if(i->op>=BL_IR_ADD&&i->op<=BL_IR_GE&&i->a<n&&i->b<n&&bpp_value_fact_integer(&registers[i->a],&a)&&bpp_value_fact_integer(&registers[i->b],&c))constant=bpp_integer_fold(i->op,a,c,&v);
+                else if(i->op==BL_IR_BIT_NOT&&i->a<n&&bpp_value_fact_integer(&registers[i->a],&a)){constant=bpp_integer_fold(i->op,a,0,&v);}
+                else if(i->op==BL_IR_NOT&&i->a<n&&bpp_value_fact_integer(&registers[i->a],&a)){v=a>0?-1:a<0?1:0;constant=1;}
+                else if(((i->op>=BL_IR_ADD&&i->op<=BL_IR_GE)||i->op==BL_IR_BIT_AND||i->op==BL_IR_BIT_OR||i->op==BL_IR_BIT_XOR)&&i->a<n&&i->b<n&&bpp_value_fact_integer(&registers[i->a],&a)&&bpp_value_fact_integer(&registers[i->b],&c))constant=bpp_integer_fold(i->op,a,c,&v);
                 if(constant){i->op=BL_IR_INT;i->integer=v;i->a=i->b=i->c=BL_IR_NONE;}
                 if(i->op==BL_IR_BRANCH&&i->a<n&&registers[i->a].truth!=BPP_TRUTH_UNKNOWN){i->a=registers[i->a].truth==BPP_TRUTH_TRUE?i->b:i->c;i->op=BL_IR_JUMP;i->b=i->c=BL_IR_NONE;}
                 bpp_value_facts_transfer(&facts,i,registers,locals,globals);

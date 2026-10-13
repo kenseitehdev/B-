@@ -120,6 +120,17 @@ int main(void) {
     bpp_a_op(outer,BL_IR_INIT_LOCAL,BL_IR_NONE,1,1,BL_IR_NONE,5,1);
     bpp_a_leave(outer,BL_IR_NONE,&result);
     assert(result.tag==BLV_NULL);
+    /* A failed rate calculation retains the explicit transition inputs. */
+    BLRuntime truth_vm={"transition-error",NULL};BLSite truth_site={17,3,2};
+    bl_rt_truth_enable(&truth_vm,1);
+    BLValue rate=bl_value_state(bpp_truth_velocity((BPPStateValue){-1,{0}},(BPPStateValue){1,{0}},2),NULL);
+    BLValue uncertain=bl_rt_binary(&truth_vm,&truth_site,BL_IR_DIV,rate,bl_value_int(0));
+    BLState *error_state=bl_value_as_state(uncertain);
+    assert(error_state&&error_state->state.value==0&&error_state->state.context.faults==4);
+    assert(error_state->state.context.start==-1&&error_state->state.context.end==1&&error_state->state.context.dt==2);
+    assert(error_state->state.context.origin_start==-1&&error_state->state.context.origin_end==1&&error_state->state.context.origin_dt==2);
+    assert(error_state->state.context.source_file==2&&error_state->state.context.line==17);
+    bl_value_release(rate);bl_value_release(uncertain);
     puts("Native stack-frame ownership tests passed");
     return 0;
 }

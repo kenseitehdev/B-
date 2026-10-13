@@ -12,19 +12,36 @@ int main(void) { volatile int *p=calloc(1,sizeof *p); if(!p)return 2; *p=42; int
 EOF
 printf 'host=%s compiler=%s\n' "$(uname -s)/$(uname -m)" "$cc"
 "$cc" --version | head -1
+failed=0
+is_clang=0
+case "$("$cc" --version | head -1)" in *clang*) is_clang=1 ;; esac
 for flavor in address leak undefined thread memory; do
-    if [ "$flavor" = memory ] && [ "$(uname -s)" != Linux ]; then
-        printf '%s: unsupported_by_bpp_on_this_host\n' "$flavor"; continue
+    required=0
+    for wanted in ${BPP_REQUIRED_SANITIZERS:-}; do
+        if [ "$wanted" = "$flavor" ]; then required=1; fi
+    done
+    if [ "$flavor" = memory ] && { [ "$(uname -s)" != Linux ] || [ "$is_clang" = 0 ]; }; then
+        printf '%s: unsupported_by_bpp_on_this_host\n' "$flavor"
+        printf 'sanitizer=%s build=unsupported runtime=not_run\n' "$flavor"
+        if [ "$required" = 1 ]; then failed=1; fi
+        continue
     fi
     if "$cc" -O1 -g -fPIE -pie "-fsanitize=$flavor" "$work/probe.c" -o "$work/probe" >"$work/build.log" 2>&1; then
-        if "$work/probe" >"$work/run.log" 2>&1; then
+        if "${PYTHON:-python3}" tests/run_bounded.py 15 "$work/probe" >"$work/run.log" 2>&1; then
             printf '%s: runtime_smoke_passed\n' "$flavor"
+            printf 'sanitizer=%s build=passed runtime=passed\n' "$flavor"
         else
             printf '%s: runtime_execution_failed\n' "$flavor"
+            printf 'sanitizer=%s build=passed runtime=failed\n' "$flavor"
+            if [ "$required" = 1 ]; then failed=1; fi
             cat "$work/run.log"
         fi
     else
         printf '%s: toolchain_unavailable\n' "$flavor"
+        printf 'sanitizer=%s build=unavailable runtime=not_run\n' "$flavor"
+        if [ "$required" = 1 ]; then failed=1; fi
         cat "$work/build.log"
     fi
 done
+
+exit "$failed"

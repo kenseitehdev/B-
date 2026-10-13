@@ -28,7 +28,7 @@ static void xf_bpp_failure(BLRuntime *runtime, xf_State *state, const char *oper
     bpp_static_runtime_error(runtime, message);
 }
 
-void bpp_v1_xf_version(BLRuntime *runtime, BLValue *globals, unsigned char *initialized,
+void bpp_v2_xf_version(BLRuntime *runtime, BLValue *globals, unsigned char *initialized,
                        const BLValue *args, BLValue *out) {
     (void)runtime; (void)globals; (void)initialized; (void)args;
     *out = bl_value_string_copy(xf_version());
@@ -46,25 +46,25 @@ static void xf_bpp_run(BLRuntime *runtime, const BLValue *args, BLValue *out, in
     free(input);
 }
 
-void bpp_v1_xf_run_string(BLRuntime *runtime, BLValue *globals, unsigned char *initialized,
+void bpp_v2_xf_run_string(BLRuntime *runtime, BLValue *globals, unsigned char *initialized,
                           const BLValue *args, BLValue *out) {
     (void)globals; (void)initialized;
     xf_bpp_run(runtime, args, out, 0);
 }
 
-void bpp_v1_xf_run_file(BLRuntime *runtime, BLValue *globals, unsigned char *initialized,
+void bpp_v2_xf_run_file(BLRuntime *runtime, BLValue *globals, unsigned char *initialized,
                         const BLValue *args, BLValue *out) {
     (void)globals; (void)initialized;
     xf_bpp_run(runtime, args, out, 1);
 }
 
 static const BPPStaticProcedure xf_procedures[] = {
-    { "xf_version", 0, BPP_STATIC_PROC_EXPORTED, bpp_v1_xf_version },
-    { "xf_run_string", 1, BPP_STATIC_PROC_EXPORTED, bpp_v1_xf_run_string },
-    { "xf_run_file", 1, BPP_STATIC_PROC_EXPORTED, bpp_v1_xf_run_file }
+    { "xf_version", 0, BPP_STATIC_PROC_EXPORTED, bpp_v2_xf_version },
+    { "xf_run_string", 1, BPP_STATIC_PROC_EXPORTED, bpp_v2_xf_run_string },
+    { "xf_run_file", 1, BPP_STATIC_PROC_EXPORTED, bpp_v2_xf_run_file }
 };
 
-const BPPStaticLibrary bpp_v1_library_xf = {
+const BPPStaticLibrary bpp_v2_library_xf = {
     BPP_STATIC_ABI_MAGIC, BPP_STATIC_ABI_MAJOR, BPP_STATIC_ABI_MINOR,
     BPP_STATIC_LIBRARY_ONLY | BPP_STATIC_NO_FFI | BPP_STATIC_VALUE_OWNERSHIP,
     sizeof(BLValue), offsetof(BLValue, tag), offsetof(BLValue, as), 0,

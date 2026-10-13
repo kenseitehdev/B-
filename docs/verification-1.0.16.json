@@ -1,0 +1,633 @@
+{
+  "release": "1.0.16",
+  "repository": "kenseitehdev/B-",
+  "implementation_head": "2c817e176897d0addfd7df624b01d4e136ac1f57",
+  "workflow_checkout_revision": "e0f0ed4bdbcfeb332e6ec197a4a7c12509d07f5d",
+  "run_id": 38329351396,
+  "run_url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396",
+  "job_count": 18,
+  "execution_profiles": 19,
+  "notes": [
+    "Windows job covers release and UBSAN trap debug profiles.",
+    "MSAN evidence covers the checked native boundary and instrumented C accesses; arbitrary assembly/FFI shadow propagation is not claimed.",
+    "Transcript artifacts have 30-day retention; artifact IDs and SHA256 digests are recorded here.",
+    "Closing documentation does not alter the tested implementation."
+  ],
+  "jobs": [
+    {
+      "id": 115075373819,
+      "name": "windows",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075373819",
+      "toolchain": [
+        "clang version 23.1.3 (https://github.com/msys2/MINGW-packages 067886dba977a6b4c97dfedfb25286b5eda55620)"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=unavailable runtime=not_run",
+        "sanitizer=leak build=unavailable runtime=not_run",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=unavailable runtime=not_run",
+        "sanitizer=memory build=unsupported runtime=not_run"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075373989,
+      "name": "unix (ubuntu-24.04, debug, clang)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075373989",
+      "toolchain": [
+        "Ubuntu clang version 18.1.3 (1ubuntu1)"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=passed runtime=passed"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075373994,
+      "name": "unix (ubuntu-24.04-arm, tsan, clang)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075373994",
+      "toolchain": [
+        "Ubuntu clang version 18.1.3 (1ubuntu1)"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=passed runtime=passed"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374012,
+      "name": "msan (ubuntu-24.04-arm)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374012",
+      "toolchain": [
+        "Ubuntu clang version 18.1.3 (1ubuntu1)"
+      ],
+      "sanitizer_probes": [],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374013,
+      "name": "unix (ubuntu-24.04, debug, gcc)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374013",
+      "toolchain": [
+        "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=unsupported runtime=not_run"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374023,
+      "name": "unix (ubuntu-24.04, release, clang)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374023",
+      "toolchain": [
+        "Ubuntu clang version 18.1.3 (1ubuntu1)"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=passed runtime=passed"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374043,
+      "name": "unix (ubuntu-24.04-arm, release, gcc)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374043",
+      "toolchain": [
+        "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=unsupported runtime=not_run"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374050,
+      "name": "unix (ubuntu-24.04-arm, release, clang)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374050",
+      "toolchain": [
+        "Ubuntu clang version 18.1.3 (1ubuntu1)"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=passed runtime=passed"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374053,
+      "name": "unix (ubuntu-24.04-arm, debug, gcc)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374053",
+      "toolchain": [
+        "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=unsupported runtime=not_run"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374057,
+      "name": "unix (ubuntu-24.04, release, gcc)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374057",
+      "toolchain": [
+        "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=unsupported runtime=not_run"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374078,
+      "name": "unix (macos-15, release, clang)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374078",
+      "toolchain": [
+        "Homebrew clang version 23.1.0"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=unsupported runtime=not_run"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374089,
+      "name": "unix (macos-15, debug, clang)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374089",
+      "toolchain": [
+        "Homebrew clang version 23.1.0"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=unsupported runtime=not_run"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374099,
+      "name": "unix (ubuntu-24.04-arm, tsan, gcc)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374099",
+      "toolchain": [
+        "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=unsupported runtime=not_run"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374105,
+      "name": "unix (ubuntu-24.04, tsan, gcc)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374105",
+      "toolchain": [
+        "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=unsupported runtime=not_run"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374184,
+      "name": "msan (ubuntu-24.04)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374184",
+      "toolchain": [
+        "Ubuntu clang version 18.1.3 (1ubuntu1)"
+      ],
+      "sanitizer_probes": [],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374276,
+      "name": "unix (macos-15, tsan, clang)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374276",
+      "toolchain": [
+        "Homebrew clang version 23.1.0"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=unsupported runtime=not_run"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374369,
+      "name": "unix (ubuntu-24.04, tsan, clang)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374369",
+      "toolchain": [
+        "Ubuntu clang version 18.1.3 (1ubuntu1)"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=passed runtime=passed"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    },
+    {
+      "id": 115075374374,
+      "name": "unix (ubuntu-24.04-arm, debug, clang)",
+      "conclusion": "success",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/job/115075374374",
+      "toolchain": [
+        "Ubuntu clang version 18.1.3 (1ubuntu1)"
+      ],
+      "sanitizer_probes": [
+        "sanitizer=address build=passed runtime=passed",
+        "sanitizer=leak build=passed runtime=passed",
+        "sanitizer=undefined build=passed runtime=passed",
+        "sanitizer=thread build=passed runtime=passed",
+        "sanitizer=memory build=passed runtime=passed"
+      ],
+      "checks": {
+        "truth_125": true,
+        "bitwise_311": true,
+        "static_abi": true,
+        "differential_64": true,
+        "stress": true,
+        "fuzz_64": true
+      }
+    }
+  ],
+  "conclusion": "success",
+  "transcripts": [
+    {
+      "id": 11782586175,
+      "name": "verification-macos-15-tsan-clang",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11782586175",
+      "digest": "sha256:33ce0e961ebac6623bf9600756616103152f04584380dae041ac04ebccfc0691",
+      "expires_at": "2026-11-12T01:05:46Z"
+    },
+    {
+      "id": 11782373092,
+      "name": "verification-ubuntu-24.04-debug-gcc",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11782373092",
+      "digest": "sha256:a27c717a41ee8f5d01119955c3af93937efa519c6bdffb10b685903b59a66be2",
+      "expires_at": "2026-11-12T00:53:24Z"
+    },
+    {
+      "id": 11782348363,
+      "name": "verification-ubuntu-24.04-tsan-gcc",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11782348363",
+      "digest": "sha256:c0382935004aa3052099b52349437f3ca997d41c97f73b557008741ff6c5f614",
+      "expires_at": "2026-11-12T00:54:21Z"
+    },
+    {
+      "id": 11782298678,
+      "name": "verification-ubuntu-24.04-msan",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11782298678",
+      "digest": "sha256:1d37d7d3f59e49d4ccb7106f32033fcb767fe4c9139c161c9efd49e78d05b524",
+      "expires_at": "2026-11-12T00:54:58Z"
+    },
+    {
+      "id": 11782283695,
+      "name": "verification-ubuntu-24.04-arm-msan",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11782283695",
+      "digest": "sha256:2c0cbef09cb76e6549f4825d5d19dcf5150c7a5b24a81c8ec42f9ca2bb9ddc74",
+      "expires_at": "2026-11-12T00:54:36Z"
+    },
+    {
+      "id": 11782208661,
+      "name": "verification-ubuntu-24.04-tsan-clang",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11782208661",
+      "digest": "sha256:c2b020a58a3ca33ba31264541e968376812fc7bd72b7de37ea27439b72ab9622",
+      "expires_at": "2026-11-12T00:54:10Z"
+    },
+    {
+      "id": 11782188565,
+      "name": "verification-ubuntu-24.04-arm-release-gcc",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11782188565",
+      "digest": "sha256:6c27796cf072eefdbe9b3889111a7dfa9c6601eb353c864b88f4c9bf10e714a6",
+      "expires_at": "2026-11-12T00:53:34Z"
+    },
+    {
+      "id": 11782163590,
+      "name": "verification-ubuntu-24.04-release-gcc",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11782163590",
+      "digest": "sha256:ac5937fb20d04d219ae74264ad1860eacfb0a3b9396317737e1244639c0e791c",
+      "expires_at": "2026-11-12T00:53:25Z"
+    },
+    {
+      "id": 11781904535,
+      "name": "verification-macos-15-release-clang",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11781904535",
+      "digest": "sha256:713898233d89875a194eb564c8f8f391a7af55489e49103d3cb1df8f2f9585ce",
+      "expires_at": "2026-11-12T00:54:34Z"
+    },
+    {
+      "id": 11781849424,
+      "name": "verification-ubuntu-24.04-arm-tsan-clang",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11781849424",
+      "digest": "sha256:78fd878f2bb29522fff31d7d62e86c757ee43a16d4c5b306666b21dd6d5acf1b",
+      "expires_at": "2026-11-12T00:54:48Z"
+    },
+    {
+      "id": 11781769475,
+      "name": "verification-ubuntu-24.04-arm-debug-clang",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11781769475",
+      "digest": "sha256:93b02e5bc93921581a9f99b838a9707b8a6c0f9a5ff5a6222e1bb52ffbdc2028",
+      "expires_at": "2026-11-12T00:54:15Z"
+    },
+    {
+      "id": 11781578222,
+      "name": "verification-ubuntu-24.04-debug-clang",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11781578222",
+      "digest": "sha256:80ddd8d10691b43cdfd821f085d650b7cffdbca1d89ae61c61ae88dc93370de7",
+      "expires_at": "2026-11-12T00:54:09Z"
+    },
+    {
+      "id": 11781488235,
+      "name": "verification-ubuntu-24.04-arm-release-clang",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11781488235",
+      "digest": "sha256:421cbe6d44cb3d3f535dd7a469cb182d948d0ca76cb42cc96fadb063d1eb2c95",
+      "expires_at": "2026-11-12T00:54:11Z"
+    },
+    {
+      "id": 11781448429,
+      "name": "verification-ubuntu-24.04-arm-tsan-gcc",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11781448429",
+      "digest": "sha256:480d8331a46c110f466afd0c1406ae314f9f0b2b149a40b756b512882449611b",
+      "expires_at": "2026-11-12T00:54:16Z"
+    },
+    {
+      "id": 11781418992,
+      "name": "verification-ubuntu-24.04-arm-debug-gcc",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11781418992",
+      "digest": "sha256:9e756427048e311af13181306e78a88cc1397f3482717a83edaf73213db697d3",
+      "expires_at": "2026-11-12T00:59:43Z"
+    },
+    {
+      "id": 11781323617,
+      "name": "verification-windows-2022-release",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11781323617",
+      "digest": "sha256:7c09ebd1cf9478920492c60a734c273ab7b9b54b340ca271b1f718f6b79147ea",
+      "expires_at": "2026-11-12T00:55:05Z"
+    },
+    {
+      "id": 11781323468,
+      "name": "verification-ubuntu-24.04-release-clang",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11781323468",
+      "digest": "sha256:67147214becfcaea53123ae829cda673f87d164a22c8eb027b1c0844290c49bd",
+      "expires_at": "2026-11-12T00:53:34Z"
+    },
+    {
+      "id": 11781189100,
+      "name": "verification-macos-15-debug-clang",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38329351396/artifacts/11781189100",
+      "digest": "sha256:09faf14896301e74f7d1616668e8f5abfe69f9d8b11c3f116f5db525025c9e9e",
+      "expires_at": "2026-11-12T00:56:24Z"
+    }
+  ],
+  "changed_implementation_files_sha256": {
+    ".github/workflows/codegen.yml": "076d9db394654a9f5af87e2ac5a94303652035172c021d2bf6efa5fe842ec570",
+    "include/value_facts.h": "71578f6ef55fe31fac4c17f4bd0bd2c4d06008bbfd83e8f3dc351417dd425012",
+    "src/isel.c": "9bbed752a5fa863dac35bfad8409fe6d7bae996e10dd24fa2303cccc27ccc18c",
+    "src/runtime.c": "220a10c0eadbafdc6aa080bca0d74036a976323afac44e5a437a4916b1ddeae4",
+    "tests/check_sanitizer_availability.sh": "5da5084f904150c0943580b01dbcdc29fa3db2421498e2d053a2153a747b81c9",
+    "tests/test_static_abi.c": "74d6370713473424933e100c62a79f17f5a07b03f1b6d8269b22f26871383fd8",
+    ".gitignore": "cd96aafd31ec2cc245d8cd54ac7a06ffaf510f820a8cb257417817445f6fb9b5",
+    "include/bpp_abi.h": "04adc23a17a678b104d1ad4e94b862c98548c21e90fb81115bae1740488d5be2",
+    "include/word_ops.h": "58b86441a758db94bef23379a6e54d5327469e3f6662e48a92ab9bce1fcb4753",
+    "src/lexer.c": "79dce3b3575959c5a80a6a029b3f6a9de291f712c7244d4a97b36808637b6c1e",
+    "src/target.c": "f81c46f44b382922454c3d56511384a5a33098f113f97d331d027c9d8dd14e5e",
+    "tests/check_static_abi.sh": "4baf03c54fb272050969b7cfa5e49ec3760147e6561b7b5714419e7f4cc19f3f",
+    "tests/test_truth.c": "ec1d9ab0ceb895fdee804115bb865854b5b5b3b675d961d850947f355dc794bb",
+    "Libraries/xf/src/bpp_xf_bridge.c": "3273164d15c54f94a121ef8e2a781a0eedc5f1312ed58f002270cb4faaa432da",
+    "include/codegen_abi.h": "aecf1bc1a738ae5caf6326e40743b0fece7cbf94e0c79ecb0e56de6bfd3e719f",
+    "src/bpp_abi.c": "308ebc50cdc371c9bdf904c2759c709085d097cc1a691b9ebb2647fd18052340",
+    "src/locations.c": "3c8ca8df739da1476fb739580c4eb659f9f8a8fe34b58a58884a67547f717553",
+    "src/truth.c": "7c16fd1a66a510e4dda81722e84fe7d39cc650a28fdb3523da0af6246535d9a4",
+    "tests/check_verification.py": "e3637cd54757ff4fe47ae8adb786649741ece9fc09da19141788ae5211b7e911",
+    "tests/test_value_facts.c": "f19e02e2bcc082039993344b7b80ba9eab130afc5d079bd340a2f787d4705ba0",
+    "Libraries/xf/src/write_manifest.c": "8e23d8b516cccf8a2d961f671a53a88ee68b61b3ed7128e7d83d38ee1e292f04",
+    "include/ir.h": "45047f87f6fc784c930c541f5226565d94244e48bcd71f520fed86c9427c8cc0",
+    "src/codegen_runtime.c": "7e43182c90ed2bd153b953916bd4fa36c86e7a5673892d88efe860d3019d3482",
+    "src/main.c": "77d0407de13105039126c07666fce5fd3488d69e4da5b20f2e7b7fc05f12529a",
+    "src/value.c": "27642e990d658909bd37faf55d28c255f3b106606f3cbbe9ca2a6aecede2488a",
+    "tests/fuzz_compiler.c": "6f5b7cd724548a5c42b77915885de71f9773e2ac347b74dc627c3037a87f8359",
+    "Makefile": "1a80b37359c1363a49090a9a4ce70e74b0f3772124000f5cef6a5c09e3699d50",
+    "include/lexer.h": "dc144a2b37ed9822b93bdc021cf9cd97b9b4b93b0f04b0b7fc2c8d36177cec99",
+    "src/compiler.c": "56922c0f87ba6b01bff54cfa2ba9b074ed9240455fc73341dc4c77454aa00e8e",
+    "src/native_sanitizer.c": "7eceb6d9cb2873bba2e0bd6ae1dc6e58749e340fa35210109c6f196abbc85742",
+    "src/value_facts.c": "13b2815f01121203d19f8573c06a7a0ca386657f8fc24aed27f3f33d2d8bf883",
+    "tests/generate_case.c": "5198d52476b42e05ef79fa15ad1ed87dff531126eb00d5bd0f0e6fb922555681",
+    "docs/debug-metadata.md": "1319273972f8b73ec85599e9c5513f158aff2d91eba3c31e1d7d1a70af1a65f9",
+    "include/parser.h": "12953553a85d4e9267517e849d97b2370ccabcbecb5f54d9a90d3386c26234e6",
+    "src/emit_arm64.c": "2ea6abd9574438e1c805de08007a140110e22916aa509bfb35cbd6b77b0946f0",
+    "src/optimize.c": "fc540825a0d5b694c620266c24906f7b4001f0666d8fa43b3704396aeb08bdf4",
+    "tests/check_debug_metadata.sh": "92726fc7c0dde7723917d4f5e7b003010d99460dc27817b803049c75a593cc45",
+    "tests/run_bounded.py": "2ad40cc0d79cf6e3f17ace803eaf5ee70384ce33332882cfd01a34c98f24038a",
+    "include/runtime.h": "91f54226b4d1918ea31c382be01f1378274745608c2b2abd1ea16ef76f622029",
+    "src/emit_x64.c": "1e1da864917f6bb1c15c5884e42ede465894838698d2bb335ac0d001b32f6f94",
+    "src/parser.c": "d72a15b30e7efed48be88c9adba1d46dbdf841daf087e7a29f8f5e2331bc069c",
+    "tests/check_gates.py": "3e5a22512bb240a59d894ab887d1da95e9bcef081075b1e52cd04a6323585672",
+    "tests/run_tests.sh": "ac961bf7fef073cee01e40643394eaddd5c3f0406dff4c359b8cff4b2639d91b",
+    "docs/static-abi.md": "19e810f9dde5bc4df63d9690e86c6d5c76da9c8ddb90e711ec453bbd4e0418d3",
+    "include/truth.h": "3f264ffffa967adf7bb00ad59bc0453a4cc6c3f86f4b963014bfafb6d4688475",
+    "src/ir.c": "a8e3544bef99a2ac20e23327af1b985688488c85538f9f29ebe957f791c5fde5",
+    "src/raw_native.c": "d08d877a6b526e70ed9fcef82c7631edf2112c13da048b6a4c9664d3793468d4",
+    "tests/check_native_runtime_boundary.sh": "3c158a1e9847914abbd34168bbf105154f2d3db53c2989e3744e528a20e4aa00",
+    "tests/test_isel.c": "1f8f52f0889f0bd419f000089b0fc2628d4f9423fe4026aedca6bf690dd7662b",
+    "docs/truth-and-tau.md": "6503dfda35b8e3a0a82dd2d0ccabe0f65dc8cde7d09f7c2272d2781c3aace1c3",
+    "include/value.h": "7137cbae80231d8a8af00a95df1194f58894529761617cdc17ffc3d50e5202f8",
+    "src/ir_effects.c": "9f6522a7e3079b8ab4b14ee342748de1246ac77e4e02f8652dcdb04264eb0987",
+    "src/regalloc.c": "718ce4f28b301f16d6d92660b5210733671e0254ed1ef279302ca99b535c792d",
+    "tests/check_native_truth.py": "db60f0184f339268a4d924f2e03287af38ff6f62f13c4ae28b9c4684890d2e27",
+    "tests/test_regalloc.c": "5f149a5b60a7782307877094c4ff6ccca242b49d61efc4a7d3fdd45c4ac41321",
+    "tests/check_native_sanitizer.sh": "19c798add2e818f19bd5fca9fd0d4ecc9ba47c81a6ff440b1a8a961ec660dc9f",
+    "tests/check_targets.sh": "7e20304e8910fb7a00e4d5b5ad022c3d5c73d0674ee7a50d980631f7aca06bf5",
+    "Libraries/xf/Makefile": "84a317b5110781cb52a98c2bfde2eb4d4405912a0fbb1e0249e08c87c2b1ef4d",
+    "Libraries/xf/README.md": "e7fc6ee08accadbd383adcfa767f279364ddb5c50e7bd67e97eeccc3c1c835e8",
+    "tests/test_codegen_runtime.c": "2a0acdcb7f5ff36b63a3484da8b6632e13cb1b837883db539d2a435a8e120e65",
+    "README.md": "548d511e8586d005e43f0eb589100bd4b23f6fd81ce6f2ff92b3019421a88a80",
+    "docs/numeric-semantics.md": "1291db018be95fb4701a2d77767deaaa856a54fdcb7970eb37929d3fd9d83bbb",
+    "tests/check_windows_ubsan.py": "d71cc0542670f0320e132c1111b1e82efc9888efc00ec49b9e0cb409f8c27787",
+    "tests/check_strict_native_runtime.sh": "f8f304620e761780fd4be391861b11b33a8bb374e6d39a44bc7ffa3522b6fc9f"
+  }
+}

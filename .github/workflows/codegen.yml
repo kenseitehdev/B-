@@ -1,7 +1,7 @@
 name: Native codegen
 on:
   push:
-    branches: [main, "1.0.14"]
+    branches: [main, "1.0.*"]
   pull_request:
   workflow_dispatch:
 concurrency:
@@ -25,7 +25,9 @@ jobs:
           - {os: ubuntu-24.04-arm, mode: debug, compiler: gcc}
           - {os: ubuntu-24.04-arm, mode: tsan, compiler: gcc}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # TSAN process startup on hosted macOS makes the complete sequential suite
+    # longer; individual commands and test processes retain their deadlines.
+    timeout-minutes: ${{ matrix.os == 'macos-15' && matrix.mode == 'tsan' && 25 || 15 }}
     steps:
       - uses: actions/checkout@v4
       - name: Discard checked-in build artifacts
@@ -67,17 +69,27 @@ jobs:
             command -v gdb || true
           } | tee "$log"
       - name: Probe sanitizer runtimes
+        env:
+          BPP_REQUIRED_SANITIZERS: ${{ matrix.mode == 'debug' && (runner.os == 'Linux' && 'address leak undefined' || 'address undefined') || matrix.mode == 'tsan' && 'thread' || '' }}
         run: |
           set -o pipefail
           make CC=${{ matrix.compiler }} check-sanitizer-availability 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
+      - name: Compiler warnings as errors
+        run: |
+          set -o pipefail
+          make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} CFLAGS='-std=c11 -Wall -Wextra -Wpedantic -Werror' -j2 all 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Compiler and native execution
         run: |
           set -o pipefail
-          make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} -j2 test ${{ matrix.mode == 'release' && 'check-static-abi' || '' }} 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
+          python3 tests/run_bounded.py 600 make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} -j2 test check-static-abi 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
+      - name: Bounded fuzz, stress and reproducibility
+        run: |
+          set -o pipefail
+          python3 tests/run_bounded.py 600 make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} -j2 check-fuzz check-verification check-reproducible 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Differential execution
         run: |
           set -o pipefail
-          make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} check-differential 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
+          python3 tests/run_bounded.py 600 make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} check-differential 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Native ASAN access hook
         if: matrix.mode == 'debug'
         run: |
@@ -94,11 +106,13 @@ jobs:
           set -o pipefail
           make CC=${{ matrix.compiler }} BUILD_MODE=release check-stress 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Upload failing metadata evidence
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: metadata-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}
-          path: build/debug-evidence
+          path: |
+            build/debug-evidence
+            build/verification-failures
           if-no-files-found: ignore
       - name: Upload native verification transcript
         if: always()
@@ -128,6 +142,8 @@ jobs:
           update: true
           install: >-
             make
+            diffutils
+            mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-clang
             mingw-w64-ucrt-x86_64-llvm
             mingw-w64-ucrt-x86_64-lld
@@ -157,7 +173,17 @@ jobs:
       - name: Windows native execution
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=release -j2 test check-native-checks check-debug-metadata check-static-abi check-differential check-stress 2>&1 | tee -a verification-windows-2022-release.log
+          python3 tests/run_bounded.py 600 make CC=clang BUILD_MODE=release -j2 test check-native-checks check-debug-metadata check-static-abi check-differential check-stress check-fuzz check-verification check-reproducible 2>&1 | tee -a verification-windows-2022-release.log
+      - name: Windows supported UBSAN native execution
+        env:
+          BPP_REQUIRED_SANITIZERS: undefined
+          BPP_REQUIRE_WINDOWS_DEBUGGER: 1
+        run: |
+          set -o pipefail
+          make CC=clang check-sanitizer-availability 2>&1 | tee -a verification-windows-2022-release.log
+          python3 tests/check_windows_ubsan.py clang 2>&1 | tee -a verification-windows-2022-release.log
+          make CC=clang BUILD_MODE=debug DEBUG_SANITIZERS=undefined CFLAGS='-std=c11 -Wall -Wextra -Wpedantic -Werror' -j2 all 2>&1 | tee -a verification-windows-2022-release.log
+          python3 tests/run_bounded.py 600 make CC=clang BUILD_MODE=debug DEBUG_SANITIZERS=undefined -j2 test check-static-abi check-differential check-fuzz check-verification check-reproducible 2>&1 | tee -a verification-windows-2022-release.log
       - name: Windows source stepping and variable inspection
         run: |
           set -o pipefail
@@ -174,24 +200,40 @@ jobs:
           path: verification-windows-2022-release.log
           if-no-files-found: warn
           retention-days: 30
+      - name: Upload Windows debug and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-windows-2022-release
+          path: |
+            build/debug-evidence
+            build/verification-failures
+          if-no-files-found: ignore
   msan:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Discard checked-in build artifacts
         shell: bash
         run: rm -rf build bin
-      - name: Verify Linux x86-64 MSAN runner
+      - name: Verify Linux MSAN runner
         run: |
           test "$(uname -s)" = Linux
-          test "$(uname -m)" = x86_64
+          case "${{ matrix.os }}" in
+            ubuntu-24.04) test "$(uname -m)" = x86_64 ;;
+            ubuntu-24.04-arm) test "$(uname -m)" = aarch64 ;;
+          esac
       - name: Record MSAN toolchain
         run: |
-          log=verification-ubuntu-24.04-msan.log
+          log=verification-${{ matrix.os }}-msan.log
           {
             echo "revision=$GITHUB_SHA"
-            echo 'runner=ubuntu-24.04 x86_64'
+            echo "runner=${{ matrix.os }} $(uname -m)"
             echo 'mode=msan'
             echo "uname=$(uname -a)"
             clang --version
@@ -200,20 +242,20 @@ jobs:
       - name: MemorySanitizer native execution
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=msan -j2 test 2>&1 | tee -a verification-ubuntu-24.04-msan.log
+          python3 tests/run_bounded.py 600 make CC=clang BUILD_MODE=msan -j2 test check-static-abi check-fuzz check-verification check-reproducible 2>&1 | tee -a verification-${{ matrix.os }}-msan.log
       - name: MemorySanitizer differential execution
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=msan check-differential 2>&1 | tee -a verification-ubuntu-24.04-msan.log
+          make CC=clang BUILD_MODE=msan check-differential 2>&1 | tee -a verification-${{ matrix.os }}-msan.log
       - name: MemorySanitizer large procedure
         run: |
           set -o pipefail
-          make CC=clang BUILD_MODE=msan check-stress 2>&1 | tee -a verification-ubuntu-24.04-msan.log
+          make CC=clang BUILD_MODE=msan check-stress 2>&1 | tee -a verification-${{ matrix.os }}-msan.log
       - name: Upload MSAN verification transcript
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: verification-ubuntu-24.04-msan
-          path: verification-ubuntu-24.04-msan.log
+          name: verification-${{ matrix.os }}-msan
+          path: verification-${{ matrix.os }}-msan.log
           if-no-files-found: warn
           retention-days: 30

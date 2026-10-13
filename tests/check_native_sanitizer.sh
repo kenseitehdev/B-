@@ -3,7 +3,7 @@ set -eu
 bpp=$1
 runtime_test=$2
 compile() {
-    if [ "${BPP_NATIVE_CHECKS:-0}" = 1 ]; then "$bpp" --native-sanitizers "$@"; else "$bpp" "$@"; fi
+    if [ "${BPP_NATIVE_CHECKS:-0}" = 1 ] || [ "${BPP_TEST_SANITIZED:-0}" = 1 ]; then "$bpp" --native-sanitizers "$@"; else "$bpp" "$@"; fi
 }
 work=${TMPDIR:-/tmp}/bpp-native-sanitizer-$$
 trap 'rm -rf "$work"' EXIT HUP INT TERM

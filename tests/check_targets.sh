@@ -23,8 +23,8 @@ done < "$task_dir/targets.tsv"
 [ "$target_count" -gt 0 ]
 IFS="$(printf '\t')" read -r comment_target _rest < "$task_dir/targets.tsv"
 "$compiler" --emit-asm --target "$comment_target" -o "$task_dir/raw.s" tests/raw_core.bpp
-if grep -E 'BL(Value|Runtime)|bpp_[an]_' "$task_dir/raw.s" >/dev/null; then
-    echo 'cross-target raw assembly retained legacy runtime symbols' >&2
+if grep -E 'bl_vm_|bpp_a_run' "$task_dir/raw.s" >/dev/null; then
+    echo 'cross-target native assembly retained interpreter entry points' >&2
     exit 1
 fi
 echo "Cross-assembled $target_count queried targets in optimized and baseline modes"

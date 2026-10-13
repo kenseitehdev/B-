@@ -12,7 +12,7 @@ static BPPInstructionSelection select(BPPTarget target, BLIROp op, long long rhs
 
 int main(void) {
     for (size_t target = 0; target < bpp_target_count(); ++target)
-        for (unsigned op = BL_IR_NULL; op <= BL_IR_RETURN; ++op) {
+        for (unsigned op = BL_IR_NULL; op < BL_IR_OPCODE_COUNT; ++op) {
             const BPPISelRule *rule = bpp_isel_rule((BPPTarget)target, (BLIROp)op);
             assert(rule);
             assert(bpp_target_ir_lowering((BPPTarget)target, (BLIROp)op) == rule->lowering);

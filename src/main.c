@@ -30,6 +30,9 @@
 #ifndef BPP_NATIVE_RUNTIME_OBJECT
 #define BPP_NATIVE_RUNTIME_OBJECT "build/release/obj/src/codegen_runtime.o"
 #endif
+#ifndef BPP_TRUTH_OBJECT
+#define BPP_TRUTH_OBJECT "build/release/obj/src/truth.o"
+#endif
 #ifndef BPP_STATIC_ABI_OBJECT
 #define BPP_STATIC_ABI_OBJECT "build/release/obj/src/bpp_abi.o"
 #endif
@@ -53,9 +56,11 @@ static const char *isa_name(BPPISA i){return i==BPP_ISA_ARM64?"arm64":"x86_64";}
 static int abi_identifier(const char *name){if(!name||!(*name=='_'||(*name>='A'&&*name<='Z')||(*name>='a'&&*name<='z')))return 0;for(++name;*name;++name)if(!(*name=='_'||(*name>='A'&&*name<='Z')||(*name>='a'&&*name<='z')||(*name>='0'&&*name<='9')))return 0;return 1;}
 static int target_query(int argc,char **argv){
     if(argc==2&&!strcmp(argv[1],"--list-targets")){for(size_t i=0;i<bpp_target_count();++i){const BPPBackendCapabilities *c=bpp_target_at(i);printf("%s\t%s\t%s\t%s\t%u\t%u\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->allocatable_payload_registers);}return 1;}
-    if(argc==3&&!strcmp(argv[1],"--target-info")){BPPTarget t;if(!bpp_target_parse(argv[2],&t))return -1;const BPPBackendCapabilities *c=bpp_target_capabilities(t);size_t count=0,range_count=0;const BPPRegisterInfo *regs=bpp_target_register_inventory(t,&count);const BPPRangeLimit *ranges=bpp_target_range_limits(t,&range_count);printf("target=%s\ntriple=%s\nformat=%s\nisa=%s\npointer_bits=%u\ninteger_bits=%u\nallocatable_payload_registers=%u\nregister_inventory_count=%zu\nrange_limit_count=%zu\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->integer_bits,c->allocatable_payload_registers,count,range_count);for(size_t r=0;r<count;++r)printf("register.%s=id:%u,class:%u,width:%u,flags:%u,save_cost:%u,call_clobbers:%u\n",regs[r].name,regs[r].id,regs[r].class_mask,regs[r].width_bits,regs[r].flags,regs[r].save_cost,regs[r].call_clobbers);for(size_t r=0;r<range_count;++r)printf("range.%s=relocation:%s,min:%lld,max:%lld\n",ranges[r].name,ranges[r].relocation,ranges[r].minimum,ranges[r].maximum);for(int op=0;op<=BL_IR_RETURN;++op)printf("ir.%s=%s\n",bl_ir_op_name((BLIROp)op),bpp_lowering_name(bpp_target_ir_lowering(t,(BLIROp)op)));return 1;}return 0;
+    if(argc==3&&!strcmp(argv[1],"--target-info")){BPPTarget t;if(!bpp_target_parse(argv[2],&t))return -1;const BPPBackendCapabilities *c=bpp_target_capabilities(t);size_t count=0,range_count=0;const BPPRegisterInfo *regs=bpp_target_register_inventory(t,&count);const BPPRangeLimit *ranges=bpp_target_range_limits(t,&range_count);printf("target=%s\ntriple=%s\nformat=%s\nisa=%s\npointer_bits=%u\ninteger_bits=%u\nallocatable_payload_registers=%u\nregister_inventory_count=%zu\nrange_limit_count=%zu\n",c->name,c->triple,format_name(c->format),isa_name(c->isa),c->pointer_bits,c->integer_bits,c->allocatable_payload_registers,count,range_count);for(size_t r=0;r<count;++r)printf("register.%s=id:%u,class:%u,width:%u,flags:%u,save_cost:%u,call_clobbers:%u\n",regs[r].name,regs[r].id,regs[r].class_mask,regs[r].width_bits,regs[r].flags,regs[r].save_cost,regs[r].call_clobbers);for(size_t r=0;r<range_count;++r)printf("range.%s=relocation:%s,min:%lld,max:%lld\n",ranges[r].name,ranges[r].relocation,ranges[r].minimum,ranges[r].maximum);for(int op=0;op<BL_IR_OPCODE_COUNT;++op)printf("ir.%s=%s\n",bl_ir_op_name((BLIROp)op),bpp_lowering_name(bpp_target_ir_lowering(t,(BLIROp)op)));return 1;}return 0;
 }
+static int verification_trace(void){const char *enabled=getenv("BPP_VERIFICATION_TRACE");return enabled&&*enabled;}
 static int run_command(char *const *command) {
+    if(verification_trace()){fprintf(stderr,"B++ verification: host tool %s\n",command[0]);fflush(stderr);}
 #ifdef _WIN32
     /* The Windows CRT joins spawn arguments without preserving boundaries. */
     size_t count=0; while(command[count])++count;
@@ -134,6 +139,7 @@ static char *library_archive_path(const char *manifest_output, const char *name)
 #define BPP_DEFAULT_OUTPUT "a.out"
 #endif
 static int native_compile(const char *temp, const char *output, BPPTarget target, int object, int debug, const BLIRModule *module) {
+    if(verification_trace()){fputs("B++ verification: native assembly ready, invoking host driver\n",stderr);fflush(stderr);}
     const char *cc = getenv("BPP_CC"); if (!cc || !*cc) cc = BPP_HOST_CC;
     char runtime_path[] = BPP_RUNTIME_OBJECT;
     char value_path[] = BPP_VALUE_OBJECT;
@@ -173,6 +179,7 @@ static int native_compile(const char *temp, const char *output, BPPTarget target
     if(!macho_debug)command[n++] = BPP_OPTIMIZATION;
     if (BPP_SANITIZERS[0]) {
         command[n++] = sanitizer_flag; command[n++] = "-g";
+        if(cap&&cap->format==BPP_FORMAT_COFF&&strstr(BPP_SANITIZERS,"undefined"))command[n++]="-fsanitize-trap=undefined";
     }
     if(debug&&!BPP_SANITIZERS[0])command[n++]="-g";
     if (cap && cap->format==BPP_FORMAT_MACHO && cap->isa==BPP_ISA_ARM64) { command[n++] = "-arch"; command[n++] = "arm64"; }
@@ -186,7 +193,7 @@ static int native_compile(const char *temp, const char *output, BPPTarget target
     if (!object) {
         /* -x selects the generated source only. Runtime objects and archives
          * must be passed back to the driver's ordinary input detection. */
-        int legacy_native_boundary = module && (module->emit_library || module->static_library_count || module->static_procedure_count);
+        int legacy_native_boundary = module && (module->truth_states || module->emit_library || module->static_library_count || module->static_procedure_count);
         if(legacy_native_boundary||(module&&module->instrument_native)){
             command[n++]="-x";command[n++]="none";
         }
@@ -198,7 +205,7 @@ static int native_compile(const char *temp, const char *output, BPPTarget target
          * legacy static-ABI bridge.  Archive v1 remains transitional. */
         if (legacy_native_boundary) {
             command[n++] = runtime_path; command[n++] = value_path;
-            command[n++] = BPP_NATIVE_RUNTIME_OBJECT; command[n++] = BPP_STATIC_ABI_OBJECT;
+            command[n++] = BPP_NATIVE_RUNTIME_OBJECT; command[n++] = BPP_STATIC_ABI_OBJECT; command[n++]=BPP_TRUTH_OBJECT;
         }
         if(module && module->instrument_native && !legacy_native_boundary)
             command[n++] = BPP_NATIVE_SANITIZER_OBJECT;
@@ -227,7 +234,7 @@ static int native_compile(const char *temp, const char *output, BPPTarget target
 static int emit_library_manifest(const BLIRModule *ir, FILE *out, const char *name, BPPTarget target,
                                  size_t archive_size, unsigned long long archive_fingerprint) {
     if (!ir || !out || !name) return 0;
-    fprintf(out, "# B++ static-library manifest; generated by bpp\nbppabi 1\nname %s\nabi 1.0\nruntime 1\narchive %s lib%s.bpp.a %zu %016llx\n", name, bpp_target_name(target), name, archive_size, archive_fingerprint);
+    fprintf(out, "# B++ static-library manifest; generated by bpp\nbppabi 1\nname %s\nabi 2.0\nruntime 3\narchive %s lib%s.bpp.a %zu %016llx\n", name, bpp_target_name(target), name, archive_size, archive_fingerprint);
     for (size_t i = 0; i < ir->static_library_count; ++i) fprintf(out, "dependency %s\n", ir->static_libraries[i].name);
     for (size_t f = 1; f < ir->function_count; ++f) fprintf(out, "export %s %zu\n", ir->functions[f].name, ir->functions[f].param_count);
     return !ferror(out);
@@ -309,6 +316,7 @@ int main(int argc, char **argv) {
     ir.emit_library=emit_library||emit_library_manifest_mode;
     ir.strict_native_runtime=strict_native_runtime;
     ir.library_name=library_name;
+    ir.truth_states=!strict_native_runtime&&!native_checks;
     /* The optimizer runs before the debug snapshot path is allocated.  Give
      * it the intent explicitly so source accesses remain visible in debug
      * output and sanitizer-instrumented native builds. */
@@ -316,8 +324,11 @@ int main(int argc, char **argv) {
      * Sanitized raw output requires the checked-memory C boundary instead. */
     ir.instrument_native=(BPP_SANITIZERS[0]!=0||native_checks)&&!strict_native_runtime;
     ir.preserve_access_observability=debug_info;
+    for(size_t f=0;f<ir.function_count;++f)ir.functions[f].preserve_source_homes=debug_info;
     if(ok&&native_checks)ok=bpp_raw_native_eligible(&ir);
+    if(ok&&verification_trace()){fputs("B++ verification: optimize IR\n",stderr);fflush(stderr);}
     if(ok&&optimize)ok=bpp_ir_optimize(&ir);
+    if(ok&&verification_trace()){fputs("B++ verification: IR ready\n",stderr);fflush(stderr);}
     if(ok&&debug_info&&ir.expanded_source&&(mode==4||mode==5||(!mode))){
         const char *base=output?output:(!mode?BPP_DEFAULT_OUTPUT:NULL);
         if(base){size_t size=strlen(base)+32;ir.debug_path=calloc(size,1);
@@ -346,7 +357,7 @@ int main(int argc, char **argv) {
             out = output ? fopen(output, "w") : stdout;
             if (!out) { perror(output); ok = 0; }
             else {
-                ok = mode == 2 ? bl_ir_dump(&ir, out) : mode==5?(bpp_raw_native_eligible(&ir)?bpp_emit_raw_locations(&ir,out,target):bpp_emit_locations(&ir,out,target)):bpp_emit_native(&ir,out,print_result,target);
+                ok = mode == 2 ? bl_ir_dump(&ir, out) : mode==5?(!ir.truth_states&&bpp_raw_native_eligible(&ir)?bpp_emit_raw_locations(&ir,out,target):bpp_emit_locations(&ir,out,target)):bpp_emit_native(&ir,out,print_result,target);
                 if (output) { if (fclose(out)) ok = 0; } else if (fflush(out)) ok = 0;
             }
         } else {

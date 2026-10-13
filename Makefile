@@ -7,6 +7,7 @@ ifneq ($(wildcard $(LLVM_PREFIX)/clang),)
 CC := $(LLVM_PREFIX)/clang
 endif
 endif
+PYTHON ?= python3
 BUILD_MODE ?= debug
 ifeq ($(UNAME_S),Darwin)
 DEBUG_SANITIZERS ?= address,undefined
@@ -45,6 +46,16 @@ endif
 ifneq ($(SANITIZERS),)
 MODE_FLAGS += -fsanitize=$(SANITIZERS)
 endif
+# UCRT64's runtime lacks Clang's nonrecovering UBSAN handler exports.
+# Trap instrumentation checks all enabled undefined operations without them.
+ifeq ($(OS),Windows_NT)
+ifneq ($(BUILD_MODE),release)
+MODE_FLAGS += -gcodeview
+endif
+ifneq ($(findstring undefined,$(SANITIZERS)),)
+MODE_FLAGS += -fsanitize-trap=undefined
+endif
+endif
 CPPFLAGS += -Iinclude
 CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic
 LDFLAGS ?=
@@ -61,14 +72,15 @@ BIN := bin/$(BUILD_MODE)/bpp$(EXE)
 SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/range.c src/optimize.c src/emit_x64.c src/raw_native.c src/locations.c src/value_facts.c src/strict_runtime.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
-.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-native-sanitizer check-native-checks check-sanitizer-availability check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
-RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o
+.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-native-sanitizer check-native-checks check-sanitizer-availability check-verification check-fuzz check-reproducible check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
+RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o $(OBJDIR)/src/truth.o
+DEPS += $(RUNTIME_OBJS:.o=.d)
 NATIVE_SANITIZER_OBJ := $(OBJDIR)/src/native_sanitizer.o
 DEPS += $(NATIVE_SANITIZER_OBJ:.o=.d)
 ifeq ($(BUILD_MODE),msan)
 # Assembly cannot populate Clang's parameter/return TLS shadow. The portable
 # byte-definedness map checks native values; retain MSAN for C memory accesses.
-$(NATIVE_SANITIZER_OBJ): CFLAGS += -fno-sanitize-memory-param-retval
+$(NATIVE_SANITIZER_OBJ) $(RUNTIME_OBJS): CFLAGS += -fno-sanitize-memory-param-retval
 endif
 TEST_SANITIZER_ENV := BPP_TEST_SANITIZED=$(if $(strip $(SANITIZERS)),1,0)
 DEBUGGER_TEST_ENV :=
@@ -84,7 +96,7 @@ msan:
 	$(MAKE) BUILD_MODE=msan all
 release:
 	$(MAKE) BUILD_MODE=release all
-$(OBJDIR)/src/main.o: CPPFLAGS += '-DBPP_PROJECT_DIR="$(PROJECT_DIR)"' '-DBPP_HOST_CC="$(CC)"' '-DBPP_SANITIZERS="$(SANITIZERS)"' '-DBPP_OPTIMIZATION="$(OPT)"' '-DBPP_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/runtime.o"' '-DBPP_VALUE_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/value.o"' '-DBPP_NATIVE_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/codegen_runtime.o"' '-DBPP_NATIVE_SANITIZER_OBJECT="$(PROJECT_DIR)/$(NATIVE_SANITIZER_OBJ)"' '-DBPP_STATIC_ABI_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/bpp_abi.o"'
+$(OBJDIR)/src/main.o: CPPFLAGS += '-DBPP_PROJECT_DIR="$(PROJECT_DIR)"' '-DBPP_HOST_CC="$(CC)"' '-DBPP_SANITIZERS="$(SANITIZERS)"' '-DBPP_OPTIMIZATION="$(OPT)"' '-DBPP_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/runtime.o"' '-DBPP_VALUE_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/value.o"' '-DBPP_NATIVE_RUNTIME_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/codegen_runtime.o"' '-DBPP_NATIVE_SANITIZER_OBJECT="$(PROJECT_DIR)/$(NATIVE_SANITIZER_OBJ)"' '-DBPP_TRUTH_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/truth.o"' '-DBPP_STATIC_ABI_OBJECT="$(PROJECT_DIR)/$(OBJDIR)/src/bpp_abi.o"'
 $(OBJDIR)/%.o: %.c Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -MMD -MP -c "$<" -o "$@"
@@ -98,7 +110,7 @@ check-arm64: $(BIN)
 check-msabi: $(BIN)
 	BPP_MSABI_CC="$(CC)" sh tests/check_msabi.sh ./$(BIN)
 check-static-abi: $(BIN) $(RUNTIME_OBJS)
-	BPP_ABI_CC="$(CC)" AR="$(AR)" sh tests/check_static_abi.sh ./$(BIN) $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o
+	BPP_ABI_CC="$(CC)" BPP_ABI_FLAGS="$(MODE_FLAGS) $(MODE_LINK_FLAGS)" AR="$(AR)" sh tests/check_static_abi.sh ./$(BIN) $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o $(OBJDIR)/src/truth.o
 check-xf-static-lib: $(BIN)
 	$(MAKE) -C Libraries/xf BPP_ROOT="$(CURDIR)" test
 check-runtime-boundary: $(BIN) tests/check_native_runtime_boundary.sh tests/native_runtime_boundary.bpp
@@ -116,13 +128,13 @@ check-raw-core: $(BIN) tests/check_raw_core.sh tests/raw_core.bpp
 check-debug-metadata: $(BIN) tests/check_debug_metadata.sh
 	$(DEBUGGER_TEST_ENV) sh tests/check_debug_metadata.sh ./$(BIN)
 check-strict-native-runtime: $(BIN) tests/check_strict_native_runtime.sh tests/strict_native_runtime.bpp
-	sh tests/check_strict_native_runtime.sh ./$(BIN)
+	BPP_STRICT_CC="$(CC)" sh tests/check_strict_native_runtime.sh ./$(BIN)
 check-targets: $(BIN)
 	sh tests/check_targets.sh ./$(BIN)
 targets: $(BIN)
 	./$(BIN) --list-targets
 check-differential: $(BIN) $(OBJDIR)/generate_case$(EXE)
-	sh tests/check_differential.sh ./$(BIN) ./$(OBJDIR)/generate_case$(EXE)
+	$(PYTHON) tests/check_verification.py differential ./$(BIN) --generator ./$(OBJDIR)/generate_case$(EXE)
 check-stress: $(BIN) $(OBJDIR)/generate_case$(EXE)
 	sh tests/check_stress.sh ./$(BIN) ./$(OBJDIR)/generate_case$(EXE)
 benchmark: $(BIN) $(OBJDIR)/benchmark_clock$(EXE)
@@ -135,7 +147,7 @@ check-asan-hook: $(OBJDIR)/test_native_sanitizer$(EXE)
 	sh tests/check_asan_hook.sh ./$(OBJDIR)/test_native_sanitizer$(EXE)
 check-msan: $(OBJDIR)/test_msan$(EXE)
 	sh tests/check_msan.sh ./$(OBJDIR)/test_msan$(EXE)
-test: check check-native check-strict-native-runtime check-native-sanitizer
+test: check check-native check-strict-native-runtime check-native-sanitizer check-gates check-truth check-native-truth
 ifeq ($(BUILD_MODE),msan)
 test: check-msan
 endif
@@ -191,3 +203,27 @@ $(OBJDIR)/test_msan$(EXE): tests/test_msan.c Makefile
 clean:
 	rm -rf build bin/debug bin/tsan bin/release
 -include $(DEPS)
+
+check-verification: $(BIN)
+	$(PYTHON) tests/check_verification.py stress ./$(BIN)
+check-reproducible: $(BIN)
+	$(PYTHON) tests/check_verification.py reproducible ./$(BIN)
+check-fuzz: $(BIN) $(OBJDIR)/fuzz_compiler$(EXE) $(OBJDIR)/generate_case$(EXE)
+	$(PYTHON) tests/check_verification.py fuzz ./$(BIN) --harness ./$(OBJDIR)/fuzz_compiler$(EXE) --generator ./$(OBJDIR)/generate_case$(EXE)
+$(OBJDIR)/fuzz_compiler$(EXE): tests/fuzz_compiler.c $(filter-out $(OBJDIR)/src/main.o,$(OBJS)) Makefile
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) tests/fuzz_compiler.c $(filter-out $(OBJDIR)/src/main.o,$(OBJS)) -o "$@"
+
+.PHONY: check-gates
+check-gates: $(BIN)
+	$(PYTHON) tests/check_gates.py ./$(BIN)
+
+.PHONY: check-truth
+check-truth: $(OBJDIR)/test_truth$(EXE)
+	./$(OBJDIR)/test_truth$(EXE)
+$(OBJDIR)/test_truth$(EXE): tests/test_truth.c src/truth.c include/truth.h
+	mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -UNDEBUG tests/test_truth.c src/truth.c -o "$@"
+
+.PHONY: check-native-truth
+check-native-truth: $(BIN)
+	$(PYTHON) tests/check_native_truth.py ./$(BIN)

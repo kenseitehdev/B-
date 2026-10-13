@@ -7,6 +7,12 @@ The compiler and object runtime are written in C; native B++ programs do not pas
 through generated C. A host compiler driver still assembles and links the emitted
 assembly with the runtime. The custom assembler and linker remain later stages.
 
+Release 1.0.16 adds signed truth (-1 false, +1 true), binary64 uncertainty,
+state AND/OR/XOR/NOT, 64-bit bitwise operators and TAU (`start => end`).
+Propagation conditions explicitly compare `velocity(start,end,dt)` with a
+program-supplied threshold. Recoverable errors return U=0 with retained
+context. See [truth and TAU](docs/truth-and-tau.md).
+
 This is a complete source snapshot. Its Makefile has an explicit source list;
 it does not build the former VM or a libbl.a archive.
 
@@ -50,11 +56,16 @@ The Makefile rejects `BUILD_MODE=msan` on macOS, Windows, and non-Clang
 toolchains instead of silently producing a partially instrumented build.
 On Windows run `make CC=clang BUILD_MODE=release test check-differential` in an
 MSYS2 UCRT64 shell with make and mingw-w64-ucrt-x86_64-clang installed. The compiler
-path there is `bin/release/bpp.exe`. Windows sanitizer modes need a toolchain that
-supplies the requested sanitizer runtimes; they are not yet a verified Windows gate.
+path there is `bin/release/bpp.exe`. Windows sanitizer modes require the requested runtime. CI executes the
+available UBSAN trap profile with `BUILD_MODE=debug DEBUG_SANITIZERS=undefined`;
+unavailable ASAN/LSAN/TSAN runtimes are recorded explicitly.
 
-`test` runs unit tests, the 66-case C suite, and the 66-case native suite.
-`check` runs unit tests plus C execution; `check-native` runs native execution.
+`test` runs unit, native execution, signed-state/bitwise oracle, strict-profile
+and portable diagnostic tests. `check` runs unit, metadata and native execution
+tests; `check-native` runs the native fixture suite. `check-static-abi` verifies
+separate archives, fractional/error ownership and incompatible manifests.
+Bounded differential, fuzz, stress and reproducibility gates are described in
+[verification](docs/verification.md).
 `check-arm64` remains an ARM64 compatibility target. `BUILD_MODE` is the mode
 variable; lowercase `mode` is not an alias.
 
@@ -77,7 +88,7 @@ in [`docs/instruction-selection.md`](docs/instruction-selection.md).
 Native relocation limits, code models, range diagnostics, and the future
 assembler/linker boundary are documented in
 [`docs/branch-address-model.md`](docs/branch-address-model.md).
-The static-only B++ library ABI v1, export naming, ownership rules, and archive
+The static-only B++ library ABI v2, export naming, ownership rules, and archive
 fixture are documented in [`docs/static-abi.md`](docs/static-abi.md).
 
 ```sh
@@ -171,7 +182,7 @@ within an existing build mode.
   x86-64 ELF programs link non-PIE until the B++ linker owns relocation and
   veneer placement.
 - `--emit-library --library-name NAME --emit-asm` omits `main`, retains named
-  procedures as library roots, and exports static ABI v1 procedure and library
+  procedures as library roots, and exports static ABI v2 procedure and library
   descriptor symbols. `--emit-library-manifest --library-name NAME` writes the
   matching target archive manifest. Native source may use
   `import library "name";`; `-L directory` adds manifest search paths, checks
@@ -185,35 +196,18 @@ within an existing build mode.
   frame offsets and IR locations. Debug snapshots preserve expanded import text.
 - Sanitized native builds check global accesses through ASAN/TSAN hooks and track
   native procedure entry/exit for TSAN. Runtime object operations stay instrumented C.
-- `include/native_runtime.h` is the compiled inventory of every helper that native
-  assembly may call, including ownership, error, and sanitizer contracts. The
-  native emitters directly allocate/zero/install the private per-procedure
-  frame, copy borrowed outgoing argument pairs, transfer return values, and
-  inspect the runtime-error field. The executable launcher owns its runtime
-  record, globals, result/error path, object-reference cleanup, and process
-  exit; it does not call `bpp_a_run`. Generated native leaves now provide
-  allocation/free/fatal handling, recursive object destruction, destination
-  clearing, diagnostics, integer/null result formatting, and direct literal
-  string construction through the host
-  ABI, without calling `codegen_runtime.c` or `value.c` for those operations.
-  ARM64 object result formatting remains a narrow C fallback until native
-  string/buffer/array formatting lands. Dynamic string operations, buffers,
-  arrays, builtin dispatch, and general dynamic operations remain behind the
-  narrow C boundary. `make
-  BUILD_MODE=release check-runtime-boundary` verifies the retired generic frame
-  entry, argument-copy, argument-base, error-probe, destination, and startup
-  bridge helpers are absent from both x86-64 and ARM64 output; it also rejects
-  the former `bpp_a_string` literal helper and executes a host-native returned
-  string literal.
+- Native assembly allocates private frames, copies borrowed outgoing values,
+  performs control flow and integer fast paths, and transfers owned results.
+  C leaves handle dynamic states, ownership, checked memory and recoverable
+  errors; they do not interpret IR. `check-runtime-boundary` verifies native
+  procedure/control-flow output and absence of interpreter entry points.
 
-`--strict-native-runtime` is the migration gate for removing that boundary. It
-currently accepts only an optimized side-effect-free integer/null constant
-module and emits a helper-free executable which links without `runtime.o`,
-`value.o`, `codegen_runtime.o`, or `bpp_abi.o`. It rejects strings, globals,
-procedures, libraries, dynamic values, and `--print-result` explicitly; it
-never silently falls back to the C runtime. Run `make BUILD_MODE=release
-check-strict-native-runtime` to verify the host link/run and helper-free
-assembly for all four target descriptions.
+`--strict-native-runtime` explicitly selects the raw bootstrap profile. It
+runs supported word, procedure, memory and output operations without the tagged
+value runtime. It rejects state operations and static imports rather than
+silently changing their semantics. `--native-sanitizers` selects the portable
+fail-fast diagnostic profile. The default profile returns recoverable errors as
+uncertainty. These profiles are documented in [native sanitizers](docs/native-sanitizers.md).
 
 The private procedure/value boundary is **revision 2**, defined in
 `include/codegen_abi.h`. Keep this header and the native emitters from the same

@@ -106,10 +106,15 @@ BLIRId bl_ir_static_procedure_id(const BLIRModule *m, const char *name) {
         if (!strcmp(m->static_procedures[i].name, name)) return i;
     return BL_IR_NONE;
 }
-/* There is deliberately no builtin-name table.  B++ source names refer to
- * user procedures or imported static-library exports.  Raw allocation and
- * byte access have their own IR opcodes, so names such as String, Array,
- * print, assert, or len receive no compiler meaning. */
+/* Closed state intrinsics, separate from user procedures and raw memory IR. */
+int bpp_truth_intrinsic_arity(const char *name){
+    if(!name)return -1;
+    if(!strcmp(name,"__state_bits")||!strcmp(name,"state")||!strcmp(name,"NOT")||!strcmp(name,"faults")||!strcmp(name,"error_line")||!strcmp(name,"error_file"))return 1;
+    if(!strcmp(name,"AND")||!strcmp(name,"OR")||!strcmp(name,"XOR")||!strcmp(name,"TAU")||!strcmp(name,"IMPLIES"))return 2;
+    if(!strcmp(name,"velocity"))return 3;
+    if(!strcmp(name,"err"))return 0;
+    return -1;
+}
 static BLIRId add_function(BLIRModule *m, const char *name, const BLNode *source) {
     reserve((void **)&m->functions, &m->function_capacity, m->function_count + 1, sizeof *m->functions);
     BLIRFunction *f = &m->functions[m->function_count]; memset(f, 0, sizeof *f); f->name = copy(name);
@@ -182,33 +187,45 @@ static BLIROp binary_op(BLTokenKind t) {
     switch (t) {
     case TOK_PLUS: return BL_IR_ADD; case TOK_MINUS: return BL_IR_SUB; case TOK_STAR: return BL_IR_MUL;
     case TOK_SLASH: return BL_IR_DIV; case TOK_PERCENT: return BL_IR_MOD;
+    case TOK_AMP: return BL_IR_BIT_AND; case TOK_PIPE: return BL_IR_BIT_OR; case TOK_CARET: return BL_IR_BIT_XOR;
     case TOK_EQEQ: return BL_IR_EQ; case TOK_NEQ: return BL_IR_NE;
     case TOK_LT: return BL_IR_LT; case TOK_LE: return BL_IR_LE; case TOK_GT: return BL_IR_GT; case TOK_GE: return BL_IR_GE;
     default: return BL_IR_NULL;
     }
+}
+static BLIRId truth_call(Lower *l,const BLNode *n,const char *name,BLIRId *args,size_t count){
+    l->m->truth_states=1;BLIRInst i=inst(BL_IR_CALL,n);i.text=copy(name);i.arg_count=count;
+    i.args=count?grow(NULL,count,sizeof *i.args):NULL;for(size_t j=0;j<count;++j)i.args[j]=args[j];
+    BLIRId r=value_emit(l,i);for(size_t j=0;j<count;++j)release(l,args[j],n);return r;
 }
 static BLIRId expr(Lower *l, const BLNode *n) {
     if (l->m->error[0]) return BL_IR_NONE;
     if (!n) return value_emit(l, inst(BL_IR_NULL, NULL));
     BLIRInst i;
     switch (n->kind) {
+    case AST_REAL: {long long bits;memcpy(&bits,&n->as.real.value,sizeof bits);i=inst(BL_IR_INT,n);i.integer=bits;BLIRId a=value_emit(l,i);return truth_call(l,n,"__state_bits",&a,1);}
     case AST_NUMBER: i = inst(BL_IR_INT, n); i.integer = n->as.number.value; return value_emit(l, i);
     case AST_STRING:
         error(l->m, n, "quoted text is not a runtime B++ value");
         return BL_IR_NONE;
     case AST_IDENT: {
+        if(!strcmp(n->as.ident.name,"err"))return truth_call(l,n,"err",NULL,0);
+        if(!strcmp(n->as.ident.name,"true")||!strcmp(n->as.ident.name,"false")){i=inst(BL_IR_INT,n);i.integer=!strcmp(n->as.ident.name,"true")?1:-1;return value_emit(l,i);}
         int g; BLIRId s = slot(l, n, n->as.ident.name, &g);
         i = inst(g ? BL_IR_LOAD_GLOBAL : BL_IR_LOAD_LOCAL, n); i.a = s; return value_emit(l, i);
     }
     case AST_UNARY: {
-        if (n->as.unary.op != TOK_MINUS && n->as.unary.op != TOK_BANG) {
+        if(n->as.unary.op==TOK_LOG_NOT){BLIRId a=expr(l,n->as.unary.expr);return truth_call(l,n,"NOT",&a,1);}
+        if (n->as.unary.op != TOK_MINUS && n->as.unary.op != TOK_BANG && n->as.unary.op != TOK_TILDE) {
             error(l->m, n, "unsupported unary operator"); return BL_IR_NONE;
         }
         BLIRId a = expr(l, n->as.unary.expr);
-        i = inst(n->as.unary.op == TOK_MINUS ? BL_IR_NEG : BL_IR_NOT, n); i.a = a;
+        i = inst(n->as.unary.op == TOK_MINUS ? BL_IR_NEG : n->as.unary.op == TOK_TILDE ? BL_IR_BIT_NOT : BL_IR_NOT, n); i.a = a;
         BLIRId r = value_emit(l, i); release(l, a, n); return r;
     }
     case AST_BINARY: {
+        if(n->as.binary.op==TOK_LOG_AND||n->as.binary.op==TOK_LOG_OR||n->as.binary.op==TOK_LOG_XOR){BLIRId args[]={expr(l,n->as.binary.left),expr(l,n->as.binary.right)};return truth_call(l,n,n->as.binary.op==TOK_LOG_AND?"AND":n->as.binary.op==TOK_LOG_OR?"OR":"XOR",args,2);}
+        if(n->as.binary.op==TOK_TAU){BLIRId args[]={expr(l,n->as.binary.left),expr(l,n->as.binary.right)};return truth_call(l,n,"TAU",args,2);}
         BLIROp op = binary_op(n->as.binary.op);
         if (op == BL_IR_NULL) { error(l->m, n, "unsupported binary operator"); return BL_IR_NONE; }
         BLIRId a = expr(l, n->as.binary.left), b = expr(l, n->as.binary.right);
@@ -257,6 +274,8 @@ static BLIRId expr(Lower *l, const BLNode *n) {
             release(l, i.a, n); if (expected == 2) release(l, i.b, n);
             return r;
         }
+        int intrinsic=bpp_truth_intrinsic_arity(name);
+        if(intrinsic>=0){if(n->as.call.arg_count!=(size_t)intrinsic){error(l->m,n,"%s expects %d arguments",name,intrinsic);return BL_IR_NONE;}BLIRId args[3];for(int j=0;j<intrinsic;++j)args[j]=expr(l,n->as.call.args[j]);return truth_call(l,n,name,args,(size_t)intrinsic);}
         BLIRId id = function_id(l->m, name);
         BLIRId external = id == BL_IR_NONE ? bl_ir_static_procedure_id(l->m, name) : BL_IR_NONE;
         if (id == BL_IR_NONE && external == BL_IR_NONE) { error(l->m, n, "unknown procedure '%s'", name); return BL_IR_NONE; }
@@ -292,6 +311,7 @@ static void stmt(Lower *l, const BLNode *n) {
         break;
     case AST_VAR_DECL: {
         BLIRId v = expr(l, n->as.var_decl.init);
+        if(!strcmp(n->as.var_decl.type_name,"state"))v=truth_call(l,n,"state",&v,1);
         int g; BLIRId s = slot(l, n, n->as.var_decl.name, &g);
         i = inst(g ? BL_IR_INIT_GLOBAL : BL_IR_INIT_LOCAL, n); i.a = s; i.b = v; emit(l, i); release(l, v, n); break;
     }
@@ -387,6 +407,7 @@ int bl_ir_compile(BLIRModule *m, const char *path, const BLNode *program) {
     m->source_files = source_files; m->source_file_count = source_file_count; m->source_file_capacity = source_file_capacity;
     m->expanded_line_spans = line_spans; m->expanded_line_span_count = line_span_count; m->expanded_line_span_capacity = line_span_capacity;
     m->path = copy(path ? path : "<memory>");
+    m->truth_states=1;
     if (!program || program->kind != AST_PROGRAM) { error(m, program, "expected AST_PROGRAM"); return 0; }
     add_function(m, "<module>", program);
     /* Declare every function before lowering to support recursion/forward calls. */
@@ -395,6 +416,7 @@ int bl_ir_compile(BLIRModule *m, const char *path, const BLNode *program) {
         if (n->kind != AST_PROC_DEF) { collect(m, NULL, n); continue; }
         if (!strcmp(n->as.proc_def.name, "malloc") || !strcmp(n->as.proc_def.name, "remalloc") ||
             !strcmp(n->as.proc_def.name, "free") || !strcmp(n->as.proc_def.name, "print") ||
+            bpp_truth_intrinsic_arity(n->as.proc_def.name)>=0 ||
             function_id(m, n->as.proc_def.name) != BL_IR_NONE ||
             bl_ir_static_procedure_id(m, n->as.proc_def.name) != BL_IR_NONE) {
             error(m, n, "duplicate or reserved function '%s'", n->as.proc_def.name); break;
@@ -436,7 +458,8 @@ static int produces(BLIROp op) {
     switch (op) {
     case BL_IR_NULL: case BL_IR_INT: case BL_IR_STRING:
     case BL_IR_LOAD_LOCAL: case BL_IR_LOAD_GLOBAL:
-    case BL_IR_NEG: case BL_IR_NOT:
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_BIT_NOT:
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR:
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE:
     case BL_IR_INDEX_GET: case BL_IR_TO_STRING_BUFFER: case BL_IR_CALL:
@@ -473,8 +496,9 @@ static void mark_uses(const BLIRInst *i, const BLIRFunction *f, unsigned char *s
     case BL_IR_MALLOC: case BL_IR_PRINT_BYTE: CHECK_USE(i->a); break;
     case BL_IR_REMALLOC: case BL_IR_PRINT_RANGE: CHECK_USE(i->a); CHECK_USE(i->b); break;
     case BL_IR_MFREE_LOCAL: case BL_IR_MFREE_GLOBAL: break;
-    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: CHECK_USE(i->a); break;
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_BIT_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: CHECK_USE(i->a); break;
     case BL_IR_RELEASE: CHECK_USE(i->a); break;
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR:
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE:
     case BL_IR_INDEX_GET: case BL_IR_BYTE_LOAD: CHECK_USE(i->a); CHECK_USE(i->b); break;
@@ -501,7 +525,8 @@ static int registers_defined(const BLIRInst *i, const BLIRFunction *f, const siz
     case BL_IR_INIT_LOCAL: case BL_IR_STORE_LOCAL: case BL_IR_INIT_GLOBAL: case BL_IR_STORE_GLOBAL: CHECK_DEF(i->b); break;
     case BL_IR_MALLOC: case BL_IR_PRINT_BYTE: CHECK_DEF(i->a); break;
     case BL_IR_REMALLOC: case BL_IR_PRINT_RANGE: CHECK_DEF(i->a); CHECK_DEF(i->b); break;
-    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: CHECK_DEF(i->a); break;
+    case BL_IR_NEG: case BL_IR_NOT: case BL_IR_BIT_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_BRANCH: case BL_IR_RETURN: case BL_IR_RELEASE: CHECK_DEF(i->a); break;
+    case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR:
     case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
     case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET: case BL_IR_BYTE_LOAD:
         CHECK_DEF(i->a); CHECK_DEF(i->b); break;
@@ -527,7 +552,7 @@ int bl_ir_validate_pass(BLIRModule *m, const char *pass_name) {
             if (!b->count || !terminator(b->insts[b->count - 1].op)) { validate_error(m, pass_name, f, bi, NULL, "block has no terminator"); free(def_block); return 0; }
             for (size_t k = 0; k < b->count; ++k) {
                 BLIRInst *i = &b->insts[k]; int ok = 1;
-                if ((unsigned)i->op > BL_IR_RETURN || (terminator(i->op) && k + 1 != b->count)) ok = 0;
+                if ((unsigned)i->op >= BL_IR_OPCODE_COUNT || (terminator(i->op) && k + 1 != b->count)) ok = 0;
                 if (i->line < 1 || i->column < 1) ok = 0;
                 if (produces(i->op) ? !register_ok(f, i->dst) : i->dst != BL_IR_NONE) ok = 0;
                 if (produces(i->op) && register_ok(f, i->dst)) {
@@ -541,17 +566,19 @@ int bl_ir_validate_pass(BLIRModule *m, const char *pass_name) {
                 case BL_IR_LOAD_GLOBAL: case BL_IR_FREE_GLOBAL: case BL_IR_DELETE_GLOBAL: case BL_IR_MFREE_GLOBAL: ok &= i->a < m->global_count; break;
                 case BL_IR_INIT_LOCAL: case BL_IR_STORE_LOCAL: ok &= i->a < f->local_count && register_ok(f, i->b); break;
                 case BL_IR_INIT_GLOBAL: case BL_IR_STORE_GLOBAL: ok &= i->a < m->global_count && register_ok(f, i->b); break;
-                case BL_IR_NEG: case BL_IR_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_RELEASE: case BL_IR_RETURN: case BL_IR_MALLOC: case BL_IR_PRINT_BYTE:
+                case BL_IR_NEG: case BL_IR_NOT: case BL_IR_BIT_NOT: case BL_IR_TO_STRING_BUFFER: case BL_IR_RELEASE: case BL_IR_RETURN: case BL_IR_MALLOC: case BL_IR_PRINT_BYTE:
                     ok &= register_ok(f, i->a); break;
                 case BL_IR_REMALLOC: case BL_IR_PRINT_RANGE: ok &= register_ok(f, i->a) && register_ok(f, i->b); break;
-                case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
+                case BL_IR_BIT_AND: case BL_IR_BIT_OR: case BL_IR_BIT_XOR:
+    case BL_IR_ADD: case BL_IR_SUB: case BL_IR_MUL: case BL_IR_DIV: case BL_IR_MOD:
                 case BL_IR_EQ: case BL_IR_NE: case BL_IR_LT: case BL_IR_LE: case BL_IR_GT: case BL_IR_GE: case BL_IR_INDEX_GET: case BL_IR_BYTE_LOAD:
                     ok &= register_ok(f, i->a) && register_ok(f, i->b); break;
                 case BL_IR_INDEX_SET: case BL_IR_BYTE_STORE: ok &= register_ok(f, i->a) && register_ok(f, i->b) && register_ok(f, i->c); break;
                 case BL_IR_JUMP: ok &= i->a < f->block_count; break;
                 case BL_IR_BRANCH: ok &= register_ok(f, i->a) && i->b < f->block_count && i->c < f->block_count; break;
                 case BL_IR_CALL:
-                    if (i->a == BL_IR_NONE) ok &= i->c < m->static_procedure_count && i->text &&
+                    if(i->a==BL_IR_NONE&&i->c==BL_IR_NONE)ok &= i->text&&bpp_truth_intrinsic_arity(i->text)>=0&&i->arg_count==(size_t)bpp_truth_intrinsic_arity(i->text);
+                    else if (i->a == BL_IR_NONE) ok &= i->c < m->static_procedure_count && i->text &&
                         !strcmp(i->text, m->static_procedures[i->c].symbol);
                     else ok &= i->a > 0 && i->a < m->function_count && !i->text && i->c == BL_IR_NONE;
                     if (i->a != BL_IR_NONE && i->a < m->function_count) ok &= i->arg_count == m->functions[i->a].param_count;
@@ -680,7 +707,7 @@ static void quoted(FILE *out, const char *s) {
 const char *bl_ir_op_name(BLIROp op) {
     static const char *ops[] = {"null", "int", "string", "load.local", "store.local", "load.global", "store.global",
         "init.local", "init.global", "neg", "not", "add", "sub", "mul", "div", "mod", "eq", "ne", "lt", "le", "gt", "ge", "index.get", "index.set",
-        "to.string.buffer", "malloc", "remalloc", "free.local", "free.global", "byte.load", "byte.store", "print.byte", "print.range", "call", "release", "free.local", "free.global", "delete.local", "delete.global", "jump", "branch", "return"};
+        "to.string.buffer", "malloc", "remalloc", "free.local", "free.global", "byte.load", "byte.store", "print.byte", "print.range", "call", "release", "free.local", "free.global", "delete.local", "delete.global", "jump", "branch", "return", "bit.and", "bit.or", "bit.xor", "bit.not"};
     return (unsigned)op < sizeof ops / sizeof ops[0] ? ops[op] : "<invalid-opcode>";
 }
 int bl_ir_dump(const BLIRModule *m, FILE *out) {
@@ -695,7 +722,7 @@ int bl_ir_dump(const BLIRModule *m, FILE *out) {
             fprintf(out, "b%zu:\n", bi); const BLIRBlock *b = &f->blocks[bi];
             for (size_t k = 0; k < b->count; ++k) {
                 const BLIRInst *i = &b->insts[k];
-                if ((unsigned)i->op > BL_IR_RETURN) return 0;
+                if ((unsigned)i->op >= BL_IR_OPCODE_COUNT) return 0;
                 fputs("  ", out); if (i->dst != BL_IR_NONE) fprintf(out, "%%%zu = ", i->dst); fputs(bl_ir_op_name(i->op), out);
                 switch (i->op) {
                 case BL_IR_NULL: break;

@@ -29,13 +29,12 @@ compile_error() {
     grep -F "$3" "$task_dir/err" >/dev/null
 }
 
-runtime_failure() {
+runtime_uncertainty() {
     progress "$1"
     printf '%s\n' "$2" > "$task_dir/error.bpp"
-    bpp -o "$task_dir/program" "$task_dir/error.bpp"
-    if "$task_dir/program" >"$task_dir/out" 2>"$task_dir/err"; then
-        printf 'FAIL %s: expected non-zero native exit\n' "$1" >&2; exit 1
-    fi
+    bpp --print-result -o "$task_dir/program" "$task_dir/error.bpp"
+    "$task_dir/program" >"$task_dir/out" 2>"$task_dir/err"
+    grep -Fx '0' "$task_dir/out" >/dev/null
 }
 
 case_run recursion 'define proc fact(n){if(n<=1){return 1;}return n*fact(n-1);} define proc main(){return fact(6);}' '720'
@@ -60,8 +59,8 @@ compile_error main_requires_zero_args 'define proc main(x){return x;}' 'must tak
 compile_error unknown_identifier 'define proc main(){return missing;}' 'undefined variable'
 compile_error duplicate_local 'define proc main(){new byte x=1;new byte x=2;return x;}' 'duplicate declaration'
 compile_error integer_literal_range 'define proc main(){return 9223372036854775808;}' 'outside the signed 64-bit range'
-runtime_failure division_by_zero 'define proc main(){return 1/0;}'
-runtime_failure uninitialized 'define proc main(){if(0){new byte x=1;}return x;}'
+runtime_uncertainty division_by_zero 'define proc main(){return 1/0;}'
+runtime_uncertainty uninitialized 'define proc main(){if(0){new byte x=1;}return x;}'
 
 progress 'output modes'
 printf '%s\n' 'define proc main(){return 7;}' > "$task_dir/modes.bpp"
@@ -76,10 +75,10 @@ for flag in --emit-c '--backend c'; do
 done
 bpp --emit-asm -o "$task_dir/out.s" "$task_dir/modes.bpp"
 grep -E '\.globl (_)?main' "$task_dir/out.s" >/dev/null
-if grep -E 'BL(Value|Runtime)|bpp_[an]_' "$task_dir/out.s" >/dev/null; then
-    echo 'FAIL output modes: raw assembly retained legacy runtime boundary' >&2; exit 1
+if grep -E 'bl_vm_|bpp_a_run' "$task_dir/out.s" >/dev/null; then
+    echo 'FAIL output modes: native assembly retained an interpreter entry point' >&2; exit 1
 fi
 bpp --emit-map -o "$task_dir/out.json" "$task_dir/modes.bpp"
 grep -F '"source_files"' "$task_dir/out.json" >/dev/null
 
-printf '%s\n' "Passed $count raw native and diagnostic cases, plus output-mode checks"
+printf '%s\n' "Passed $count native execution, uncertainty and diagnostic cases, plus output-mode checks"
