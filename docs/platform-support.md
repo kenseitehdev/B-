@@ -120,7 +120,15 @@ allocator. Liveness's checked workspace ceiling remains a bounded-size contract.
 
 Hosted benchmark reports and the two local repeats are reproducible measurement
 evidence. They do not satisfy the explicitly **isolated hardware** benchmark
-requests for Linux/Windows. Those remain open until controlled idle dedicated
+requests for Linux/Windows. By user decision, those are separate hardware gates outside the 1.0.18 platform work. They remain open until controlled idle dedicated
 hosts produce repeated reports with matching hashes and stable machine IDs.
 The stage-2 public ABI freeze remains open; completing the platform work does
 not silently freeze the public contract or implement the separate ABI roadmap.
+
+The 1.0.18 platform gate passes all six matching-host jobs in
+[run 10](https://github.com/kenseitehdev/B-/actions/runs/38437964667).
+[verification-1.0.18.json](verification-1.0.18.json) records the 48 inspected
+objects, artifact digests and native path checks. All eighteen broader native regression jobs in
+[run 58](https://github.com/kenseitehdev/B-/actions/runs/38437964637) also pass,
+including macOS TSAN. The 1.0.18 scope is verified by all 24 CI jobs; isolated
+hardware measurements and the public ABI freeze remain separate gates.
