@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 
 prefix = Path(sys.argv[1])
-report = json.loads(prefix.with_suffix(".json").read_text())
+report = json.loads(Path(str(prefix)+".json").read_text())
 assert report["schema"] == 2 and report["release"] == "1.0.17"
 assert report["host"]["sanitizers"] == "" and report["host"]["target_triple"]
 assert report["host"]["compiler_sha256"] and report["host"]["runtime_objects_sha256"]
@@ -37,7 +37,7 @@ for record in report["results"]:
         assert record["dynamic_profile"]["native_frame_stack_span_bytes"] == record["frames"]["work"]["frame_bytes"]
     if record["case"] == "recursion":
         assert record["dynamic_profile"]["max_native_call_depth"] == record["input"]+2
-with prefix.with_suffix(".csv").open(newline="") as stream:
+with Path(str(prefix)+".csv").open(newline="") as stream:
     rows = list(csv.DictReader(stream))
 assert len(rows) == 16 and all(r["schema"] == "2" for r in rows)
 print("Benchmark schema 2 passed: 16 independent native results, phases, sampling, memory, code/frame sizes and isolated profiling")

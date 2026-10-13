@@ -254,8 +254,8 @@ def main():
                                         "managed_arrays": "source Array constructors are retired; byte buffers are measured",
                                         "custom_assembler_linker": "future stage; current output uses host tools"},
               "results": results}
-    output.with_suffix(".json").write_text(json.dumps(report, indent=2, sort_keys=True)+"\n")
-    with output.with_suffix(".csv").open("w", newline="") as stream:
+    Path(str(output)+".json").write_text(json.dumps(report, indent=2, sort_keys=True)+"\n")
+    with Path(str(output)+".csv").open("w", newline="") as stream:
         fields = ["schema", "case", "selection", "target", "target_triple", "machine_id", "compiler_revision", "compiler_sha256", "sanitizers",
                   "host_os", "host_arch", "cpu", "host_cc_identity", "flags_json", "samples", "warmup", "repetitions",
                   "compile_ms", "assembly_ms", "link_ms", "startup_ms", "steady_abi_ms", "steady_mad_ms",
