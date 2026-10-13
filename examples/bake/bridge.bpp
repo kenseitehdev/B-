@@ -1,0 +1,2 @@
+import library "numbers";
+define proc twice(n){return increment(increment(n));}

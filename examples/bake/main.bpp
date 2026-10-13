@@ -1,0 +1,2 @@
+import library "bridge";
+define proc main(){return twice(40);}

@@ -69,10 +69,18 @@ EXE :=
 PROJECT_DIR := $(CURDIR)
 endif
 BIN := bin/$(BUILD_MODE)/bpp$(EXE)
+COMPILER_RESOURCES :=
+ifeq ($(OS),Windows_NT)
+WINDRES ?= windres
+COMPILER_RESOURCES := $(OBJDIR)/bpp_utf8.o
+$(COMPILER_RESOURCES): src/bpp_utf8.rc src/bpp_utf8.manifest
+	mkdir -p "$(@D)"
+	$(WINDRES) --preprocessor "$(CC)" --preprocessor-arg=-E --preprocessor-arg=-xc --preprocessor-arg=-DRC_INVOKED -I . -i src/bpp_utf8.rc -O coff -o "$@"
+endif
 SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/range.c src/optimize.c src/emit_x64.c src/raw_native.c src/locations.c src/value_facts.c src/strict_runtime.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
-.PHONY: all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-native-sanitizer check-native-checks check-sanitizer-availability check-verification check-fuzz check-reproducible check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
+.PHONY: benchmark-native benchmark-native-smoke check-bake all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-native-sanitizer check-native-checks check-sanitizer-availability check-verification check-fuzz check-reproducible check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
 RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o $(OBJDIR)/src/truth.o
 DEPS += $(RUNTIME_OBJS:.o=.d)
 NATIVE_SANITIZER_OBJ := $(OBJDIR)/src/native_sanitizer.o
@@ -100,9 +108,9 @@ $(OBJDIR)/src/main.o: CPPFLAGS += '-DBPP_PROJECT_DIR="$(PROJECT_DIR)"' '-DBPP_HO
 $(OBJDIR)/%.o: %.c Makefile
 	mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPT) $(MODE_FLAGS) -MMD -MP -c "$<" -o "$@"
-$(BIN): $(OBJS) $(RUNTIME_OBJS) $(NATIVE_SANITIZER_OBJ)
+$(BIN): $(OBJS) $(RUNTIME_OBJS) $(NATIVE_SANITIZER_OBJ) $(COMPILER_RESOURCES)
 	mkdir -p "$(@D)"
-	$(CC) $(LDFLAGS) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -o "$@" $(OBJS) $(LDLIBS)
+	$(CC) $(LDFLAGS) $(MODE_FLAGS) $(MODE_LINK_FLAGS) -o "$@" $(OBJS) $(COMPILER_RESOURCES) $(LDLIBS)
 check-native: $(BIN)
 	$(TEST_SANITIZER_ENV) BPP_TEST_BACKEND=native sh tests/run_tests.sh ./$(BIN)
 check-arm64: $(BIN)
@@ -135,6 +143,13 @@ targets: $(BIN)
 	./$(BIN) --list-targets
 check-differential: $(BIN) $(OBJDIR)/generate_case$(EXE)
 	$(PYTHON) tests/check_verification.py differential ./$(BIN) --generator ./$(OBJDIR)/generate_case$(EXE)
+check-bake: $(BIN)
+	$(PYTHON) tests/check_bake.py ./$(BIN) $(BAKE_SANITIZED_COMPILER)
+benchmark-native: $(BIN)
+	$(PYTHON) tools/benchmark.py --compiler ./$(BIN)
+benchmark-native-smoke: $(BIN)
+	$(PYTHON) tools/benchmark.py --compiler ./$(BIN) --samples 3 --warmup 1 --repetitions 2 --iterations 512
+	$(PYTHON) tests/check_benchmark.py build/benchmarks/1.0.17/native
 check-stress: $(BIN) $(OBJDIR)/generate_case$(EXE)
 	sh tests/check_stress.sh ./$(BIN) ./$(OBJDIR)/generate_case$(EXE)
 benchmark: $(BIN) $(OBJDIR)/benchmark_clock$(EXE)

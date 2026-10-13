@@ -120,6 +120,7 @@ typedef struct {
     /* Assembly-only static-library output: omit the program entry point and
      * expose named procedures through the B++ static ABI. */
     int emit_library;
+    int benchmark_metrics; /* Separate untimed native profiling output. */
     int truth_states; /* Native tagged state/rate values and uncertainty context. */
     const char *library_name; /* validated CLI identifier; not owned */
     char *expanded_source, *debug_path;

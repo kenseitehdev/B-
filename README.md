@@ -13,6 +13,13 @@ Propagation conditions explicitly compare `velocity(start,end,dt)` with a
 program-supplied threshold. Recoverable errors return U=0 with retained
 context. See [truth and TAU](docs/truth-and-tau.md).
 
+Bake (1.0.17 development) builds native projects from a `Bakefile`, including
+ABI 2 static archives, transitive dependencies and incremental builds. Bootstrap
+the compiler with `make BUILD_MODE=release`, then run `python3 tools/bake.py build`
+and `python3 tools/bake.py test` (or `./bin/bake` on Unix). Bake uses unsanitized
+compiler/runtime builds; its debug profile adds ordinary source metadata. See
+[the Bake contract](docs/bake.md).
+
 This is a complete source snapshot. Its Makefile has an explicit source list;
 it does not build the former VM or a libbl.a archive.
 

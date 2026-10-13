@@ -323,27 +323,31 @@ Priority carryover:
 
 ### 17. Bake build tooling, static linking and performance
 
-**Planned target release:** 1.0.17, after the 1.0.16 verification work. Bake is a make-like build tool using a `Bakefile`; exact syntax and command behavior will be defined before implementation. Sanitizer integration belongs to the later debugger and is excluded from Bake's built-in commands, configuration and build profiles.
+**Target release:** 1.0.17. Bake/static-linking and benchmark tasks are implemented and pass all six matching-host jobs. All eighteen native compiler regression jobs also pass. Draft PR #3 is ready for review and merge. Bake is a make-like build tool using a `Bakefile`; the initial contract is defined in `docs/bake.md` and implemented by `tools/bake.py` (portable Python bootstrap). All six matching-host Bake/benchmark jobs pass on implementation `d73a77a`; see `docs/verification-1.0.17.json`. Native regression run 55 passes all eighteen jobs, including the full macOS TSAN differential suite with a fifteen-minute bound and progress reporting. Local full release/TSAN differential checks also pass. Sanitizer integration belongs to the later debugger and is excluded from Bake's built-in commands, configuration and build profiles.
 
-- [ ] Define `Bakefile` syntax for named/default targets, dependencies, source files, compiler options, output paths, target platforms and executable/static-library outputs.
-- [ ] Define and implement the `bake` command and make-like target selection, alternate Bakefile selection, build, clean and ordinary test commands; document invocation and failure/exit behavior.
-- [ ] Implement dependency ordering and incremental rebuilding, including imported source files, changed options/toolchain/target, and changed static-library manifests or archives.
-- [ ] Drive the existing native compiler, assembler, archiver and linker with portable path/argument handling on all supported hosts; keep build outputs separated by target and profile.
-- [ ] Keep Bake builds free of sanitizer targets, flags, options and profiles, including implicit sanitizer activation inherited from compiler build defaults. Ordinary debug metadata is separate; sanitizers will be integrated with the debugger later.
-- [ ] Support creating and consuming target-specific static B++ archives and their `.bppabi` manifests through Bake, with manifest generation after archive creation and correct transitive archive ordering.
-- [ ] Preserve and validate the existing static-only ABI v2 contract: export symbols, arity, value layout, alignment/ownership, ABI/runtime revisions, target compatibility and archive identity. Broad FFI and dynamic loading remain outside this scope.
-- [ ] Add Bakefile examples and end-to-end builds for an executable, a static-library producer/consumer and transitive static dependencies; verify incremental rebuilds and ABI/target mismatch diagnostics on native runners.
+- [x] Define `Bakefile` syntax for named/default targets, dependencies, source files, compiler options, output paths, target platforms and executable/static-library outputs.
+- [x] Define and implement the `bake` command and make-like target selection, alternate Bakefile selection, build, clean and ordinary test commands; document invocation and failure/exit behavior.
+- [x] Implement dependency ordering and incremental rebuilding, including imported source files, changed options/toolchain/target, and changed static-library manifests or archives.
+- [x] Drive the existing native compiler, assembler, archiver and linker with portable path/argument handling on all supported hosts; keep build outputs separated by target and profile.
+- [x] Keep Bake builds free of sanitizer targets, flags, options and profiles, including implicit sanitizer activation inherited from compiler build defaults. Ordinary debug metadata is separate; sanitizers will be integrated with the debugger later.
+- [x] Support creating and consuming target-specific static B++ archives and their `.bppabi` manifests through Bake, with manifest generation after archive creation and correct transitive archive ordering.
+- [x] Preserve and validate the existing static-only ABI v2 contract: export symbols, arity, value layout, alignment/ownership, ABI/runtime revisions, target compatibility and archive identity. Broad FFI and dynamic loading remain outside this scope.
+- [x] Add Bakefile examples and end-to-end builds for an executable, a static-library producer/consumer and transitive static dependencies; verify incremental rebuilds and ABI/target mismatch diagnostics on native runners.
 
-Benchmark status: the CSV harness measures native optimized and native `--no-opt` execution and executable size; earlier C comparisons remain historical evidence. Existing measurements are a smoke check, not an isolated baseline.
 
-- [ ] Separate compile time, assembly time, link time, startup time and steady-state execution time.
-- [ ] Add warmup, repeated samples, median/dispersion, environment metadata and stable machine identifiers.
-- [ ] Measure code size, read-only data, frame size, maximum stack depth, spill/reload count, helper-call count, and compilation peak memory.
-- [ ] Include integer-heavy, branch-heavy, recursive, call-heavy, object-heavy, string/buffer/array, and large-source programs.
-- [ ] Compare optimized native, unoptimized native, and later assembler/linker builds; retain older C comparison measurements as historical baselines.
-- [ ] Run on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64 native hosts.
-- [ ] Keep results in versioned CSV/JSON with compiler revision, flags, target triple, CPU/OS and sanitizer mode.
-- [ ] Set performance expectations only after repeatable runs; avoid pass/fail thresholds sensitive to shared CI noise.
+Benchmark status: schema-2 `tools/benchmark.py` separates native compile/assembly/link/startup phases from in-process ABI work, with raw samples, median/MAD, per-process compile peak RSS and separate untimed native profiling. The six hosted reports retain 96 validated workload/mode results, and two sequential local macOS ARM64 runs pass with matching compiler/runtime/workload hashes; shared CI is not an isolated hardware baseline. Earlier schema-1/C measurements remain historical evidence; see `docs/benchmarking.md`.
+
+- [x] Separate compile time, assembly time, link time, startup time and steady-state execution time.
+- [x] Add warmup, repeated samples, median/dispersion, environment metadata and stable machine identifiers.
+- [x] Measure generated code/read-only data and frame sizes, dynamic native call depth/frame-stack span and boundary-helper calls, actual emitted spill/reload sites, and per-process compile peak memory. Native frame span excludes deeper C-helper stack usage; static spill/reload sites are not dynamic traffic counts.
+- [x] Include integer, branch, recursion, call, owned-state, byte-string/buffer and large-source workloads; record retired managed string/Array source constructs as unsupported rather than benchmarking nonexistent features.
+- [x] Compare native optimized and `--no-opt` builds; retain older C measurements as historical evidence and record the future custom assembler/linker as unavailable until implemented.
+- [x] Run on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64 native hosts.
+- [x] Keep results in versioned CSV/JSON with compiler revision, flags, target triple, CPU/OS and sanitizer mode.
+- [x] Set performance expectations only after repeatable runs; avoid pass/fail thresholds sensitive to shared CI noise.
+
+
+Evidence: [Bake native run 7](https://github.com/kenseitehdev/B-/actions/runs/38430265880) and [native regression run 55](https://github.com/kenseitehdev/B-/actions/runs/38430265985). Versioned schema-2 reports are in `benchmarks/results/1.0.17/ci/`. Completion records verified implementation work; PR #3 remains a draft pending review and merge.
 
 ### 18. Target support and platform-specific integration
 

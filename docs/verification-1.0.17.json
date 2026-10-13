@@ -1,0 +1,2464 @@
+{
+  "base_branch": "1.0.16",
+  "benchmark_reports": [
+    {
+      "files": [
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-macos-15-clang.json",
+          "sha256": "f4976b6036ec33459bfec6573ffc67950138c9080130620cdb749525358829a4"
+        },
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-macos-15-clang.csv",
+          "sha256": "0f2a98db3994baec7391488b3721cda00538fd4a043d4f7a7415706adb2ff4eb"
+        }
+      ],
+      "host": {
+        "architecture": "arm64",
+        "benchmark_driver_sha256": "07b1d3e8b77a9a3e2855e1a043e4213ddd0cff0729ee0512821ee8e5b518b2d3",
+        "compiler_build_optimization": "-O2",
+        "compiler_revision": "6095ebc0bbfd60c0da12673f83d906842fdc807b",
+        "compiler_revision_origin": "github-actions",
+        "compiler_sha256": "169f7b535a74cd002eb1a5ec66c4a3ebd888800d2c7bfe113f64d8ea6477a42d",
+        "compiler_worktree_dirty": false,
+        "cpu": "Apple M1 (Virtual)",
+        "fixture_source_sha256": "a69c2305fd3aa917f704712268be166fafd3e9e6e145314217822a516c9ec7e8",
+        "host_cc": "/opt/homebrew/opt/llvm/bin/clang",
+        "host_cc_identity": "Homebrew clang version 23.1.0",
+        "hostname_hash": "affd1fdfb621376e2d259c9a",
+        "machine_id": "482b4e3157e6e62643232d46",
+        "machine_id_kind": "host-fingerprint",
+        "os": "macOS-15.7.9-arm64-arm-64bit-Mach-O",
+        "runtime_objects_sha256": {
+          "/Users/runner/work/B-/B-/build/release/obj/src/bpp_abi.o": "2d701a84177dc9b723a42d83bd76dbab34adc785245eba2a5037795642e83cd3",
+          "/Users/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o": "e02608f858ba41769806db44581adec55d97b3e5f227d803084ea9d94b1b1aa5",
+          "/Users/runner/work/B-/B-/build/release/obj/src/runtime.o": "fb407979c579b677c9f361824ae0e40456ef34dc7b5ef01ca49b2c300d6bca8c",
+          "/Users/runner/work/B-/B-/build/release/obj/src/truth.o": "24cc75027ba8e62820db536bdbfab30b065201543001e8e98d8648eae8c5c39a",
+          "/Users/runner/work/B-/B-/build/release/obj/src/value.o": "ea2c4cb117f19ccc4e17b7b7d423f4e3153720d933457ad9c8bd3ad1a7cd75df"
+        },
+        "sanitizers": "",
+        "target": "macos-arm64",
+        "target_triple": "arm64-apple-macosx13.0.0"
+      },
+      "name": "bake-macos-15-clang",
+      "result_count": 16,
+      "sampling": {
+        "repetitions": 2,
+        "samples": 3,
+        "warmup": 1
+      }
+    },
+    {
+      "files": [
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-ubuntu-24.04-arm-clang.json",
+          "sha256": "bfb7f69b1dcbeaf0e8b9822d0663712d2658fa59b899a9000f0cd951e2883ce1"
+        },
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-ubuntu-24.04-arm-clang.csv",
+          "sha256": "0a625b30a5680a610ab676b612b43ad43acdf99e1de85e5d6c83924ccb2b0a11"
+        }
+      ],
+      "host": {
+        "architecture": "aarch64",
+        "benchmark_driver_sha256": "07b1d3e8b77a9a3e2855e1a043e4213ddd0cff0729ee0512821ee8e5b518b2d3",
+        "compiler_build_optimization": "-O2",
+        "compiler_revision": "6095ebc0bbfd60c0da12673f83d906842fdc807b",
+        "compiler_revision_origin": "github-actions",
+        "compiler_sha256": "4d635d34603113019e9fd7f82aaa5449c8198f07b5d8fba882886031c7686c03",
+        "compiler_worktree_dirty": false,
+        "cpu": "aarch64",
+        "fixture_source_sha256": "a69c2305fd3aa917f704712268be166fafd3e9e6e145314217822a516c9ec7e8",
+        "host_cc": "/usr/bin/clang",
+        "host_cc_identity": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+        "hostname_hash": "a50c7b65dc5900e68a76067e",
+        "machine_id": "73e69ecfbe4273c9fbf82ce7",
+        "machine_id_kind": "host-fingerprint",
+        "os": "Linux-6.17.0-1022-azure-aarch64-with-glibc2.39",
+        "runtime_objects_sha256": {
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o": "d55e714041e20802bc99e3bab127be81cfae100c74c83fa7b446f399d26ed60a",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o": "2b998814b94a052d5f35221c687b2e016d655ec21e1dfd217626a575f8dd77db",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o": "5fb1927c069b63ebca19c4d2981c8389ffcb0d62928b28cf051ddde6128408e5",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o": "106e00f5feee2773fe1468f838f0f690c315d0d61b956b14d01e72974551b389",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o": "937a5885b21e64b984993aec25cae58f2c2f9299471498245f96df5826f88da6"
+        },
+        "sanitizers": "",
+        "target": "linux-arm64",
+        "target_triple": "aarch64-unknown-linux-gnu"
+      },
+      "name": "bake-ubuntu-24.04-arm-clang",
+      "result_count": 16,
+      "sampling": {
+        "repetitions": 2,
+        "samples": 3,
+        "warmup": 1
+      }
+    },
+    {
+      "files": [
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-ubuntu-24.04-arm-gcc.json",
+          "sha256": "d27fe534bdc5ef440087aac5c50ce7a35c825ce02f2bb26fc3c09378e6a7842d"
+        },
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-ubuntu-24.04-arm-gcc.csv",
+          "sha256": "8dfa7b3e09c0e9e4d11c8e54e27b35759d4856f2fd07c58f98512446db2ca16f"
+        }
+      ],
+      "host": {
+        "architecture": "aarch64",
+        "benchmark_driver_sha256": "07b1d3e8b77a9a3e2855e1a043e4213ddd0cff0729ee0512821ee8e5b518b2d3",
+        "compiler_build_optimization": "-O2",
+        "compiler_revision": "6095ebc0bbfd60c0da12673f83d906842fdc807b",
+        "compiler_revision_origin": "github-actions",
+        "compiler_sha256": "e195dc0a300f1023746f84c7e991cbce7821743aeae130d1399675f9c023457f",
+        "compiler_worktree_dirty": false,
+        "cpu": "aarch64",
+        "fixture_source_sha256": "a69c2305fd3aa917f704712268be166fafd3e9e6e145314217822a516c9ec7e8",
+        "host_cc": "/usr/bin/gcc",
+        "host_cc_identity": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+        "hostname_hash": "a50c7b65dc5900e68a76067e",
+        "machine_id": "73e69ecfbe4273c9fbf82ce7",
+        "machine_id_kind": "host-fingerprint",
+        "os": "Linux-6.17.0-1022-azure-aarch64-with-glibc2.39",
+        "runtime_objects_sha256": {
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o": "a859ac20a315362318106ae2cf4a33f246d7208700899f1df90a6c7e5010aca1",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o": "604f77f62fa2154170d3f32338fd2fb3b2023f096cb6c8287aa16635262d7281",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o": "6a2539c33e6d011aa9423e7c10d31165f0d35da6aa3901c88c85d170d0c5fe2a",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o": "4aea48b6fd8480ffd721820c715a0ac07567793b1f9de9bd121ee8174884a528",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o": "e62647498dda1863d64028b39865384634ef8c5cab87b500ac8c4c7e94434943"
+        },
+        "sanitizers": "",
+        "target": "linux-arm64",
+        "target_triple": "aarch64-unknown-linux-gnu"
+      },
+      "name": "bake-ubuntu-24.04-arm-gcc",
+      "result_count": 16,
+      "sampling": {
+        "repetitions": 2,
+        "samples": 3,
+        "warmup": 1
+      }
+    },
+    {
+      "files": [
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-ubuntu-24.04-clang.json",
+          "sha256": "61d7fcfcdef12fd049008702913edc70c796f844352d277545aa437ab02cc34a"
+        },
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-ubuntu-24.04-clang.csv",
+          "sha256": "3369582a60ed22425f5253778ff367a346369e28f72345325bf0ddb8d13690a4"
+        }
+      ],
+      "host": {
+        "architecture": "x86_64",
+        "benchmark_driver_sha256": "07b1d3e8b77a9a3e2855e1a043e4213ddd0cff0729ee0512821ee8e5b518b2d3",
+        "compiler_build_optimization": "-O2",
+        "compiler_revision": "6095ebc0bbfd60c0da12673f83d906842fdc807b",
+        "compiler_revision_origin": "github-actions",
+        "compiler_sha256": "8fa70c05db36a1cc7ed8fb1a878e28a024209e62d7d77af9403ce41d9f1ffb84",
+        "compiler_worktree_dirty": false,
+        "cpu": "AMD EPYC 9V74 80-Core Processor",
+        "fixture_source_sha256": "a69c2305fd3aa917f704712268be166fafd3e9e6e145314217822a516c9ec7e8",
+        "host_cc": "/usr/bin/clang",
+        "host_cc_identity": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+        "hostname_hash": "c278f5569b1072258c3e6b72",
+        "machine_id": "515dd7570282989eca5a0202",
+        "machine_id_kind": "host-fingerprint",
+        "os": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+        "runtime_objects_sha256": {
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o": "d4a3477ae657f98615f636a9711bdc14831ea42f0dea5dfa3045589414dfd43f",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o": "ced09b5f392d3ff10a12fdaa2ce629aadb1002a8cc8e19da4e68a2a490ce11a5",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o": "ab4157b80e29ebe9a0419a8eb0a5bc79651fc598c7fc2f9d1e4b0c82c65501b4",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o": "9dda1874a381745e3361b2101832010e998a10f756ee916f8c7581563f1021af",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o": "7fe7c3ad3ebf7c12e1edc5137e47ed93ff89c7ea3c297e0d43aa3a859d26fa4f"
+        },
+        "sanitizers": "",
+        "target": "linux-x86_64",
+        "target_triple": "x86_64-unknown-linux-gnu"
+      },
+      "name": "bake-ubuntu-24.04-clang",
+      "result_count": 16,
+      "sampling": {
+        "repetitions": 2,
+        "samples": 3,
+        "warmup": 1
+      }
+    },
+    {
+      "files": [
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-ubuntu-24.04-gcc.json",
+          "sha256": "ca440ad8e386a7dec24606c5a6aadc84da77dc5d56080670b04eb87bb87b9685"
+        },
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-ubuntu-24.04-gcc.csv",
+          "sha256": "87fc292e00a25357b6d1cac21edb0434a717b03229cb1745525aa645241e312d"
+        }
+      ],
+      "host": {
+        "architecture": "x86_64",
+        "benchmark_driver_sha256": "07b1d3e8b77a9a3e2855e1a043e4213ddd0cff0729ee0512821ee8e5b518b2d3",
+        "compiler_build_optimization": "-O2",
+        "compiler_revision": "6095ebc0bbfd60c0da12673f83d906842fdc807b",
+        "compiler_revision_origin": "github-actions",
+        "compiler_sha256": "2e178731a1742a11570afef84c1605488126ab9f58d3acfd04bf3c37ba71b22d",
+        "compiler_worktree_dirty": false,
+        "cpu": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+        "fixture_source_sha256": "a69c2305fd3aa917f704712268be166fafd3e9e6e145314217822a516c9ec7e8",
+        "host_cc": "/usr/bin/gcc",
+        "host_cc_identity": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+        "hostname_hash": "c278f5569b1072258c3e6b72",
+        "machine_id": "515dd7570282989eca5a0202",
+        "machine_id_kind": "host-fingerprint",
+        "os": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+        "runtime_objects_sha256": {
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o": "b56b301e099c30b7d555fd946e86a431af7d9cd075b76da8b3a0bcb0d2965c56",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o": "a63b711ed7e797ca31f642d513eea42bb9601d6b7777a07b09cdbe689b78a91a",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o": "b61c8afa3e2046653e257753e723454231de228c59696dc15570ef6f8098b1b1",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o": "f171993689cd4fc30932f446c96d3ff3492243d028dd1e42cf02ca8813bd18e8",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o": "28ba782f3fbc15079253e322781091c8fdddc2ba33f35316b782c8950d98ca9e"
+        },
+        "sanitizers": "",
+        "target": "linux-x86_64",
+        "target_triple": "x86_64-unknown-linux-gnu"
+      },
+      "name": "bake-ubuntu-24.04-gcc",
+      "result_count": 16,
+      "sampling": {
+        "repetitions": 2,
+        "samples": 3,
+        "warmup": 1
+      }
+    },
+    {
+      "files": [
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-windows-2022-clang.json",
+          "sha256": "18563f3f9885d1634d25454f686b61ef2ae59a44af3bb458419f00304c4c78c8"
+        },
+        {
+          "path": "benchmarks/results/1.0.17/ci/bake-windows-2022-clang.csv",
+          "sha256": "cfc2b8fa51565ca4c04c5b3829666658066a3c7a95c3b0868d30d8eb5336a822"
+        }
+      ],
+      "host": {
+        "architecture": "AMD64",
+        "benchmark_driver_sha256": "8f3a5cac69327695c808c5d374d804ba1719129467095f819f7997e2a58a70d1",
+        "compiler_build_optimization": "-O2",
+        "compiler_revision": "6095ebc0bbfd60c0da12673f83d906842fdc807b",
+        "compiler_revision_origin": "github-actions",
+        "compiler_sha256": "ab49fc0ff50750a15c1df40fc2b5414c79376b9153254daf38b40a96f6f9f67c",
+        "compiler_worktree_dirty": null,
+        "cpu": "AMD64 Family 25 Model 1 Stepping 1, AuthenticAMD",
+        "fixture_source_sha256": "88cec62f0ae18f1daa3247c63322dea8af301ada5a39d4f4e384fe4c073e2715",
+        "host_cc": "D:\\a\\_temp\\msys64\\ucrt64\\bin/clang.EXE",
+        "host_cc_identity": "clang version 23.1.3 (https://github.com/msys2/MINGW-packages 067886dba977a6b4c97dfedfb25286b5eda55620)",
+        "hostname_hash": "d6967365523c4920a4df7629",
+        "machine_id": "3a498ce6def4df44174e2804",
+        "machine_id_kind": "host-fingerprint",
+        "os": "Windows-2022Server-10.0.20348-SP0",
+        "runtime_objects_sha256": {
+          "D:/a/B-/B-/build/release/obj/src/bpp_abi.o": "26ba2b4394b785604a08d055b5a3e227d688f8e9c0ed0ae69998c07a3167a002",
+          "D:/a/B-/B-/build/release/obj/src/codegen_runtime.o": "65361416b97b3409ee08a0b34a67828b0370d2845436373eb2a206113eb076d9",
+          "D:/a/B-/B-/build/release/obj/src/runtime.o": "586ae0efd8dc3ba6e39192b21982a5ee57a4667ddaa6aa114de5b819cc8fd6a3",
+          "D:/a/B-/B-/build/release/obj/src/truth.o": "5caba1f12ebc189a0f37b5c58196074bbadfa0a0623e6d64f5015b9dc8ceb5a9",
+          "D:/a/B-/B-/build/release/obj/src/value.o": "18a4c2091b8d340a8f6181623be7e7e1101656baaa8a8e762addb184bb9c7198"
+        },
+        "sanitizers": "",
+        "target": "windows-x86_64",
+        "target_triple": "x86_64-w64-windows-gnu"
+      },
+      "name": "bake-windows-2022-clang",
+      "result_count": 16,
+      "sampling": {
+        "repetitions": 2,
+        "samples": 3,
+        "warmup": 1
+      }
+    }
+  ],
+  "branch": "codex/1.0.17-bake",
+  "compiler_implementation_head": "b97091ff39805c1f3511193651a742d7e30803c0",
+  "implementation_files": {
+    ".github/workflows/bake.yml": "b28c8c0ec79a4d57ec6f32f59fdfc99a5d765381e989b9fc26e612d25b354f9c",
+    ".github/workflows/codegen.yml": "fed711fa5dea39872f8808a69ac7490a44564deb4895aefe2a9707fa912ee51a",
+    "BENCHMARKS.md": "c38c5ae691e15b06b991af20aa410d89061a6e6d684f672eeb45f1a0facafce5",
+    "Bakefile": "f936f1a61e7eecc3d39ab59724b933574c76da34df78656711ca54c63220c12a",
+    "Makefile": "c4785c9756f8cf7aed2f565166abe66e935e907e875e8ed503a2a95698b5e4fb",
+    "README.md": "46345c9ebccf21a3537d2aef0ac3f40959c85afff7f9a2d3fe3cc3f5ef01e58d",
+    "bin/bake": "866a1cb018535b7beb541233870c731a2b0285d67786a006293b81dfcf274970",
+    "docs/bake.md": "34b5c1e15d43264e1a76ee0daac46146a9f1547ddeaf9105d62b90be1446b150",
+    "docs/benchmarking.md": "1ff690e412e40d9c3260e313f933a8b37d082c74d76c979d8ba0fdefa69186b3",
+    "examples/bake/bridge.bpp": "745065ba949d1761cae644fcf371452b7b19b866bb7600fbb7a2dd07345a4e2f",
+    "examples/bake/main.bpp": "d0648d629ea96ac7b2c3a97a45f4fa89d0f4b8244e4963072c6ef828c869e94b",
+    "examples/bake/numbers.bpp": "af56a775b06a3952f783847bd46db11c965666c03f209f05abd43b4a3711a850",
+    "include/benchmark_metrics.h": "a7b57506730112e5e619d655619ca4de231e5a83ea5117b945e314e561b0352a",
+    "include/ir.h": "bd0ecc106efb0698223558eba2978c98176ca4f12f2f7c7b577418a63f0e9ee2",
+    "src/bpp_utf8.manifest": "c5a075d095ef49cb213ce45a8201019401259e45e2aa15485eefb23a8c060bbe",
+    "src/bpp_utf8.rc": "0a215f2830665945cfd2ca939a8704a649b3925d889b9bb63af15dfc6c3c9fe2",
+    "src/codegen_runtime.c": "1e7461fe933e1c6d396cee7fdc888550e33f050a575aa73e72b2d4f15b6aa530",
+    "src/emit_arm64.c": "48f0e12b3d838bd951bd7dbc890babfed176382de2ef29492e27e2cd2f8ede0e",
+    "src/emit_x64.c": "85b55aa57119e762b1dbe5adcfa2113e8c9e8414264fb8605bd08870f23e55fe",
+    "src/locations.c": "ec7bf84ef9e8af0dc83e4a2d19581b9cc526a6c53c677cda2cec85b2bd360d6c",
+    "src/main.c": "b4071a475ca168dd38194f73efb746332ee14d27e506f4e4e6d53efb35dc49e0",
+    "tests/benchmark_runner.c": "a69c2305fd3aa917f704712268be166fafd3e9e6e145314217822a516c9ec7e8",
+    "tests/check_bake.py": "2c28c6387f7924001e5c285d81ee65be3214ab8661a93fdbfd653be2f27cafcc",
+    "tests/check_benchmark.py": "63c733beeb1ec2303ee09e7732b9dbcdb3d5337f795bddafda45f9d3872beb84",
+    "todo.md": "3ff8ed5d1be842e0d9d6c4978f70c85210db7c7e2cc076c408152d7badc8991b",
+    "tools/bake.py": "5e6f50255a3d46d4c23f82c697c15115f9c9e385dfc1ed176c4195c25b91941a",
+    "tools/benchmark.py": "07b1d3e8b77a9a3e2855e1a043e4213ddd0cff0729ee0512821ee8e5b518b2d3"
+  },
+  "implementation_head": "d73a77a92bea735257fcc6435efa8d2d7568141c",
+  "job_count": 24,
+  "local_differential_checks": {
+    "notes": "Rebuilt the local generator before these checks; the stale tracked executable did not implement the current --expected interface.",
+    "release": {
+      "modes": [
+        "optimized",
+        "baseline"
+      ],
+      "result": "passed",
+      "seeds": 64
+    },
+    "tsan": {
+      "modes": [
+        "optimized",
+        "baseline"
+      ],
+      "result": "passed",
+      "seeds": 64
+    }
+  },
+  "local_repeat_runs": [
+    {
+      "host": {
+        "architecture": "arm64",
+        "benchmark_driver_sha256": "deb5a7b3ce9a699861379314d08d68569eb3e210407e091556a2d619d366a9fd",
+        "compiler_build_optimization": "-O2",
+        "compiler_revision": "045bbb7f1894cf2caa4c87b08b49825c31c35705",
+        "compiler_sha256": "a5b3686d6c8bcff8b44dc2f26f78040485f9ecd282deaadaa538df2ffa7f6369",
+        "compiler_worktree_dirty": false,
+        "cpu": "Apple M3 Pro",
+        "fixture_source_sha256": "a69c2305fd3aa917f704712268be166fafd3e9e6e145314217822a516c9ec7e8",
+        "host_cc": "/opt/homebrew/opt/llvm/bin/clang",
+        "host_cc_identity": "Homebrew clang version 23.1.3",
+        "hostname_hash": "b317b81274f14f652606ee1b",
+        "machine_id": "local-macos-arm64",
+        "machine_id_kind": "explicit",
+        "os": "macOS-27.0.1-arm64-arm-64bit",
+        "runtime_objects_sha256": {
+          "/Volumes/Projects/bpp/build/release/obj/src/bpp_abi.o": "d338e9cb3a57bce9a026a3d08ea1e1f64292a2f17759ddabf5856214b361f8b3",
+          "/Volumes/Projects/bpp/build/release/obj/src/codegen_runtime.o": "548c0e4ad36a0489eabcdec892a906b5ea9de18dd312fa93b60034fbefdf1637",
+          "/Volumes/Projects/bpp/build/release/obj/src/runtime.o": "9d18823b5568e209ebdacd9444efe485cebbdfdf8b94624127e38accf8d1d6b4",
+          "/Volumes/Projects/bpp/build/release/obj/src/truth.o": "bc5af9d259d3a1259298ff4b831ca902175aa8ae0233647047a0f687ae860286",
+          "/Volumes/Projects/bpp/build/release/obj/src/value.o": "3c38db09ed28cd25b479b363993f56b2fe89d52260e654ea3118c2ee066e4044"
+        },
+        "sanitizers": "",
+        "target": "macos-arm64",
+        "target_triple": "arm64-apple-macosx13.0.0"
+      },
+      "path": "build/benchmarks/1.0.17/local-current-1.json",
+      "result_count": 16,
+      "sampling": {
+        "repetitions": 8,
+        "samples": 7,
+        "warmup": 3
+      },
+      "sha256": "312eb2c577decdf643f58c5d7b852a3d189e39a0d56115dbc54705196f4ce90b"
+    },
+    {
+      "host": {
+        "architecture": "arm64",
+        "benchmark_driver_sha256": "deb5a7b3ce9a699861379314d08d68569eb3e210407e091556a2d619d366a9fd",
+        "compiler_build_optimization": "-O2",
+        "compiler_revision": "045bbb7f1894cf2caa4c87b08b49825c31c35705",
+        "compiler_sha256": "a5b3686d6c8bcff8b44dc2f26f78040485f9ecd282deaadaa538df2ffa7f6369",
+        "compiler_worktree_dirty": false,
+        "cpu": "Apple M3 Pro",
+        "fixture_source_sha256": "a69c2305fd3aa917f704712268be166fafd3e9e6e145314217822a516c9ec7e8",
+        "host_cc": "/opt/homebrew/opt/llvm/bin/clang",
+        "host_cc_identity": "Homebrew clang version 23.1.3",
+        "hostname_hash": "b317b81274f14f652606ee1b",
+        "machine_id": "local-macos-arm64",
+        "machine_id_kind": "explicit",
+        "os": "macOS-27.0.1-arm64-arm-64bit",
+        "runtime_objects_sha256": {
+          "/Volumes/Projects/bpp/build/release/obj/src/bpp_abi.o": "d338e9cb3a57bce9a026a3d08ea1e1f64292a2f17759ddabf5856214b361f8b3",
+          "/Volumes/Projects/bpp/build/release/obj/src/codegen_runtime.o": "548c0e4ad36a0489eabcdec892a906b5ea9de18dd312fa93b60034fbefdf1637",
+          "/Volumes/Projects/bpp/build/release/obj/src/runtime.o": "9d18823b5568e209ebdacd9444efe485cebbdfdf8b94624127e38accf8d1d6b4",
+          "/Volumes/Projects/bpp/build/release/obj/src/truth.o": "bc5af9d259d3a1259298ff4b831ca902175aa8ae0233647047a0f687ae860286",
+          "/Volumes/Projects/bpp/build/release/obj/src/value.o": "3c38db09ed28cd25b479b363993f56b2fe89d52260e654ea3118c2ee066e4044"
+        },
+        "sanitizers": "",
+        "target": "macos-arm64",
+        "target_triple": "arm64-apple-macosx13.0.0"
+      },
+      "path": "build/benchmarks/1.0.17/local-current-2.json",
+      "result_count": 16,
+      "sampling": {
+        "repetitions": 8,
+        "samples": 7,
+        "warmup": 3
+      },
+      "sha256": "5f869fb54bec59cf2e83ec3c4e7675efa4c3c0ce3ec062448d67dd8e96f0688c"
+    }
+  ],
+  "notes": [
+    "Compiler/Bake/benchmark code is unchanged from b97091ff; d73a77a adjusts only CI time bounds and differential progress reporting. Closing documentation and retained datasets do not alter tested source.",
+    "CI executes the PR test merge revision; artifact workflow metadata identifies the implementation head.",
+    "Bake excludes sanitizer configuration and rejects instrumented compiler defaults. Separate native regression CI still verifies sanitizers.",
+    "All six hosted reports contain 16 results and three per-process compile memory samples per result (288 successful probes).",
+    "Shared CI measurements are harness evidence, not isolated hardware baselines or speed guarantees.",
+    "Native frame span excludes deeper C helper stack usage; spill/reload counts are static emitted sites.",
+    "Retired managed string/Array constructs and future custom assembler/linker remain explicitly unsupported benchmark comparisons.",
+    "Native MSAN covers checked byte definedness and instrumented C accesses, not arbitrary assembly/FFI shadow propagation.",
+    "Hosted transcript artifacts expire after 30 days; the benchmark CSV/JSON files are retained in the repository."
+  ],
+  "passed_job_count": 24,
+  "previous_verification": {
+    "failure": "macOS TSAN differential suite exceeded its 600-second overall bound without a reported semantic mismatch; all other stages passed.",
+    "passed_jobs": 17,
+    "run_id": 38426804686,
+    "url": "https://github.com/kenseitehdev/B-/actions/runs/38426804686"
+  },
+  "pull_request": "https://github.com/kenseitehdev/B-/pull/3",
+  "release": "1.0.17",
+  "repository": "kenseitehdev/B-",
+  "runs": [
+    {
+      "artifacts": [
+        {
+          "created_at": "2026-10-13T16:32:32Z",
+          "digest": "sha256:c1789bfb9a81c1af06478abe4c551379d0b56fe6f9b13ab85c6b18ea6bcaa05f",
+          "expires_at": "2026-11-12T16:32:31Z",
+          "id": 11832045008,
+          "name": "bake-macos-15-clang",
+          "size_in_bytes": 12229,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11832045008"
+        },
+        {
+          "created_at": "2026-10-13T16:25:14Z",
+          "digest": "sha256:60b5d76feec636a30238589b2aba64a3b973ccbab9cb3b4a09017c509849b1e9",
+          "expires_at": "2026-11-12T16:25:14Z",
+          "id": 11830731139,
+          "name": "bake-ubuntu-24.04-arm-gcc",
+          "size_in_bytes": 12233,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830731139"
+        },
+        {
+          "created_at": "2026-10-13T16:26:47Z",
+          "digest": "sha256:f68ac03d49cf79b77bbdd40197985e1c2c81418a71c74ac267a2859387618bfd",
+          "expires_at": "2026-11-12T16:26:46Z",
+          "id": 11830546925,
+          "name": "bake-windows-2022-clang",
+          "size_in_bytes": 12423,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830546925"
+        },
+        {
+          "created_at": "2026-10-13T16:25:16Z",
+          "digest": "sha256:c759ea07d9f603c6808326a24a76893205ded83b01f2f994ff35ec3230b0e678",
+          "expires_at": "2026-11-12T16:25:15Z",
+          "id": 11830433532,
+          "name": "bake-ubuntu-24.04-gcc",
+          "size_in_bytes": 12261,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830433532"
+        },
+        {
+          "created_at": "2026-10-13T16:25:31Z",
+          "digest": "sha256:43acb5cb3206afd4b59226ecf9ba69288c78b51f05a2b7f86cb77dedca485d75",
+          "expires_at": "2026-11-12T16:25:30Z",
+          "id": 11829849156,
+          "name": "bake-ubuntu-24.04-arm-clang",
+          "size_in_bytes": 12253,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11829849156"
+        },
+        {
+          "created_at": "2026-10-13T16:25:33Z",
+          "digest": "sha256:fe32155d2ad521ee35d1097d1ec192eb9b954efa37423e0661fb10c7110be617",
+          "expires_at": "2026-11-12T16:25:31Z",
+          "id": 11829539720,
+          "name": "bake-ubuntu-24.04-clang",
+          "size_in_bytes": 12212,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11829539720"
+        }
+      ],
+      "id": 38430265880,
+      "job_count": 6,
+      "jobs": [
+        {
+          "conclusion": "success",
+          "id": 115410296420,
+          "name": "windows",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run msys2/setup-msys2@v2"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Build ordinary and instrumented compilers"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native Bake and sanitizer exclusion"
+            },
+            {
+              "conclusion": "success",
+              "name": "Root Bakefile"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native benchmark schema and measurements"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265880/job/115410296420"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296605,
+          "name": "unix (ubuntu-24.04-arm, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Build ordinary and instrumented compilers"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native Bake and sanitizer exclusion"
+            },
+            {
+              "conclusion": "success",
+              "name": "Root Bakefile"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native benchmark schema and measurements"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265880/job/115410296605"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296746,
+          "name": "unix (ubuntu-24.04, gcc)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Build ordinary and instrumented compilers"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native Bake and sanitizer exclusion"
+            },
+            {
+              "conclusion": "success",
+              "name": "Root Bakefile"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native benchmark schema and measurements"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265880/job/115410296746"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296798,
+          "name": "unix (ubuntu-24.04-arm, gcc)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Build ordinary and instrumented compilers"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native Bake and sanitizer exclusion"
+            },
+            {
+              "conclusion": "success",
+              "name": "Root Bakefile"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native benchmark schema and measurements"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265880/job/115410296798"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296891,
+          "name": "unix (macos-15, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Build ordinary and instrumented compilers"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native Bake and sanitizer exclusion"
+            },
+            {
+              "conclusion": "success",
+              "name": "Root Bakefile"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native benchmark schema and measurements"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265880/job/115410296891"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296917,
+          "name": "unix (ubuntu-24.04, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Build ordinary and instrumented compilers"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native Bake and sanitizer exclusion"
+            },
+            {
+              "conclusion": "success",
+              "name": "Root Bakefile"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native benchmark schema and measurements"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265880/job/115410296917"
+        }
+      ],
+      "name": "Bake native builds",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265880"
+    },
+    {
+      "artifacts": [
+        {
+          "created_at": "2026-10-13T16:47:38Z",
+          "digest": "sha256:7d4b5cccaa14ae5952a9b8ebdc0b793ed32ce89f239b5bde9633fd013439f60d",
+          "expires_at": "2026-11-12T16:47:37Z",
+          "id": 11832256991,
+          "name": "verification-macos-15-tsan-clang",
+          "size_in_bytes": 5580,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11832256991"
+        },
+        {
+          "created_at": "2026-10-13T16:32:06Z",
+          "digest": "sha256:866e089acf0d39178f0b08f30c25c4e1f8373f7e7387733a59e3555a2fd84e47",
+          "expires_at": "2026-11-12T16:32:05Z",
+          "id": 11831625307,
+          "name": "verification-ubuntu-24.04-arm-debug-gcc",
+          "size_in_bytes": 6451,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11831625307"
+        },
+        {
+          "created_at": "2026-10-13T16:26:54Z",
+          "digest": "sha256:27609b4f9ba99549b371e8334d4e1134e6ba723f464743f5cce22cbf4fc090bf",
+          "expires_at": "2026-11-12T16:26:53Z",
+          "id": 11831250113,
+          "name": "verification-ubuntu-24.04-arm-msan",
+          "size_in_bytes": 4950,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11831250113"
+        },
+        {
+          "created_at": "2026-10-13T16:25:59Z",
+          "digest": "sha256:752543e3ccf756530be362ef2b87200e8fe73b3034a4dc0231d7fe7549366684",
+          "expires_at": "2026-11-12T16:25:58Z",
+          "id": 11831040460,
+          "name": "verification-ubuntu-24.04-release-clang",
+          "size_in_bytes": 5371,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11831040460"
+        },
+        {
+          "created_at": "2026-10-13T16:26:32Z",
+          "digest": "sha256:15a178b8303f6d5c3278409f9efbed5303b881255d63541f83ad6ddfa9eeef2d",
+          "expires_at": "2026-11-12T16:26:32Z",
+          "id": 11830950656,
+          "name": "verification-ubuntu-24.04-tsan-clang",
+          "size_in_bytes": 5322,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830950656"
+        },
+        {
+          "created_at": "2026-10-13T16:33:18Z",
+          "digest": "sha256:1a2747587308d974ed7aa7d926a7bee82e2b25cb7719409d6a23b056cd3fc763",
+          "expires_at": "2026-11-12T16:33:16Z",
+          "id": 11830941849,
+          "name": "verification-macos-15-release-clang",
+          "size_in_bytes": 5478,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830941849"
+        },
+        {
+          "created_at": "2026-10-13T16:27:03Z",
+          "digest": "sha256:953d40eecbf3bac1a8ab770e03d877cfea1b61a28f18ebc9a4cae68c7feb208b",
+          "expires_at": "2026-11-12T16:27:03Z",
+          "id": 11830940766,
+          "name": "verification-ubuntu-24.04-arm-tsan-clang",
+          "size_in_bytes": 5295,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830940766"
+        },
+        {
+          "created_at": "2026-10-13T16:25:43Z",
+          "digest": "sha256:9895aa4eb6926ada26e5d563f93a5c2881da1e9e1b74aaea9bb43c5e62159dec",
+          "expires_at": "2026-11-12T16:25:42Z",
+          "id": 11830835709,
+          "name": "verification-ubuntu-24.04-debug-gcc",
+          "size_in_bytes": 6489,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830835709"
+        },
+        {
+          "created_at": "2026-10-13T16:26:35Z",
+          "digest": "sha256:d425d0710a523fc7b8d4fbe954955fcb08622a442b19bf11cb11e9c541fe39d0",
+          "expires_at": "2026-11-12T16:26:34Z",
+          "id": 11830781198,
+          "name": "verification-ubuntu-24.04-arm-tsan-gcc",
+          "size_in_bytes": 5550,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830781198"
+        },
+        {
+          "created_at": "2026-10-13T16:26:32Z",
+          "digest": "sha256:a099a7408798992f7dcf869956249cf7bb19a39633f0ff8c0fcf1b6659556d0a",
+          "expires_at": "2026-11-12T16:26:32Z",
+          "id": 11830706428,
+          "name": "verification-ubuntu-24.04-arm-debug-clang",
+          "size_in_bytes": 6198,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830706428"
+        },
+        {
+          "created_at": "2026-10-13T16:27:40Z",
+          "digest": "sha256:41a7bd982a128c4dec85482dd491ca71550c63428aee2f3de1d232bc74b9c00b",
+          "expires_at": "2026-11-12T16:27:40Z",
+          "id": 11830621727,
+          "name": "verification-ubuntu-24.04-msan",
+          "size_in_bytes": 5613,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830621727"
+        },
+        {
+          "created_at": "2026-10-13T16:29:25Z",
+          "digest": "sha256:0d38f88861a460c297d35d6871dad40b4e4b0ac21dab2ec0a513d66453f4ea97",
+          "expires_at": "2026-11-12T16:29:23Z",
+          "id": 11830394257,
+          "name": "verification-macos-15-debug-clang",
+          "size_in_bytes": 6388,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830394257"
+        },
+        {
+          "created_at": "2026-10-13T16:26:31Z",
+          "digest": "sha256:58fba6c3a12932670f406acc7f734e58ef91a02eb0a0017a8db5f54430815cd6",
+          "expires_at": "2026-11-12T16:26:30Z",
+          "id": 11830283947,
+          "name": "verification-ubuntu-24.04-debug-clang",
+          "size_in_bytes": 6238,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830283947"
+        },
+        {
+          "created_at": "2026-10-13T16:27:15Z",
+          "digest": "sha256:cb6965d55e9aa346c77e90d3806b3bec15b60403209dd1723e8e290fee81b821",
+          "expires_at": "2026-11-12T16:27:14Z",
+          "id": 11830239162,
+          "name": "verification-windows-2022-release",
+          "size_in_bytes": 12277,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830239162"
+        },
+        {
+          "created_at": "2026-10-13T16:27:05Z",
+          "digest": "sha256:c0d66e2b30885c8f32bf8134e60f39f7a792d6d4f5072ed889807cd75e4a0761",
+          "expires_at": "2026-11-12T16:27:04Z",
+          "id": 11830074292,
+          "name": "verification-ubuntu-24.04-arm-release-clang",
+          "size_in_bytes": 5332,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11830074292"
+        },
+        {
+          "created_at": "2026-10-13T16:25:46Z",
+          "digest": "sha256:4c0eeb000585d28e0ad10bb0f24d027d6b37a486c94b5e1c1aa3d51eb73ed10f",
+          "expires_at": "2026-11-12T16:25:45Z",
+          "id": 11829999175,
+          "name": "verification-ubuntu-24.04-arm-release-gcc",
+          "size_in_bytes": 5601,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11829999175"
+        },
+        {
+          "created_at": "2026-10-13T16:26:20Z",
+          "digest": "sha256:91d9ec6c916559df8527c71a2946a19e4dea757b5f63215877c6beb3d1e1b78f",
+          "expires_at": "2026-11-12T16:26:19Z",
+          "id": 11829964242,
+          "name": "verification-ubuntu-24.04-tsan-gcc",
+          "size_in_bytes": 5590,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11829964242"
+        },
+        {
+          "created_at": "2026-10-13T16:25:40Z",
+          "digest": "sha256:d74cfb6d4e968b9f2aa7006563437ee6899c44ac33df6159d8b9b85174fc235c",
+          "expires_at": "2026-11-12T16:25:39Z",
+          "id": 11829844381,
+          "name": "verification-ubuntu-24.04-release-gcc",
+          "size_in_bytes": 5627,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11829844381"
+        }
+      ],
+      "id": 38430265985,
+      "job_count": 18,
+      "jobs": [
+        {
+          "conclusion": "success",
+          "id": 115410296116,
+          "name": "msan (ubuntu-24.04-arm)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify Linux MSAN runner"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record MSAN toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "MemorySanitizer native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "MemorySanitizer differential execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "MemorySanitizer large procedure"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload MSAN verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296116"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296333,
+          "name": "windows",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run msys2/setup-msys2@v2"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Require Windows PDB inspection tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe Windows sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Windows native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Windows supported UBSAN native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Windows source stepping and variable inspection"
+            },
+            {
+              "conclusion": "success",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload Windows debug and failure evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296333"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296534,
+          "name": "unix (ubuntu-24.04, tsan, gcc)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296534"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296571,
+          "name": "msan (ubuntu-24.04)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify Linux MSAN runner"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record MSAN toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "MemorySanitizer native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "MemorySanitizer differential execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "MemorySanitizer large procedure"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload MSAN verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296571"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296594,
+          "name": "unix (ubuntu-24.04, release, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "success",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "success",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296594"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296598,
+          "name": "unix (ubuntu-24.04, debug, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296598"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296600,
+          "name": "unix (macos-15, debug, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "success",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296600"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296632,
+          "name": "unix (ubuntu-24.04, tsan, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296632"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296693,
+          "name": "unix (ubuntu-24.04, debug, gcc)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296693"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296773,
+          "name": "unix (ubuntu-24.04-arm, release, gcc)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "success",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "success",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296773"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296833,
+          "name": "unix (ubuntu-24.04, release, gcc)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "success",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "success",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296833"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296840,
+          "name": "unix (macos-15, tsan, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "success",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296840"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296869,
+          "name": "unix (macos-15, release, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "success",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "success",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "success",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296869"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296871,
+          "name": "unix (ubuntu-24.04-arm, tsan, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296871"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410296979,
+          "name": "unix (ubuntu-24.04-arm, release, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "success",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "success",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296979"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410297013,
+          "name": "unix (ubuntu-24.04-arm, debug, gcc)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410297013"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410297074,
+          "name": "unix (ubuntu-24.04-arm, tsan, gcc)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410297074"
+        },
+        {
+          "conclusion": "success",
+          "id": 115410297215,
+          "name": "unix (ubuntu-24.04-arm, debug, clang)",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Discard checked-in build artifacts"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify native runner architecture"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Homebrew LLVM"
+            },
+            {
+              "conclusion": "success",
+              "name": "Install Linux metadata and debugger tools"
+            },
+            {
+              "conclusion": "success",
+              "name": "Record native runner and toolchain"
+            },
+            {
+              "conclusion": "success",
+              "name": "Probe sanitizer runtimes"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler warnings as errors"
+            },
+            {
+              "conclusion": "success",
+              "name": "Compiler and native execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Bounded fuzz, stress and reproducibility"
+            },
+            {
+              "conclusion": "success",
+              "name": "Differential execution"
+            },
+            {
+              "conclusion": "success",
+              "name": "Native ASAN access hook"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Cross-target assembly"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Large procedure and branches"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload failing metadata evidence"
+            },
+            {
+              "conclusion": "success",
+              "name": "Upload native verification transcript"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
+            }
+          ],
+          "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410297215"
+        }
+      ],
+      "name": "Native codegen",
+      "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985"
+    }
+  ],
+  "status": "verified",
+  "workflow_checkout_revision": "6095ebc0bbfd60c0da12673f83d906842fdc807b"
+}

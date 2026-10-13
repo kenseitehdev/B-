@@ -5,6 +5,26 @@
 #include <stdio.h>
 #include <errno.h>
 
+#ifdef BPP_BENCHMARK_METRICS
+#include "../include/benchmark_metrics.h"
+static BPPBenchmarkMetrics benchmark;
+static int benchmarking;
+void bpp_bench_begin(void){benchmark=(BPPBenchmarkMetrics){0};benchmarking=1;}
+BPPBenchmarkMetrics bpp_bench_end(void){benchmarking=0;return benchmark;}
+void bpp_bench_enter(const void *stack,size_t bytes){
+    if(!benchmarking)return;
+    uintptr_t low=(uintptr_t)stack,high=low+bytes;
+    ++benchmark.native_calls;++benchmark.depth;
+    if(benchmark.depth>benchmark.max_depth)benchmark.max_depth=benchmark.depth;
+    if(!benchmark.lowest_stack||low<benchmark.lowest_stack)benchmark.lowest_stack=low;
+    if(high>benchmark.highest_stack)benchmark.highest_stack=high;
+}
+void bpp_bench_exit(void){if(benchmarking&&benchmark.depth)--benchmark.depth;}
+#define BPP_PROFILE_HELPER() do{if(benchmarking)++benchmark.boundary_helper_calls;}while(0)
+#else
+#define BPP_PROFILE_HELPER() ((void)0)
+#endif
+
 
 struct BPPNativeFrame {
     BLRuntime *vm;
@@ -68,13 +88,13 @@ static void *allocate(size_t n, size_t size) {
     if (size && n > SIZE_MAX / size) { fputs("B++: frame allocation overflow\n", stderr); exit(1); }
     void *p = calloc(n ? n : 1, size); if (!p) { perror("calloc"); exit(1); } return p;
 }
-BPP_HOSTCALL void bpp_a_truth_enable(BPPNativeFrame *f,int reset){native_msan_prepare(f);bl_rt_truth_enable(f->vm,reset);}
-BPP_HOSTCALL int bpp_a_truthy(BPPNativeFrame *f,size_t reg){return bl_value_is_truthy(f->registers[slot(f,reg)]);}
-BPP_HOSTCALL void bpp_a_call_begin(BPPNativeFrame *f){native_msan_prepare(f);f->reserved=(size_t)bl_rt_error_serial(f->vm);}
-BPP_HOSTCALL void bpp_a_call_end(BPPNativeFrame *f,size_t dst){native_msan_prepare(f);BLValue *out=&f->registers[slot(f,dst)];if(out->tag==BLV_NULL&&f->reserved!=bl_rt_error_serial(f->vm))bl_rt_move(out,bl_rt_latest_error(f->vm));}
-BPP_HOSTCALL void bpp_a_integer(BPPNativeFrame *f, size_t dst, long long v) { bl_rt_move(&f->registers[slot(f,dst)], bl_value_int(v)); }
-BPP_HOSTCALL void bpp_a_string(BPPNativeFrame *f, size_t dst, const char *s) { bl_rt_move(&f->registers[slot(f,dst)], bl_value_string_copy(s)); }
-BPP_HOSTCALL void bpp_a_clone_parameters(BPPNativeFrame *f, const BLValue *args, size_t count) {
+BPP_HOSTCALL void bpp_a_truth_enable(BPPNativeFrame *f,int reset){ BPP_PROFILE_HELPER();native_msan_prepare(f);bl_rt_truth_enable(f->vm,reset);}
+BPP_HOSTCALL int bpp_a_truthy(BPPNativeFrame *f,size_t reg){ BPP_PROFILE_HELPER();return bl_value_is_truthy(f->registers[slot(f,reg)]);}
+BPP_HOSTCALL void bpp_a_call_begin(BPPNativeFrame *f){ BPP_PROFILE_HELPER();native_msan_prepare(f);f->reserved=(size_t)bl_rt_error_serial(f->vm);}
+BPP_HOSTCALL void bpp_a_call_end(BPPNativeFrame *f,size_t dst){ BPP_PROFILE_HELPER();native_msan_prepare(f);BLValue *out=&f->registers[slot(f,dst)];if(out->tag==BLV_NULL&&f->reserved!=bl_rt_error_serial(f->vm))bl_rt_move(out,bl_rt_latest_error(f->vm));}
+BPP_HOSTCALL void bpp_a_integer(BPPNativeFrame *f, size_t dst, long long v) { BPP_PROFILE_HELPER(); bl_rt_move(&f->registers[slot(f,dst)], bl_value_int(v)); }
+BPP_HOSTCALL void bpp_a_string(BPPNativeFrame *f, size_t dst, const char *s) { BPP_PROFILE_HELPER(); bl_rt_move(&f->registers[slot(f,dst)], bl_value_string_copy(s)); }
+BPP_HOSTCALL void bpp_a_clone_parameters(BPPNativeFrame *f, const BLValue *args, size_t count) { BPP_PROFILE_HELPER();
     native_msan_prepare(f);
 #if __has_feature(memory_sanitizer)
     if(count)__msan_unpoison(args,count*sizeof(BLValue));
@@ -85,20 +105,20 @@ BPP_HOSTCALL void bpp_a_clone_parameters(BPPNativeFrame *f, const BLValue *args,
         f->local_initialized[local] = 1;
     }
 }
-BPP_HOSTCALL void bpp_a_arg(BPPNativeFrame *f, size_t arg, size_t reg) { f->args[arg] = f->registers[slot(f,reg)]; }
-BPP_HOSTCALL BLValue * bpp_a_args(BPPNativeFrame *f) { return f->args; }
-BPP_HOSTCALL BLValue * bpp_a_destination(BPPNativeFrame *f, size_t r) { bl_rt_move(&f->registers[slot(f,r)], bl_value_null()); return &f->registers[slot(f,r)]; }
-BPP_HOSTCALL void bpp_a_builtin(BPPNativeFrame *f, size_t dst, const char *name, size_t argc, uint64_t line, int column) {
+BPP_HOSTCALL void bpp_a_arg(BPPNativeFrame *f, size_t arg, size_t reg) { BPP_PROFILE_HELPER(); f->args[arg] = f->registers[slot(f,reg)]; }
+BPP_HOSTCALL BLValue * bpp_a_args(BPPNativeFrame *f) { BPP_PROFILE_HELPER(); return f->args; }
+BPP_HOSTCALL BLValue * bpp_a_destination(BPPNativeFrame *f, size_t r) { BPP_PROFILE_HELPER(); bl_rt_move(&f->registers[slot(f,r)], bl_value_null()); return &f->registers[slot(f,r)]; }
+BPP_HOSTCALL void bpp_a_builtin(BPPNativeFrame *f, size_t dst, const char *name, size_t argc, uint64_t line, int column) { BPP_PROFILE_HELPER();
     native_msan_prepare(f);
 #if __has_feature(memory_sanitizer)
     if(argc)__msan_unpoison(f->args,argc*sizeof(BLValue));
 #endif
     BLSite site = {(int)(uint32_t)line,column,(unsigned)(line>>32)}; bl_rt_move(&f->registers[slot(f,dst)], bl_rt_builtin(f->vm, &site, name, f->args, argc));
 }
-BPP_HOSTCALL int bpp_a_failed(BPPNativeFrame *f) { return f->vm->error != NULL; }
+BPP_HOSTCALL int bpp_a_failed(BPPNativeFrame *f) { BPP_PROFILE_HELPER(); return f->vm->error != NULL; }
 /* Value operations only: control flow and user calls are native instructions.
  * Inputs and destinations are compile-time constants in the emitted assembly. */
-BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *f, size_t op, size_t dst, size_t a, size_t b, size_t c, uint64_t line, int column) {
+BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *f, size_t op, size_t dst, size_t a, size_t b, size_t c, uint64_t line, int column) { BPP_PROFILE_HELPER();
     native_msan_prepare(f);
     BLSite site = {(int)(uint32_t)line,column,(unsigned)(line>>32)}; BLValue v = bl_value_null();unsigned long long serial=bl_rt_error_serial(f->vm);
     switch ((BLIROp)op) {
@@ -135,36 +155,36 @@ BPP_HOSTCALL void bpp_a_op(BPPNativeFrame *f, size_t op, size_t dst, size_t a, s
     if(v.tag==BLV_NULL&&bl_rt_error_serial(f->vm)!=serial)v=bl_rt_latest_error(f->vm);
     bl_rt_move(&f->registers[slot(f,dst)], v);
 }
-BPP_HOSTCALL void bpp_a_cleanup_frame(BPPNativeFrame *f) {
+BPP_HOSTCALL void bpp_a_cleanup_frame(BPPNativeFrame *f) { BPP_PROFILE_HELPER();
     native_msan_prepare(f);
     for (size_t j = 0; j < f->root_count; ++j) bl_value_release(f->registers[j]);
     for (size_t j = 0; j < f->local_count; ++j) bl_value_release(f->locals[j]);
 }
-BPP_HOSTCALL void bpp_a_release_object(BLObject *object) {
+BPP_HOSTCALL void bpp_a_release_object(BLObject *object) { BPP_PROFILE_HELPER();
     if (!object) return;
     BLValue value = bl_value_null();
     value.tag = BLV_OBJECT;
     value.as.obj = object;
     bl_value_release(value);
 }
-BPP_HOSTCALL void bpp_a_print_result(const BLValue *value) {
+BPP_HOSTCALL void bpp_a_print_result(const BLValue *value) { BPP_PROFILE_HELPER();
     if (value) bl_rt_print_result(*value);
 }
-BPP_HOSTCALL void bpp_a_report_error(const char *error) {
+BPP_HOSTCALL void bpp_a_report_error(const char *error) { BPP_PROFILE_HELPER();
     if (error) fprintf(stderr, "%s\n", error);
 }
-BPP_HOSTCALL void *bpp_a_allocate_zero(size_t count, size_t size) {
+BPP_HOSTCALL void *bpp_a_allocate_zero(size_t count, size_t size) { BPP_PROFILE_HELPER();
     if (size && count > SIZE_MAX / size) { errno = ENOMEM; return NULL; }
     return calloc(count ? count : 1, size ? size : 1);
 }
-BPP_HOSTCALL void bpp_a_free_memory(void *memory) { free(memory); }
-BPP_HOSTCALL void bpp_a_allocation_failed(void) { perror("calloc"); exit(1); }
-BPP_HOSTCALL void bpp_a_leave(BPPNativeFrame *f, size_t reg, BLValue *out) {
+BPP_HOSTCALL void bpp_a_free_memory(void *memory) { BPP_PROFILE_HELPER(); free(memory); }
+BPP_HOSTCALL void bpp_a_allocation_failed(void) { BPP_PROFILE_HELPER(); perror("calloc"); exit(1); }
+BPP_HOSTCALL void bpp_a_leave(BPPNativeFrame *f, size_t reg, BLValue *out) { BPP_PROFILE_HELPER();
     *out = reg == BL_IR_NONE ? bl_value_null() : f->registers[slot(f,reg)];
     if (reg != BL_IR_NONE) f->registers[slot(f,reg)] = bl_value_null();
     bpp_a_cleanup_frame(f);
 }
-BPP_HOSTCALL int bpp_a_run(BPPNativeProc entry, const char *path, size_t count, int print_result) {
+BPP_HOSTCALL int bpp_a_run(BPPNativeProc entry, const char *path, size_t count, int print_result) { BPP_PROFILE_HELPER();
     BLRuntime vm = {path, NULL}; BLValue result = bl_value_null();
     BLValue *g = allocate(count, sizeof *g); unsigned char *gi = allocate(count, 1);
     entry(&vm, g, gi, NULL, &result); int status = vm.error ? 1 : 0;
@@ -199,7 +219,7 @@ _Static_assert(offsetof(BLRuntime, error) == BPP_CG_RUNTIME_ERROR_OFFSET,
 _Static_assert(offsetof(BLObject, ref_count) == BPP_CG_OBJECT_REF_COUNT_OFFSET,
     "private object reference-count offset changed");
 BPP_HOSTCALL BPPNativeFrame * bpp_n_enter(BLRuntime *vm, BLValue *g, unsigned char *gi,
-    const BLValue *args, const BPPNativeLayout *layout, void *storage) {
+    const BLValue *args, const BPPNativeLayout *layout, void *storage) { BPP_PROFILE_HELPER();
     unsigned char *base = storage;
     size_t cells=layout->cells;
     size_t locals_offset = BPP_CG_HEADER_BYTES + cells * BPP_CG_VALUE_BYTES;
@@ -239,7 +259,7 @@ extern void __tsan_func_entry(const void *);extern void __tsan_func_exit(void);
 #else
 #define BPP_NO_THREAD
 #endif
-BPP_HOSTCALL void bpp_a_access(BPPNativeFrame *f,size_t op,size_t index){
+BPP_HOSTCALL void bpp_a_access(BPPNativeFrame *f,size_t op,size_t index){ BPP_PROFILE_HELPER();
     int write=op!=BL_IR_LOAD_GLOBAL,init=op==BL_IR_INIT_GLOBAL;
 #if defined(__SANITIZE_ADDRESS__) || __has_feature(address_sanitizer)
     if(write)__asan_store16(&f->globals[index]);else __asan_load16(&f->globals[index]);
@@ -251,14 +271,14 @@ BPP_HOSTCALL void bpp_a_access(BPPNativeFrame *f,size_t op,size_t index){
 #endif
     (void)f;(void)index;(void)write;(void)init;
 }
-BPP_NO_THREAD BPP_HOSTCALL void bpp_a_trace_enter(const void *caller){
+BPP_NO_THREAD BPP_HOSTCALL void bpp_a_trace_enter(const void *caller){ BPP_PROFILE_HELPER();
 #if defined(__SANITIZE_THREAD__) || __has_feature(thread_sanitizer)
     __tsan_func_entry(caller);
 #else
     (void)caller;
 #endif
 }
-BPP_NO_THREAD BPP_HOSTCALL void bpp_a_trace_exit(void){
+BPP_NO_THREAD BPP_HOSTCALL void bpp_a_trace_exit(void){ BPP_PROFILE_HELPER();
 #if defined(__SANITIZE_THREAD__) || __has_feature(thread_sanitizer)
     __tsan_func_exit();
 #endif

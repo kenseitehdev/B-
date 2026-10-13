@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     # TSAN process startup on hosted macOS makes the complete sequential suite
     # longer; individual commands and test processes retain their deadlines.
-    timeout-minutes: ${{ matrix.os == 'macos-15' && matrix.mode == 'tsan' && 25 || 15 }}
+    timeout-minutes: ${{ matrix.os == 'macos-15' && matrix.mode == 'tsan' && 35 || 15 }}
     steps:
       - uses: actions/checkout@v4
       - name: Discard checked-in build artifacts
@@ -89,7 +89,7 @@ jobs:
       - name: Differential execution
         run: |
           set -o pipefail
-          python3 tests/run_bounded.py 600 make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} check-differential 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
+          python3 tests/run_bounded.py ${{ matrix.os == 'macos-15' && matrix.mode == 'tsan' && 900 || 600 }} make CC=${{ matrix.compiler }} BUILD_MODE=${{ matrix.mode }} check-differential 2>&1 | tee -a "verification-${{ matrix.os }}-${{ matrix.mode }}-${{ matrix.compiler }}.log"
       - name: Native ASAN access hook
         if: matrix.mode == 'debug'
         run: |
@@ -143,6 +143,7 @@ jobs:
           install: >-
             make
             diffutils
+            mingw-w64-ucrt-x86_64-binutils
             mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-clang
             mingw-w64-ucrt-x86_64-llvm

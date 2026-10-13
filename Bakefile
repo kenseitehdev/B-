@@ -1,0 +1,26 @@
+[project]
+default = app
+compiler = bin/release/bpp
+build-dir = build/bake
+
+[target numbers]
+kind = library
+source = examples/bake/numbers.bpp
+
+[target bridge]
+kind = library
+source = examples/bake/bridge.bpp
+deps = ["numbers"]
+
+[target app]
+kind = executable
+source = examples/bake/main.bpp
+deps = ["bridge"]
+options = ["--print-result"]
+
+[target smoke]
+kind = test
+source = examples/bake/main.bpp
+deps = ["bridge"]
+options = ["--print-result"]
+expect = "42\n"
