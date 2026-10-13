@@ -230,6 +230,8 @@ def differential(compiler, generator, work, cases):
                 dest.mkdir(parents=True, exist_ok=True)
                 (dest / "expected.txt").write_bytes(smallest[1])
                 failure(work, label, smallest[2], smallest[0], original=source)
+        if seed % 8 == 0 or seed == cases:
+            print(f"Differential progress: {seed}/{cases} seeds, both native modes", flush=True)
     print(f"Passed {cases} independently evaluated seeds in optimized and baseline native modes; arithmetic/comparisons/division/modulo/branches/loops/calls/recursion/byte buffers")
 
 
