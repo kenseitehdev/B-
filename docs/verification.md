@@ -65,3 +65,13 @@ profile. Unsupported probes are recorded explicitly. Commands and jobs have
 wall deadlines; superseded PR runs are canceled. Retained transcripts record
 exact revision, host architecture, compiler and mode. Only successful matching
 runs on the final implementation close the platform release gates.
+
+Release 1.0.16 closes these gates with all 18 jobs / 19 execution profiles in
+[native CI run 47](https://github.com/kenseitehdev/B-/actions/runs/38329351396),
+implementation `2c817e176897d0addfd7df624b01d4e136ac1f57`.
+[verification-1.0.16.json](verification-1.0.16.json) retains exact job IDs,
+toolchain identity, sanitizer probe results and transcript artifact digests.
+Hosted macOS TSAN has a 25-minute overall job limit to accommodate its complete
+sequential suite; native/fuzz/stress and differential commands retain 600-second
+deadlines and their per-process resource limits. Other Unix jobs keep a
+15-minute overall limit. Unsupported sanitizer flavors remain explicit results.

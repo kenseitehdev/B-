@@ -44,7 +44,7 @@ C helpers perform the actual application read/write once, so host ASAN/UBSAN,
 TSAN and MSAN instrument those C accesses without a second native memory-event
 callback. The portable checks run before the access, avoiding duplicate host
 reports for the same native fault. Clang's MSAN parameter/return TLS protocol is
-disabled only for this boundary object because assembly cannot populate it;
+disabled for C objects called through the native value/diagnostic boundaries because assembly cannot populate it;
 MSAN instrumentation of its C memory accesses remains enabled. Native byte
 definedness comes from the portable map. This is not a promise of MSAN shadow
 propagation through arbitrary handwritten assembly or foreign calls.
@@ -79,16 +79,15 @@ driver/linker/runtime availability for each host flavor. An unavailable runtime
 is an explicit result, not a passed gate. Native CI retains the compiler
 revision, runner/toolchain identity and test transcript.
 
-| Host / compiler | Local evidence for this change | Remaining gate |
+Final implementation evidence is [native CI run 47](https://github.com/kenseitehdev/B-/actions/runs/38329351396), revision `2c817e176897d0addfd7df624b01d4e136ac1f57`. All 18 jobs / 19 execution profiles pass. Exact job IDs, compiler identities, availability probes and retained transcript artifact digests are in [verification-1.0.16.json](verification-1.0.16.json).
+
+| Host / compiler | Matching-host execution | Availability limits |
 |---|---|---|
-| macOS ARM64 / Homebrew Clang 23 | ASAN/UBSAN and TSAN native fault suites pass | Hosted CI transcript |
-| Linux x86-64 / Clang | CI includes debug, TSAN and MSAN native fault suites | Matching-runner execution |
-| Linux ARM64 / Clang | Instrumented assembly assembles; CI includes debug/TSAN | Matching-runner execution |
-| Windows x86-64 / Clang UCRT64 | Instrumented assembly assembles; CI runs release `check-native-checks` | Native portable checks and host sanitizer-runtime availability/execution |
-| GCC-compatible toolchains | Portable boundary uses GCC-compatible ASAN/TSAN feature macros | Matching-toolchain execution |
+| macOS ARM64 / Homebrew Clang 23.1.0 | Release, ASAN/UBSAN and TSAN; native fault, truth, ABI and differential suites | MSAN unsupported; standalone LSAN smoke recorded separately |
+| Linux x86-64 and ARM64 / Ubuntu Clang 18.1.3 | Release, ASAN/LSAN/UBSAN, TSAN and MSAN; native fault, truth, ABI, differential and stress suites | MSAN is the checked boundary described above |
+| Linux x86-64 and ARM64 / GCC 13.3.0 | Release, ASAN/LSAN/UBSAN and TSAN; native fault, truth, ABI, differential and stress suites | MSAN unsupported with GCC |
+| Windows x86-64 / UCRT64 Clang 23.1.3 | Release, portable native diagnostics, UBSAN trap debug profile and live PDB/LLDB checks | ASAN runtime unavailable; LSAN/TSAN unsupported by this driver; MSAN unsupported |
 
-MSAN is rejected on macOS, Windows and non-Clang toolchains. Standalone LSAN
-availability is probed independently; the portable leak check does not depend
-on standalone LSAN support.
+Windows UBSAN smoke links with the available runtime, but recoverable handler symbols required by the full build are unavailable. Its debug execution profile therefore uses `-fsanitize-trap=undefined`; an intentional C overflow verifies the trap is active. This does not claim Windows ASAN, LSAN or TSAN execution.
 
-Remaining cross-platform verification fixes and final-revision evidence are scheduled for 1.0.16 in `todo.md`. Hosted Linux x86-64 MSAN native tests, differential execution and stress passed in [run 16](https://github.com/kenseitehdev/B-/actions/runs/38204275312/job/114664184601); that result is tied to the recorded revision and does not certify subsequent fixes or other targets.
+MSAN is rejected on macOS, Windows and non-Clang toolchains. Standalone LSAN availability is probed independently; the portable leak check does not depend on standalone LSAN support. Native execution evidence applies to the recorded implementation and toolchains, rather than every possible toolchain version.
