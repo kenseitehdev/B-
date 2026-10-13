@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "host": {
+    "schema": 1,
+    "host_target": "linux-x86_64",
+    "host_supported": true,
+    "sanitizers": "",
+    "host_cc": "gcc",
+    "optimization": "-O2",
+    "runtime_objects": [
+      "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+      "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+      "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+      "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+      "/home/runner/work/B-/B-/build/release/obj/src/truth.o"
+    ]
+  },
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "objects": [
+    {
+      "target": "macos-arm64",
+      "backend": "values",
+      "triple": "arm64-apple-macosx13.0.0",
+      "sha256": "07b6e62b28efbba2583c00b7b7c45f4624f860bfa0d887d5f9ca6c4b0de1a44d"
+    },
+    {
+      "target": "macos-arm64",
+      "backend": "raw",
+      "triple": "arm64-apple-macosx13.0.0",
+      "sha256": "16972a6a3e2917fbea08931cfb98c15f43b6874831b3c7e30f98d82a7e5c85c1"
+    },
+    {
+      "target": "linux-x86_64",
+      "backend": "values",
+      "triple": "x86_64-unknown-linux-gnu",
+      "sha256": "8ade7378b54fec9541772862a73d71445ab9c7cd26b8f9ffcaa454803abf7fb9"
+    },
+    {
+      "target": "linux-x86_64",
+      "backend": "raw",
+      "triple": "x86_64-unknown-linux-gnu",
+      "sha256": "a365c2d6c69306d4991f69551ec926d759f85dbe53a92acc5756a078e08a34e5"
+    },
+    {
+      "target": "linux-arm64",
+      "backend": "values",
+      "triple": "aarch64-unknown-linux-gnu",
+      "sha256": "db7a3514efd65d8333f2b275522d4ad49cc2c65f663139db487700524ca3923c"
+    },
+    {
+      "target": "linux-arm64",
+      "backend": "raw",
+      "triple": "aarch64-unknown-linux-gnu",
+      "sha256": "c5c4dbf47589887c8fc8b02df704d8ad3d0752ff0c558752c9668c1781193042"
+    },
+    {
+      "target": "windows-x86_64",
+      "backend": "values",
+      "triple": "x86_64-w64-windows-gnu",
+      "sha256": "d91ee8f528e2c61987a06d9255d99dd4cadce5fb0dfd581ab049027e6b07538d"
+    },
+    {
+      "target": "windows-x86_64",
+      "backend": "raw",
+      "triple": "x86_64-w64-windows-gnu",
+      "sha256": "6c0d054dc0baa6aa3ddc98801e5ca29ffa9c17e1d98da11663ff04d07ab27fdd"
+    }
+  ],
+  "path_checks": [
+    "spaces",
+    "unicode",
+    "temporary directory",
+    "debug sidecar",
+    "native startup",
+    "root and imported source overwrite rejection",
+    "hardlink source identity",
+    "imported debug-snapshot overwrite rejection",
+    "root debug-snapshot overwrite rejection"
+  ],
+  "tools": {
+    "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+    "llvm-readobj": "Ubuntu LLVM version 18.1.3"
+  }
+}

@@ -441,7 +441,7 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
         free(dirty);free(before);free(kind);free(constant);free(loaded_phys);free(dirty_phys);free(value);free(plans);free(layouts);return 0;
     }
     bpp_asm_source(o,m);
-    fputs("// B++ native codegen; static ABI revision 1 / private frame revision 2\n.section __TEXT,__text,regular,pure_instructions\n.p2align 2\n",o);
+    fprintf(o,"// B++ native codegen; static ABI revision 2 / private frame revision 2\n%s\n.p2align 2\n",bpp_target_capabilities(BPP_MACOS_ARM64)->text_section);
     if(m->debug_path)fputs("L_bpp_debug_start:\n",o);
     if(!m->emit_library){Emitter launcher={0};launcher.out=o;launcher.target=target;launcher.native_release=1;launcher.truth_states=m->truth_states;emit_native_platform_leaves(o,target);emit_native_main(&launcher,m->global_count,print_result);}
     for(size_t f=0;f<m->function_count;++f){const BLIRFunction *fn=&m->functions[f];Emitter e={0};e.out=o;e.f=f;e.target=target;e.fn=fn;e.layout=layouts[f];e.plan=&plans[f];e.dirty=dirty;e.before=before;e.kind=kind;e.constant=constant;e.loaded_phys=loaded_phys;e.value=value;e.asm_comments=m->emit_asm_comments;e.instrument_native=m->instrument_native;e.native_release=!m->emit_library&&!m->truth_states&&!m->static_library_count;e.truth_states=m->truth_states||m->emit_library||m->static_library_count;e.dirty_phys=dirty_phys;
@@ -485,11 +485,11 @@ int bl_emit_arm64(BLIRModule *m,FILE *o,int print_result,BPPTarget target) {
         arm_save_epilogue(o,&plans[f]);if(m->debug_path)fprintf(o,"L_proc_end_%zu:\n",f);if(m->emit_asm_comments){fprintf(o,"    // B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",fn->name,e.emitted_spills,e.emitted_reloads,e.emitted_rematerializations);access_traffic(o,fn);}bpp_value_facts_destroy(&e.facts);free(e.fact_regs);free(e.fact_locals);free(e.fact_globals);
     }
     if(m->debug_path)fputs("L_bpp_debug_end:\n",o);
-    fputs(".section __TEXT,__cstring,cstring_literals\n",o);literal(o,"L_path",m->path);
+    fprintf(o,"%s\n",bpp_target_capabilities(BPP_MACOS_ARM64)->cstring_section);literal(o,"L_path",m->path);
     if(!m->emit_library){literal(o,"L_native_newline","\n");}
     for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];if(i->text){char s[96];snprintf(s,sizeof s,"L_text_%zu_%zu_%zu",f,b,k);literal(o,s,i->text);}}
     if(m->emit_library)for(size_t f=1;f<m->function_count;++f){char label[64];snprintf(label,sizeof label,"L_abi_name_%zu",f);literal(o,label,m->functions[f].name);}
-    fputs(".section __TEXT,__const\n.p2align 3\n",o);
+    fprintf(o,"%s\n.p2align 3\n",bpp_target_capabilities(BPP_MACOS_ARM64)->readonly_section);
     for(size_t f=0;f<m->function_count;++f){
         size_t flags=layout_flags(&plans[f],&m->functions[f]);
         fprintf(o,"L_layout_%zu:\n    .quad %zu,%zu,%zu,%zu,%zu,%zu,%zu,%zu\n",f,m->functions[f].param_count,m->functions[f].register_count,m->functions[f].local_count,layouts[f].maxargs,plans[f].cell_count,plans[f].local_slot_count,plans[f].root_cell_count,flags);

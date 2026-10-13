@@ -391,7 +391,7 @@ static void aaddress(const Raw *raw, const char *dst, const char *base, size_t o
     aimmediate(raw->out, "x9", offset); fprintf(raw->out, "    add %s, %s, x9\n", dst, base);
 }
 static const char *asymbol(const Raw *raw, const char *name) {
-    static char symbol[80]; snprintf(symbol, sizeof symbol, "%s%s", raw->macho ? "_" : "", name); return symbol;
+    static char symbol[80]; snprintf(symbol, sizeof symbol, "%s%s", bpp_target_capabilities(raw->target)->symbol_prefix, name); return symbol;
 }
 static void acall(const Raw *raw, const char *name) { fprintf(raw->out, "    bl %s\n", asymbol(raw, name)); }
 static void asave(const Raw *raw){
@@ -576,12 +576,12 @@ int bpp_emit_raw_native(BLIRModule *module, FILE *out, int print_result, BPPTarg
     bpp_asm_source(out,module);
     Raw raw={0};raw.out=out;raw.module=module;raw.target=target;raw.windows=cap->format==BPP_FORMAT_COFF;raw.arm64=cap->isa==BPP_ISA_ARM64;raw.macho=cap->format==BPP_FORMAT_MACHO;
     if(raw.windows)bpp_asm_codeview_source(out,module);
-    if(raw.arm64) fputs(raw.macho?".section __TEXT,__text,regular,pure_instructions\n.p2align 2\n":".text\n.p2align 2\n",out);else fputs(".text\n.p2align 4\n",out);
+    fprintf(out,"%s\n.p2align %u\n",cap->text_section,raw.arm64?2:4);
     int dwarf=module->debug_path&&(cap->format==BPP_FORMAT_MACHO||cap->format==BPP_FORMAT_ELF);
     if(dwarf)fputs("L_bpp_debug_start:\n",out);
     for(size_t f=0;f<module->function_count;++f){raw.function=f;raw.fn=&module->functions[f];if(raw.arm64)aemit_function(&raw);else xemit_function(&raw);}
     if(raw.arm64)aemit_main(&raw,print_result);else xemit_main(&raw,print_result);
-    if(module->instrument_native){fputs(raw.macho?".section __TEXT,__cstring,cstring_literals\n":raw.windows?".section .rdata,\"dr\"\n":".section .rodata\n",out);
+    if(module->instrument_native){fprintf(out,"%s\n",cap->cstring_section);
         size_t count=module->source_file_count?module->source_file_count:1;
         for(size_t f=0;f<count;++f){fprintf(out,"L_s_source_%zu:\n    .asciz ",f);json_text(out,module->source_file_count?module->source_files[f].path:module->path);fputc('\n',out);}
     }

@@ -80,7 +80,7 @@ endif
 SRCS := src/main.c src/compiler.c src/lexer.c src/parser.c src/ir.c src/ir_effects.c src/isel.c src/emit_arm64.c src/regalloc.c src/registers.c src/target.c src/range.c src/optimize.c src/emit_x64.c src/raw_native.c src/locations.c src/value_facts.c src/strict_runtime.c
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d) $(OBJDIR)/src/runtime.d $(OBJDIR)/src/value.d $(OBJDIR)/src/codegen_runtime.d
-.PHONY: benchmark-native benchmark-native-smoke check-bake all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-native-sanitizer check-native-checks check-sanitizer-availability check-verification check-fuzz check-reproducible check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
+.PHONY: check-platform benchmark-native benchmark-native-smoke check-bake all debug tsan msan release check check-native check-arm64 check-msabi check-targets check-static-abi check-xf-static-lib check-runtime-boundary check-strict-native-runtime check-differential check-stress check-asan-hook check-native-sanitizer check-native-checks check-sanitizer-availability check-verification check-fuzz check-reproducible check-msan check-raw-core check-debug-metadata benchmark benchmark-smoke test targets clean
 RUNTIME_OBJS := $(OBJDIR)/src/runtime.o $(OBJDIR)/src/value.o $(OBJDIR)/src/codegen_runtime.o $(OBJDIR)/src/bpp_abi.o $(OBJDIR)/src/truth.o
 DEPS += $(RUNTIME_OBJS:.o=.d)
 NATIVE_SANITIZER_OBJ := $(OBJDIR)/src/native_sanitizer.o
@@ -137,6 +137,8 @@ check-debug-metadata: $(BIN) tests/check_debug_metadata.sh
 	$(DEBUGGER_TEST_ENV) sh tests/check_debug_metadata.sh ./$(BIN)
 check-strict-native-runtime: $(BIN) tests/check_strict_native_runtime.sh tests/strict_native_runtime.bpp
 	BPP_STRICT_CC="$(CC)" sh tests/check_strict_native_runtime.sh ./$(BIN)
+check-platform: $(BIN)
+	$(PYTHON) tests/check_platform.py ./$(BIN)
 check-targets: $(BIN)
 	sh tests/check_targets.sh ./$(BIN)
 targets: $(BIN)

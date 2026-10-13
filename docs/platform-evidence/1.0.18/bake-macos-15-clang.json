@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "host": {
+    "schema": 1,
+    "host_target": "macos-arm64",
+    "host_supported": true,
+    "sanitizers": "",
+    "host_cc": "clang",
+    "optimization": "-O2",
+    "runtime_objects": [
+      "/Users/runner/work/B-/B-/build/release/obj/src/runtime.o",
+      "/Users/runner/work/B-/B-/build/release/obj/src/value.o",
+      "/Users/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+      "/Users/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+      "/Users/runner/work/B-/B-/build/release/obj/src/truth.o"
+    ]
+  },
+  "platform": "macOS-15.7.9-arm64-arm-64bit-Mach-O",
+  "objects": [
+    {
+      "target": "macos-arm64",
+      "backend": "values",
+      "triple": "arm64-apple-macosx13.0.0",
+      "sha256": "be6224299b5e6a4962232d934e1a958836d3b4644614e93b4cd37bd8ea263087"
+    },
+    {
+      "target": "macos-arm64",
+      "backend": "raw",
+      "triple": "arm64-apple-macosx13.0.0",
+      "sha256": "820565641d98cd4cef5e257379fd19cf66312a54639e8112f466202c1088e1c6"
+    },
+    {
+      "target": "linux-x86_64",
+      "backend": "values",
+      "triple": "x86_64-unknown-linux-gnu",
+      "sha256": "ff80f662447a1235ecc96583140149d43a6f40608e81f3a17b56246e870b4cf8"
+    },
+    {
+      "target": "linux-x86_64",
+      "backend": "raw",
+      "triple": "x86_64-unknown-linux-gnu",
+      "sha256": "0af8ac1bfa841948ee162fcb4120ea99705c3c6f1e6afdaabb28e1a5e384ab55"
+    },
+    {
+      "target": "linux-arm64",
+      "backend": "values",
+      "triple": "aarch64-unknown-linux-gnu",
+      "sha256": "bf6cf60d4f0345c67b176a946aed1edd14c137c6bd65d4b0fcef391af71e76c1"
+    },
+    {
+      "target": "linux-arm64",
+      "backend": "raw",
+      "triple": "aarch64-unknown-linux-gnu",
+      "sha256": "d94f92fe219adb2951082336be14178d0b254034b5f0a82944c1beecaf90486d"
+    },
+    {
+      "target": "windows-x86_64",
+      "backend": "values",
+      "triple": "x86_64-w64-windows-gnu",
+      "sha256": "a382f99539ce1bdc4a695a753ee4167a455f819bff8437ac4ecffa2f15d10c80"
+    },
+    {
+      "target": "windows-x86_64",
+      "backend": "raw",
+      "triple": "x86_64-w64-windows-gnu",
+      "sha256": "e70d8d69cde2c689390e9df351becf778747729ce5e1e6b2c2e13252b15a2fc7"
+    }
+  ],
+  "path_checks": [
+    "spaces",
+    "unicode",
+    "temporary directory",
+    "debug sidecar",
+    "native startup",
+    "root and imported source overwrite rejection",
+    "hardlink source identity",
+    "imported debug-snapshot overwrite rejection",
+    "root debug-snapshot overwrite rejection"
+  ],
+  "sdk_version": "15.5",
+  "tools": {
+    "clang": "Homebrew clang version 23.1.0",
+    "llvm-readobj": "Homebrew LLVM version 23.1.0"
+  }
+}

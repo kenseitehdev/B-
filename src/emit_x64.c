@@ -401,6 +401,7 @@ static void emit_native_main(X *e,size_t global_count,int print){
 }
 int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     BPPTarget target=win?BPP_WINDOWS_X64:BPP_LINUX_X64;
+    const BPPBackendCapabilities *cap=bpp_target_capabilities(target);
     if(!bl_ir_validate_pass(m,"x86-64 backend input")||!bpp_target_validate_ir(m,target,"x86-64"))return 0;
     X *all=calloc(m->function_count,sizeof *all);
     if(!all)return 0;
@@ -428,7 +429,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     if(ok){
         bpp_asm_source(o,m);
         if(win&&m->debug_path)bpp_asm_codeview_source(o,m);
-        fputs("# B++ native x86-64, static ABI revision 2 / private frame revision 2\n.text\n",o);
+        fprintf(o,"# B++ native x86-64, static ABI revision 2 / private frame revision 2\n%s\n",cap->text_section);
         if(!win&&m->debug_path)fputs("L_bpp_debug_start:\n",o);
         X *e=&all[0];
         if(!m->emit_library){emit_native_platform_leaves(o,win);emit_native_main(e,m->global_count,print);}
@@ -443,7 +444,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
                 if(s==0)fputs("    .cfi_def_cfa_offset 16\n    .cfi_offset %rbp, -16\n    movq %rsp, %rbp\n    .cfi_def_cfa_register %rbp\n",o);
                 else fprintf(o,"    .cfi_offset %s, -%zu\n",name,16+s*8);
             }}
-            if(win){fprintf(o,"    movq $%zu, %%rax\n    call ___chkstk_ms\n    movq $%zu, %%rax\n    subq %%rax, %%rsp\n    .seh_stackalloc %zu\n    leaq 64(%%rsp), %%r12\n    .seh_setframe %%r12, 64\n    .seh_endprologue\n",alloc+4096,alloc,alloc);fprintf(o,"    movq %zu(%%rsp), %%rbp\n",alloc+e->saved_count*8+40);}
+            if(win){fprintf(o,"    movq $%zu, %%rax\n    call %s\n    movq $%zu, %%rax\n    subq %%rax, %%rsp\n    .seh_stackalloc %zu\n    leaq 64(%%rsp), %%r12\n    .seh_setframe %%r12, 64\n    .seh_endprologue\n",alloc+cap->stack_probe_page,cap->stack_probe_symbol,alloc,alloc);fprintf(o,"    movq %zu(%%rsp), %%rbp\n",alloc+e->saved_count*8+40);}
             else{fprintf(o,"    movq %%r8, -%zu(%%rbp)\n",e->saved_count*8);size_t remaining=alloc;while(remaining>=4096){fputs("    subq $4096, %rsp\n    movb $0, (%rsp)\n",o);remaining-=4096;}if(remaining)fprintf(o,"    subq $%zu, %%rsp\n",remaining);}
             fputs("    leaq 64(%rsp), %r12\n",o);frame_init(e);
             if(m->benchmark_metrics){arg(e,0,"%rsp",0);number(e,1,alloc+e->saved_count*8);call(e,"bpp_bench_enter");}
@@ -487,7 +488,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
     if(e->asm_comments){fprintf(o,"    # B++ allocation-traffic function=%s spills=%zu reloads=%zu rematerializations=%zu\n",e->fn->name,e->emitted_spills,e->emitted_reloads,e->emitted_rematerializations);access_traffic(o,e->fn);}
         }
         if(!win&&m->debug_path)fputs("L_bpp_debug_end:\n",o);
-        fputs(win?".section .rdata,\"dr\"\n":".section .rodata\n",o);literal(o,"L_path",m->path);
+        fprintf(o,"%s\n",cap->cstring_section);literal(o,"L_path",m->path);
         if(!m->emit_library){literal(o,"L_native_fmt_int","%lld\n");literal(o,"L_native_fmt_buffer","<buffer size=%zu owned=%d>\n");literal(o,"L_native_fmt_array","<array size=%zu owned=%d>\n");literal(o,"L_native_newline","\n");}
         for(size_t f=0;f<m->function_count;++f)for(size_t b=0;b<m->functions[f].block_count;++b)for(size_t k=0;k<m->functions[f].blocks[b].count;++k){const BLIRInst *i=&m->functions[f].blocks[b].insts[k];
     if(i->text){char label[96];snprintf(label,sizeof label,"L_text_%zu_%zu_%zu",f,b,k);literal(o,label,i->text);}}
@@ -500,7 +501,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
         }
         if(win)bpp_asm_codeview_symbols(o,m,0);
         else if(m->debug_path)bpp_asm_compile_unit(o,m,target,"L_bpp_debug_start","L_bpp_debug_end","L_proc_","L_proc_end_","");
-        if(!win)fputs(".section .note.GNU-stack,\"\",@progbits\n",o);
+        if(cap->nonexec_stack[0])fprintf(o,"%s\n",cap->nonexec_stack);
     }
             for(size_t f=0;f<m->function_count;++f){bpp_reg_plan_destroy(&all[f].plan);bpp_value_facts_destroy(&all[f].facts);free(all[f].dirty);free(all[f].before);free(all[f].kind);free(all[f].constant);free(all[f].loaded_phys);free(all[f].value);free(all[f].dirty_phys);free(all[f].fact_regs);free(all[f].fact_locals);free(all[f].fact_globals);}free(all);return ok&&!ferror(o);
 }

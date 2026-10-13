@@ -5,29 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* All limits are byte displacements.  ADRP rounds both addresses down to a
- * 4 KiB page before applying its signed 21-bit page displacement. */
-static const BPPRangeLimit arm64_macho[] = {
-    {BPP_RANGE_ARM64_ADRP_PAGE,"arm64-adrp-page","ARM64_RELOC_PAGE21/ARM64_RELOC_PAGEOFF12",-4294967296LL,4294963200LL},
-    {BPP_RANGE_ARM64_LITERAL19,"arm64-literal19","ARM64_RELOC_BRANCH19",-1048576LL,1048572LL},
-    {BPP_RANGE_ARM64_BRANCH26,"arm64-branch26","ARM64_RELOC_BR26",-134217728LL,134217724LL},
-    {BPP_RANGE_ARM64_COND19,"arm64-cond19","ARM64_RELOC_BRANCH19",-1048576LL,1048572LL}
-};
-static const BPPRangeLimit arm64_elf[] = {
-    {BPP_RANGE_ARM64_ADRP_PAGE,"arm64-adrp-page","R_AARCH64_ADR_PREL_PG_HI21/R_AARCH64_ADD_ABS_LO12_NC",-4294967296LL,4294963200LL},
-    {BPP_RANGE_ARM64_LITERAL19,"arm64-literal19","R_AARCH64_LD_PREL_LO19",-1048576LL,1048572LL},
-    {BPP_RANGE_ARM64_BRANCH26,"arm64-branch26","R_AARCH64_JUMP26/R_AARCH64_CALL26",-134217728LL,134217724LL},
-    {BPP_RANGE_ARM64_COND19,"arm64-cond19","R_AARCH64_CONDBR19",-1048576LL,1048572LL}
-};
-static const BPPRangeLimit x64_elf[] = {
-    {BPP_RANGE_X64_REL32,"x86-64-rel32","R_X86_64_PC32/R_X86_64_PLT32",-2147483648LL,2147483647LL},
-    {BPP_RANGE_X64_ABS64,"x86-64-abs64","R_X86_64_64",LLONG_MIN,LLONG_MAX}
-};
-static const BPPRangeLimit x64_coff[] = {
-    {BPP_RANGE_X64_REL32,"x86-64-rel32","IMAGE_REL_AMD64_REL32",-2147483648LL,2147483647LL},
-    {BPP_RANGE_X64_ABS64,"x86-64-abs64","IMAGE_REL_AMD64_ADDR64",LLONG_MIN,LLONG_MAX}
-};
-
 const char *bpp_range_kind_name(BPPRangeKind kind) {
     static const char *names[] = {"arm64-adrp-page","arm64-literal19","arm64-branch26","arm64-cond19","x86-64-rel32","x86-64-abs64"};
     return (unsigned)kind < sizeof names / sizeof names[0] ? names[kind] : "unknown-range";
@@ -35,12 +12,8 @@ const char *bpp_range_kind_name(BPPRangeKind kind) {
 
 const BPPRangeLimit *bpp_target_range_limits(BPPTarget target,size_t *count) {
     const BPPBackendCapabilities *cap=bpp_target_capabilities(target);
-    const BPPRangeLimit *items=NULL;size_t n=0;
-    if(cap&&cap->isa==BPP_ISA_ARM64) { items=cap->format==BPP_FORMAT_MACHO?arm64_macho:arm64_elf; n=4; }
-    else if(cap&&cap->format==BPP_FORMAT_COFF) { items=x64_coff; n=2; }
-    else if(cap) { items=x64_elf; n=2; }
-    if(count)*count=n;
-    return items;
+    if(count)*count=cap?cap->range_count:0;
+    return cap?cap->ranges:NULL;
 }
 
 static const BPPRangeLimit *range_limit(BPPTarget target,BPPRangeKind kind) {

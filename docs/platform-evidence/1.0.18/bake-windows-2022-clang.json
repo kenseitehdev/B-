@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "host": {
+    "schema": 1,
+    "host_target": "windows-x86_64",
+    "host_supported": true,
+    "sanitizers": "",
+    "host_cc": "clang",
+    "optimization": "-O2",
+    "runtime_objects": [
+      "D:/a/B-/B-/build/release/obj/src/runtime.o",
+      "D:/a/B-/B-/build/release/obj/src/value.o",
+      "D:/a/B-/B-/build/release/obj/src/codegen_runtime.o",
+      "D:/a/B-/B-/build/release/obj/src/bpp_abi.o",
+      "D:/a/B-/B-/build/release/obj/src/truth.o"
+    ]
+  },
+  "platform": "Windows-2022Server-10.0.20348-SP0",
+  "objects": [
+    {
+      "target": "macos-arm64",
+      "backend": "values",
+      "triple": "arm64-apple-macosx13.0.0",
+      "sha256": "6b02ba037c560ebb41300147db110554d6b2db4408c5d9ea4503a2345afbb343"
+    },
+    {
+      "target": "macos-arm64",
+      "backend": "raw",
+      "triple": "arm64-apple-macosx13.0.0",
+      "sha256": "477f6dd57f57f67e627b8748089447c3b1228175aad7e308510041b88d1d5bf4"
+    },
+    {
+      "target": "linux-x86_64",
+      "backend": "values",
+      "triple": "x86_64-unknown-linux-gnu",
+      "sha256": "66a63173b561c41585a410e2ac1dfc79a4a8ae37864f49a3a22e733111fe64d6"
+    },
+    {
+      "target": "linux-x86_64",
+      "backend": "raw",
+      "triple": "x86_64-unknown-linux-gnu",
+      "sha256": "10ae4a6cdf10ea136b8f03f6081b13c723eecccb0a403f3a502103fed2039ca2"
+    },
+    {
+      "target": "linux-arm64",
+      "backend": "values",
+      "triple": "aarch64-unknown-linux-gnu",
+      "sha256": "94fc6a7e731e3ca907fbc96801c7debbade4de8745eb612744e11aff5ab49d95"
+    },
+    {
+      "target": "linux-arm64",
+      "backend": "raw",
+      "triple": "aarch64-unknown-linux-gnu",
+      "sha256": "7d68cf0de2ef2e2a282dfc1506054619f515ab1bdcf330596dee9c40ed7def3f"
+    },
+    {
+      "target": "windows-x86_64",
+      "backend": "values",
+      "triple": "x86_64-w64-windows-gnu",
+      "sha256": "75f9e9e447c43e93dbe88dd8b48eca9d6fe114d119666e51ad8cc1ae3e6f253d"
+    },
+    {
+      "target": "windows-x86_64",
+      "backend": "raw",
+      "triple": "x86_64-w64-windows-gnu",
+      "sha256": "3b7f58ba4e10269e2fa46f65c52126c50867ec1ed9c539cb713762e50788b3c5"
+    }
+  ],
+  "path_checks": [
+    "spaces",
+    "unicode",
+    "temporary directory",
+    "debug sidecar",
+    "native startup",
+    "root and imported source overwrite rejection",
+    "hardlink source identity",
+    "imported debug-snapshot overwrite rejection",
+    "root debug-snapshot overwrite rejection",
+    "drive letters",
+    "case-only alias",
+    "mixed separators",
+    "backslash static manifests"
+  ],
+  "tools": {
+    "clang": "clang version 23.1.3 (https://github.com/msys2/MINGW-packages 067886dba977a6b4c97dfedfb25286b5eda55620)",
+    "llvm-readobj": "LLVM (http://llvm.org/):"
+  }
+}

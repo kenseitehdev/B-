@@ -1,25 +1,31 @@
 # B++ compiler roadmap and target checklist
 
-**Checklist revision:** 1.6  
-**Status snapshot:** 2026-10-05  
+**Checklist revision:** 1.7
+**Status snapshot:** 2026-10-13
 **Codegen target set:** macOS ARM64, Linux x86-64, Linux ARM64, Windows x86-64.
 
 This file tracks work by roadmap stage and native platform. “Implemented” means
 code exists. “Cross-assembled” means an object was produced for a foreign target.
 “Native verified” means the executable was built and run on that target OS and
-architecture. Those are different gates. Do not mark an OS verified because its
+architecture. Those are different gates. The platform/version table and early narrative below are historical snapshots; the current all-four-host evidence is `docs/verification-1.0.17.json`. Do not mark an OS verified because its
 assembly assembled on another host or because a calling-convention bridge passed.
 
 **1.0.15 backend update:** the C output backend, `--emit-c`, and `--backend c` are removed. Native optimized and baseline fixtures use fixed expectations and an independent seeded evaluator. Earlier C/native suite entries below remain historical evidence.
 
 ## Platform/version matrix
 
-| Platform profile | Target triple | Codegen implementation | Cross-assembly | Native release execution | Native debug/sanitizers |
-|---|---|---|---|---|---|
-| macOS ARM64 v1 | `macos-arm64` / Mach-O | Implemented | Passed | **Passed on Apple Silicon** | Pending for this snapshot |
-| Linux x86-64 v1 | `linux-x86_64` / ELF | Implemented | Passed | **Passed on Linux x86-64** | ASAN/UBSAN and TSAN passed; LSAN scan unavailable in this environment |
-| Linux ARM64 v1 | `linux-arm64` / ELF | Implemented | Passed | Pending native Linux ARM64 | Pending native Linux ARM64 |
-| Windows x86-64 v1 | `windows-x86_64` / COFF/PE | Implemented | Passed | Pending native Windows x86-64 | Pending toolchain/runtime check |
+Verified 1.0.17 baseline (the new 1.0.18 gate evidence is recorded separately):
+
+| Platform profile | Target / object format | Cross-assembly | Native release | Debug/sanitizer evidence |
+|---|---|---|---|---|
+| macOS ARM64 | `macos-arm64` / Mach-O | Passed | Passed | ASAN/UBSAN and TSAN pass; availability recorded per runtime |
+| Linux x86-64 | `linux-x86_64` / ELF | Passed | Passed | Clang/GCC debug/TSAN and checked-boundary MSAN pass; per-runtime availability recorded |
+| Linux ARM64 | `linux-arm64` / ELF | Passed | Passed | Clang/GCC debug/TSAN and checked-boundary MSAN pass; per-runtime availability recorded |
+| Windows x86-64 | `windows-x86_64` / COFF/PE | Passed | Passed | Supported UBSAN trap/debug profile passes; unsupported flavors remain explicit |
+
+Exact compiler/runtime/job results: `docs/verification-1.0.17.json`.
+
+### Historical implementation notes
 
 **macOS evidence:** Jay ran `make BUILD_MODE=release test check-differential check-targets check-stress` on Apple Silicon. The run passed unit tests, 48 C cases, 48 native cases, 64 seeded comparisons in optimized and baseline modes, cross-assembly of all four targets in both modes, and a 5,000-update large-procedure run.
 
@@ -66,7 +72,7 @@ Current implementation: up to eleven ARM64 integer payload candidates (eight cal
 - [x] Decide that tags and ownership stay canonical in memory while payloads may be cached; document writeback, helper visibility, and reload rules for tag/payload coherence.
 - [x] Add explicit allocation classes for canonical tagged pairs, integer/null immediates, and same-block integer expressions proven safe to rematerialize. Checked overflow, division by zero, `INT64_MIN / -1`, dynamic inputs, and effectful/helper operations stay unclassified. Proven values are metadata used by native payload lowering: each native use recreates its immediate instead of consuming a payload-cache register. Dead pure values may be omitted under section 1.3, while observable values retain canonical cells.
 - [x] Generate a per-function save set from actual allocations instead of always saving the current fixed register set.
-- [ ] Verify stack alignment, callee-saved restoration, scratch-register ownership, and call-clobber behavior in nested and recursive calls on every native target. This revision passes Linux x86-64 release, ASAN/UBSAN debug (LSan scanning disabled in this sandbox), and TSAN. The Windows `ms_abi` bridge passes 53 cases here. Native macOS ARM64, Linux ARM64, and Windows x86-64 execution still need matching CI runner results. CI rejects runners with the wrong architecture and uploads a per-run transcript containing the commit SHA, runner identity, toolchain versions, and every test command; this item stays open until those native jobs pass.
+- [x] Verify stack alignment, callee-saved restoration, scratch-register ownership, and call-clobber behavior in nested and recursive calls on every native target. Matching-host 1.0.16 and 1.0.17 matrices pass all eighteen native jobs, with architecture checks and retained transcripts; see `docs/verification-1.0.17.json`. The bridge is retained as a bridge test, separate from native Windows evidence.
 - [x] Test zero/one capacity, exact callee-save capacity, pool-plus-one spills, and high-pressure live values across runtime/user calls, joins, loop backedges, returns, and checked-operation error/helper paths for all four target descriptions. Runtime recursion and cleanup-error cases run through the host test suite and Windows MS ABI suite when available.
 
 ### 2. Actual spill management
@@ -351,16 +357,18 @@ Evidence: [Bake native run 7](https://github.com/kenseitehdev/B-/actions/runs/38
 
 ### 18. Target support and platform-specific integration
 
-All four emitters have matching-host native release evidence in the 1.0.16 matrix: macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64. Keep each target's object, runtime, linker, debugger, and sanitizer checks separate. Broader platform policy and isolated benchmarks below remain future work.
+**Target release:** 1.0.18. Work is based on the merged 1.0.17 baseline. All eight target/platform items below pass matching-host verification in Bake/platform run 10; native Windows and all four release profiles also pass in native run 58. All eighteen broader native regression jobs pass too, including macOS TSAN. All 24 CI jobs pass; the PR is ready for review/merge. Evidence: `docs/verification-1.0.18.json`. See `docs/platform-support.md`.
 
-- [ ] Keep target IDs, triples, object formats, symbol prefixes, sections, relocations, stack rules and helper conventions in one target descriptor.
-- [ ] Validate host-target detection on Apple Silicon, Linux x86-64/ARM64, and Windows x86-64; reject unsupported hosts clearly.
-- [ ] Test spaces, Unicode, drive letters, case-insensitive paths, temp files, sidecar paths and source-overwrite protection on Windows.
-- [ ] Validate Mach-O relocations/unwind/debug info on macOS tooling.
-- [ ] Validate ELF relocations, GNU-stack markings, CFI, stack probes and debug info on Linux x86-64/ARM64.
-- [ ] Validate PE/COFF sections, SEH unwind data, chkstk, startup, imports, CRT and debug information on Windows x86-64.
-- [ ] Decide minimum OS/SDK/toolchain versions and document supported compiler drivers.
-- [ ] Keep macOS Intel, Windows ARM64 and other architectures explicitly unsupported until separately designed and tested.
+All four emitters have matching-host native release evidence in the 1.0.16/1.0.17 matrices: macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64. Keep each target's object, runtime, linker, debugger, and sanitizer checks separate. Broader platform policy and isolated benchmarks below remain future work.
+
+- [x] Keep target IDs, triples, object formats, symbol prefixes, sections, relocations, stack rules and helper conventions in one target descriptor.
+- [x] Validate host-target detection on Apple Silicon, Linux x86-64/ARM64, and Windows x86-64; reject unsupported hosts clearly.
+- [x] Test spaces, Unicode, drive letters, case-insensitive paths, temp files, sidecar paths and source-overwrite protection on Windows.
+- [x] Validate Mach-O relocations/unwind/debug info on macOS tooling.
+- [x] Validate ELF relocations, GNU-stack markings, CFI, stack probes and debug info on Linux x86-64/ARM64.
+- [x] Validate PE/COFF sections, SEH unwind data, chkstk, startup, imports, CRT and debug information on Windows x86-64.
+- [x] Decide minimum OS/SDK/toolchain versions and document supported compiler drivers.
+- [x] Keep macOS Intel, Windows ARM64 and other architectures explicitly unsupported until separately designed and tested.
 
 ## 1.20 Platform-specific CG checklist
 
@@ -371,9 +379,9 @@ All four emitters have matching-host native release evidence in the 1.0.16 matri
 - [x] Pass unit, C/native execution, differential, cross-target assembly and large-procedure checks in the user-reported release run.
 - [x] Run `make BUILD_MODE=debug test check-asan-hook` on the Mac and record the exact sanitizer runtimes available.
 - [x] Run `make BUILD_MODE=tsan test` on the Mac.
-- [ ] Run and archive repeated native benchmarks and frame/code-size results.
+- [x] Run and archive repeated native benchmarks and frame/code-size results. Two local Apple M3 Pro repeats pass; matching-host hosted reports are retained under `benchmarks/results/1.0.17/`.
 - [x] Inspect Mach-O unwind and debug output with Apple/LLVM tools; test backtraces through B++ calls/errors.
-- [ ] Finish shared CG tasks required by the exit criteria before stage 2.
+- [x] Finish shared CG tasks required by the exit criteria before stage 2. Shared implementation review and all 24 native/platform jobs pass; isolated hardware measurements and public ABI freeze remain separate gates (`docs/platform-support.md`).
 
 ### Linux x86-64 — target profile v1
 
@@ -382,8 +390,8 @@ All four emitters have matching-host native release evidence in the 1.0.16 matri
 - [x] Pass ASAN/UBSAN and TSAN test suites on the available Linux x86-64 host.
 - [x] Exercise the Windows calling convention with the Linux `ms_abi` bridge; keep it classified as a bridge test only.
 - [x] Run LSAN on a host/container where its exit-time process scan works.
-- [ ] Run repeated isolated benchmarks and inspect CFI/source-line/backtrace behavior.
-- [ ] Finish shared CG tasks required by the exit criteria before stage 2.
+- [ ] Run repeated isolated benchmarks on dedicated Linux x86-64 hardware (separate hardware gate by user decision). CFI/source-line/backtrace checks already pass matching-host native CI; shared hosted measurements are retained in 1.0.17 evidence.
+- [x] Finish shared CG tasks required by the exit criteria before stage 2. Shared implementation review and all 24 native/platform jobs pass; isolated hardware measurements and public ABI freeze remain separate gates (`docs/platform-support.md`).
 
 ### Linux ARM64 — target profile v1
 
@@ -393,8 +401,8 @@ All four emitters have matching-host native release evidence in the 1.0.16 matri
 - [x] Pass unit tests, the native suite, optimized/baseline differential suite and 5000-update stress case. The retired C suite remains historical evidence.
 - [x] Run ASAN/UBSAN/TSAN/LSAN where the actual compiler runtime supports them; record unsupported combinations explicitly.
 - [x] Inspect ELF relocations, CFI, stack probing, source lines and backtraces on ARM64.
-- [ ] Run isolated benchmarks and compare with Linux x86-64 and macOS ARM64.
-- [ ] Finish shared CG tasks required by the exit criteria before stage 2.
+- [ ] Run isolated benchmarks on dedicated Linux ARM64 hardware and compare with Linux x86-64 and macOS ARM64 (separate hardware gate by user decision).
+- [x] Finish shared CG tasks required by the exit criteria before stage 2. Shared implementation review and all 24 native/platform jobs pass; isolated hardware measurements and public ABI freeze remain separate gates (`docs/platform-support.md`).
 
 ### Windows x86-64 — target profile v1
 
@@ -402,25 +410,25 @@ All four emitters have matching-host native release evidence in the 1.0.16 matri
 - [x] Cross-assemble optimized and baseline objects.
 - [x] Pass the Linux `ms_abi` calling-convention bridge suite; retain the limitation that this does not test Windows OS behavior.
 - [x] Build and run compiler and generated executables on native Windows x64.
-- [ ] Pass unit tests, the C suite, native suite, optimized/baseline differential suite and 5000-update stress case.
+- [x] Pass unit tests, native suite, optimized/baseline independent differential suite and 5000-update stress case. Native Windows run 55 passes; the removed C backend suite remains historical evidence.
 - [x] Verify Windows CRT startup, symbol entry point, shadow space, stack arguments, `___chkstk_ms`, guard pages, PE linking and SEH unwinding.
-- [ ] Validate paths containing spaces, mixed separators, drive letters, Unicode, case-only aliases, temp files and source/debug-snapshot overwrite protection.
-- [ ] Determine MinGW/UCRT/Clang toolchain support and whether MSVC syntax/tooling is in scope.
+- [x] Validate paths containing spaces, mixed separators, drive letters, Unicode, case-only aliases, temp files and source/debug-snapshot overwrite protection. The native Windows platform job in run 10 passes root/import/hardlink/debug-snapshot checks and backslash static archive paths; see `docs/verification-1.0.18.json`.
+- [x] Determine MinGW/UCRT/Clang toolchain support and whether MSVC syntax/tooling is in scope. UCRT64 Clang/LLVM 23 is the supported baseline; MSVC/clang-cl and MSVCRT are outside this release contract (`docs/platform-support.md`).
 - [x] Run debug/sanitizer tests only for runtimes that exist; document ASAN/LSAN/UBSAN/TSAN gaps without treating unsupported runtimes as passing.
 - [x] Inspect CodeView/PDB or chosen debug format and Windows backtraces.
-- [ ] Run isolated benchmarks and record binary/frame sizes.
-- [ ] Finish shared CG tasks required by the exit criteria before stage 2.
+- [ ] Run isolated benchmarks on dedicated Windows x86-64 hardware (separate hardware gate by user decision). Hosted binary/frame-size reports are already retained under `benchmarks/results/1.0.17/`.
+- [x] Finish shared CG tasks required by the exit criteria before stage 2. Shared implementation review and all 24 native/platform jobs pass; isolated hardware measurements and public ABI freeze remain separate gates (`docs/platform-support.md`).
 
 ## 1.21 CG exit criteria before moving to ABI
 
 - [x] Native release test matrix passes on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64.
 - [x] Every target has passed semantic differential tests, large procedure/frame tests, recursion, pressure, error cleanup, target calling-convention tests, unwind tests and debug-line tests.
 - [x] Debug/sanitizer results are recorded per compiler/runtime/OS, including unsupported combinations and LSAN scan limitations.
-- [ ] Allocator/spill/frame design is documented and stress results show bounded behavior for project-sized code.
-- [ ] Branch/relocation limits and diagnostics are documented for each current object format.
-- [ ] Native runtime dependencies and the C components that remain are listed for the ABI/runtime design.
-- [ ] Benchmarks are collected for all four host profiles and saved with reproducible environment metadata.
-- [ ] The unresolved shared tasks in sections 1.2–1.19 are reviewed explicitly; no “partial” item is silently promoted to complete.
+- [x] Allocator/spill/frame design is documented and stress results show bounded behavior for project-sized code.
+- [x] Branch/relocation limits and diagnostics are documented for each current object format.
+- [x] Native runtime dependencies and the C components that remain are listed for the ABI/runtime design.
+- [x] Benchmarks are collected for all four host profiles and saved with reproducible environment metadata.
+- [x] The unresolved shared tasks in sections 1.2–1.19 are reviewed explicitly; no “partial” item is silently promoted to complete.
 - [ ] Only after these gates are reviewed, begin roadmap stage 2 and freeze the public ABI contract.
 
 ---

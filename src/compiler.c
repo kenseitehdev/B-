@@ -280,6 +280,10 @@ static int bl_path_is_absolute(const char *path) {
 static char *bl_path_dirname(const char *path) {
     if (!path || !path[0]) return bl_strdup_local(".");
     const char *slash = strrchr(path, '/');
+#ifdef _WIN32
+    const char *backslash=strrchr(path,'\\');
+    if(backslash&&(!slash||backslash>slash))slash=backslash;
+#endif
     if (!slash) return bl_strdup_local(".");
     if (slash == path) return bl_strdup_local("/");
     return bl_strndup_local(path, (size_t)(slash - path));

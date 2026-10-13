@@ -2,13 +2,45 @@
 #include "../include/compiler.h"
 #include "../include/isel.h"
 #include <stdlib.h>
+#include <limits.h>
 #include <string.h>
 
+/* All limits are byte displacements.  ADRP rounds both addresses down to a
+ * 4 KiB page before applying its signed 21-bit page displacement. */
+static const BPPRangeLimit arm64_macho[] = {
+    {BPP_RANGE_ARM64_ADRP_PAGE,"arm64-adrp-page","ARM64_RELOC_PAGE21/ARM64_RELOC_PAGEOFF12",-4294967296LL,4294963200LL},
+    {BPP_RANGE_ARM64_LITERAL19,"arm64-literal19","assembler-local imm19 (no Mach-O relocation)",-1048576LL,1048572LL},
+    {BPP_RANGE_ARM64_BRANCH26,"arm64-branch26","ARM64_RELOC_BRANCH26",-134217728LL,134217724LL},
+    {BPP_RANGE_ARM64_COND19,"arm64-cond19","assembler-local imm19 (no Mach-O relocation)",-1048576LL,1048572LL}
+};
+static const BPPRangeLimit arm64_elf[] = {
+    {BPP_RANGE_ARM64_ADRP_PAGE,"arm64-adrp-page","R_AARCH64_ADR_PREL_PG_HI21/R_AARCH64_ADD_ABS_LO12_NC",-4294967296LL,4294963200LL},
+    {BPP_RANGE_ARM64_LITERAL19,"arm64-literal19","R_AARCH64_LD_PREL_LO19",-1048576LL,1048572LL},
+    {BPP_RANGE_ARM64_BRANCH26,"arm64-branch26","R_AARCH64_JUMP26/R_AARCH64_CALL26",-134217728LL,134217724LL},
+    {BPP_RANGE_ARM64_COND19,"arm64-cond19","R_AARCH64_CONDBR19",-1048576LL,1048572LL}
+};
+static const BPPRangeLimit x64_elf[] = {
+    {BPP_RANGE_X64_REL32,"x86-64-rel32","R_X86_64_PC32/R_X86_64_PLT32",-2147483648LL,2147483647LL},
+    {BPP_RANGE_X64_ABS64,"x86-64-abs64","R_X86_64_64",LLONG_MIN,LLONG_MAX}
+};
+static const BPPRangeLimit x64_coff[] = {
+    {BPP_RANGE_X64_REL32,"x86-64-rel32","IMAGE_REL_AMD64_REL32",-2147483648LL,2147483647LL},
+    {BPP_RANGE_X64_ABS64,"x86-64-abs64","IMAGE_REL_AMD64_ADDR64",LLONG_MIN,LLONG_MAX}
+};
+
 static const BPPBackendCapabilities targets[] = {
-    {BPP_MACOS_ARM64,"macos-arm64","arm64-apple-macosx13.0.0",BPP_ISA_ARM64,BPP_FORMAT_MACHO,64,64,11},
-    {BPP_LINUX_X64,"linux-x86_64","x86_64-unknown-linux-gnu",BPP_ISA_X86_64,BPP_FORMAT_ELF,64,64,6},
-    {BPP_LINUX_ARM64,"linux-arm64","aarch64-unknown-linux-gnu",BPP_ISA_ARM64,BPP_FORMAT_ELF,64,64,11},
-    {BPP_WINDOWS_X64,"windows-x86_64","x86_64-w64-windows-gnu",BPP_ISA_X86_64,BPP_FORMAT_COFF,64,64,6}
+    {BPP_MACOS_ARM64,"macos-arm64","arm64-apple-macosx13.0.0",BPP_ISA_ARM64,BPP_FORMAT_MACHO,64,64,11,
+     "_",".section __TEXT,__text,regular,pure_instructions",".section __TEXT,__cstring,cstring_literals",".section __TEXT,__const",
+     ".section __DATA,__data",".section __DATA,__bss","", "aapcs64-darwin","dwarf-cfi/compact-unwind","",16,0,0,4096,arm64_macho,4},
+    {BPP_LINUX_X64,"linux-x86_64","x86_64-unknown-linux-gnu",BPP_ISA_X86_64,BPP_FORMAT_ELF,64,64,6,
+     "",".text",".section .rodata",".section .rodata",".data",".bss",".section .note.GNU-stack,\"\",@progbits",
+     "system-v-amd64","dwarf-cfi","",16,0,128,4096,x64_elf,2},
+    {BPP_LINUX_ARM64,"linux-arm64","aarch64-unknown-linux-gnu",BPP_ISA_ARM64,BPP_FORMAT_ELF,64,64,11,
+     "",".text",".section .rodata",".section .rodata",".data",".bss",".section .note.GNU-stack,\"\",%progbits",
+     "aapcs64","dwarf-cfi","",16,0,0,4096,arm64_elf,4},
+    {BPP_WINDOWS_X64,"windows-x86_64","x86_64-w64-windows-gnu",BPP_ISA_X86_64,BPP_FORMAT_COFF,64,64,6,
+     "",".text",".section .rdata,\"dr\"",".section .rdata,\"dr\"",".data",".bss","",
+     "windows-x64","seh","___chkstk_ms",16,32,0,4096,x64_coff,2}
 };
 size_t bpp_target_count(void){return sizeof targets/sizeof targets[0];}
 const BPPBackendCapabilities *bpp_target_at(size_t i){return i<bpp_target_count()?&targets[i]:NULL;}
@@ -19,26 +51,38 @@ BPPTarget bpp_target_default_for_isa(BPPISA isa){
  for(size_t i=0;i<bpp_target_count();++i)if(targets[i].isa==isa)return targets[i].id;
  return bpp_host_target();
 }
-const char *bpp_target_name(BPPTarget t){const BPPBackendCapabilities *c=bpp_target_capabilities(t);return c?c->name:"unknown-target";}
+const char *bpp_target_name(BPPTarget t){const BPPBackendCapabilities *c=bpp_target_capabilities(t);return c?c->name:t==BPP_TARGET_UNSUPPORTED?"unsupported-host":"unknown-target";}
 int bpp_target_parse(const char *s,BPPTarget *t){if(!s||!t)return 0;for(size_t i=0;i<bpp_target_count();++i)if(!strcmp(s,targets[i].name)){*t=targets[i].id;return 1;}return 0;}
+BPPTarget bpp_target_for_host(const char *os,const char *architecture){
+ if(!os||!architecture)return BPP_TARGET_UNSUPPORTED;
+ int arm=!strcmp(architecture,"arm64")||!strcmp(architecture,"aarch64");
+ int x64=!strcmp(architecture,"x86_64")||!strcmp(architecture,"AMD64");
+ if(!strcmp(os,"macos")&&arm)return BPP_MACOS_ARM64;
+ if(!strcmp(os,"linux")&&arm)return BPP_LINUX_ARM64;
+ if(!strcmp(os,"linux")&&x64)return BPP_LINUX_X64;
+ if(!strcmp(os,"windows")&&x64)return BPP_WINDOWS_X64;
+ return BPP_TARGET_UNSUPPORTED;
+}
 BPPTarget bpp_host_target(void){
 #if defined(_WIN32)
- return BPP_WINDOWS_X64;
+ const char *os="windows";
 #elif defined(__APPLE__)
- return BPP_MACOS_ARM64;
-#elif defined(__aarch64__)
- return BPP_LINUX_ARM64;
+ const char *os="macos";
+#elif defined(__linux__)
+ const char *os="linux";
 #else
- return BPP_LINUX_X64;
+ const char *os="unsupported";
 #endif
-}
-int bpp_host_supported(void){
-#if (defined(__APPLE__) && defined(__aarch64__)) || (defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))) || (defined(_WIN32) && (defined(__x86_64__) || defined(_M_X64)))
- return 1;
+#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
+ const char *architecture="arm64";
+#elif defined(__x86_64__) || defined(_M_X64)
+ const char *architecture="x86_64";
 #else
- return 0;
+ const char *architecture="unsupported";
 #endif
+ return bpp_target_for_host(os,architecture);
 }
+int bpp_host_supported(void){return bpp_target_capabilities(bpp_host_target())!=NULL;}
 int bpp_target_is_host(BPPTarget t){return bpp_host_supported()&&t==bpp_host_target();}
 const char *bpp_lowering_name(BPPLowering x){static const char *n[]={"unsupported","native","runtime","mixed"};return (unsigned)x<4?n[x]:"unsupported";}
 int bpp_target_validate_ir(BLIRModule *m,BPPTarget t,const char *backend){

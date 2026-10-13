@@ -11,9 +11,9 @@ platform stubs and relocations.
 |---|---|---|---:|---|
 | ARM64 Mach-O | `ADRP` + `ADD @PAGEOFF` | `ARM64_RELOC_PAGE21` / `ARM64_RELOC_PAGEOFF12` | -4 GiB to +4 GiB - 4 KiB | Internal jumps, calls, data and layout labels |
 | ARM64 ELF | `ADRP` + `ADD :lo12:` | `R_AARCH64_ADR_PREL_PG_HI21` / `R_AARCH64_ADD_ABS_LO12_NC` | -4 GiB to +4 GiB - 4 KiB | Same internal references |
-| ARM64 Mach-O / ELF | literal `LDR` | `ARM64_RELOC_BRANCH19` / `R_AARCH64_LD_PREL_LO19` | -1 MiB to +1 MiB - 4 | Not emitted by the current backend; recorded for future literal pools |
-| ARM64 Mach-O / ELF | `B` / `BL` | `ARM64_RELOC_BR26` / `R_AARCH64_JUMP26`, `R_AARCH64_CALL26` | -128 MiB to +128 MiB - 4 | Host-runtime calls may use toolchain stubs; B++ internal transfers do not |
-| ARM64 Mach-O / ELF | conditional branch | `ARM64_RELOC_BRANCH19` / `R_AARCH64_CONDBR19` | -1 MiB to +1 MiB - 4 | Only skip-over-long-transfer branches |
+| ARM64 Mach-O / ELF | literal `LDR` | assembler-local imm19 (no Mach-O relocation) / `R_AARCH64_LD_PREL_LO19` | -1 MiB to +1 MiB - 4 | Not emitted by the current backend; recorded for future literal pools |
+| ARM64 Mach-O / ELF | `B` / `BL` | `ARM64_RELOC_BRANCH26` / `R_AARCH64_JUMP26`, `R_AARCH64_CALL26` | -128 MiB to +128 MiB - 4 | Host-runtime calls may use toolchain stubs; B++ internal transfers do not |
+| ARM64 Mach-O / ELF | conditional branch | assembler-local imm19 (no Mach-O relocation) / `R_AARCH64_CONDBR19` | -1 MiB to +1 MiB - 4 | Only skip-over-long-transfer branches |
 | x86-64 ELF | PC-relative branch/call/data | `R_X86_64_PC32` / `R_X86_64_PLT32` | -2 GiB to +2 GiB - 1 | Runtime/host toolchain boundary and local emitter labels |
 | x86-64 COFF | PC-relative branch/call/data | `IMAGE_REL_AMD64_REL32` | -2 GiB to +2 GiB - 1 | Same role on Windows |
 | x86-64 ELF / COFF | absolute internal target | `R_X86_64_64` / `IMAGE_REL_AMD64_ADDR64` | full 64-bit address | B++ internal calls and cross-block jumps |

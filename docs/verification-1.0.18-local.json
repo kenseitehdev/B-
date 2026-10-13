@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "host": {
+    "schema": 1,
+    "host_target": "macos-arm64",
+    "host_supported": true,
+    "sanitizers": "",
+    "host_cc": "/opt/homebrew/opt/llvm/bin/clang",
+    "optimization": "-O2",
+    "runtime_objects": [
+      "/Volumes/Projects/bpp/build/release/obj/src/runtime.o",
+      "/Volumes/Projects/bpp/build/release/obj/src/value.o",
+      "/Volumes/Projects/bpp/build/release/obj/src/codegen_runtime.o",
+      "/Volumes/Projects/bpp/build/release/obj/src/bpp_abi.o",
+      "/Volumes/Projects/bpp/build/release/obj/src/truth.o"
+    ]
+  },
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "objects": [
+    {
+      "target": "macos-arm64",
+      "backend": "values",
+      "triple": "arm64-apple-macosx13.0.0",
+      "sha256": "401fa3818a0d5d2e4e64d6a4777c2ea374e2783d758f9ef08f281e5800702669"
+    },
+    {
+      "target": "macos-arm64",
+      "backend": "raw",
+      "triple": "arm64-apple-macosx13.0.0",
+      "sha256": "59a6794bd5bec2c40384077c5066a66de51c1e81f6326385830de955b39234ec"
+    },
+    {
+      "target": "linux-x86_64",
+      "backend": "values",
+      "triple": "x86_64-unknown-linux-gnu",
+      "sha256": "f53b3ee652b1f38cddd0cba96e7b8ea984f15146f4694738b439fa95aab50c85"
+    },
+    {
+      "target": "linux-x86_64",
+      "backend": "raw",
+      "triple": "x86_64-unknown-linux-gnu",
+      "sha256": "ecb006d386c81ecde4dc8a267f2eba915d2f436e462e63f8bad11978ba2ba987"
+    },
+    {
+      "target": "linux-arm64",
+      "backend": "values",
+      "triple": "aarch64-unknown-linux-gnu",
+      "sha256": "cc9187c44aa1316ab2ebeee6bea5101e1ba9783001154c287925822152d49862"
+    },
+    {
+      "target": "linux-arm64",
+      "backend": "raw",
+      "triple": "aarch64-unknown-linux-gnu",
+      "sha256": "f8c2443538c4f164d4e683d1c23c194ec69c6a1cdd0bcc903099b9f5db5c73ea"
+    },
+    {
+      "target": "windows-x86_64",
+      "backend": "values",
+      "triple": "x86_64-w64-windows-gnu",
+      "sha256": "faf7da1f02fd722627eb14231901daf3e9ee4415d6fa2af60b4c1c29fc6f9caf"
+    },
+    {
+      "target": "windows-x86_64",
+      "backend": "raw",
+      "triple": "x86_64-w64-windows-gnu",
+      "sha256": "e1d1aa09069a9a47e0981a773dbaf62f3a2fb44d78d757b684e86ba37d6141f4"
+    }
+  ],
+  "path_checks": [
+    "spaces",
+    "unicode",
+    "temporary directory",
+    "debug sidecar",
+    "native startup",
+    "root and imported source overwrite rejection",
+    "hardlink source identity",
+    "imported debug-snapshot overwrite rejection",
+    "root debug-snapshot overwrite rejection"
+  ],
+  "sdk_version": "27.0",
+  "tools": {
+    "clang": "Homebrew clang version 23.1.3",
+    "llvm-readobj": "Homebrew LLVM version 23.1.3"
+  },
+  "release": "1.0.18",
+  "status": "local_macOS_passed_matching_host_CI_pending",
+  "baseline_revision": "34bde8109a5f0d22237766d692628ec865a38f1b",
+  "checks": [
+    "warnings-as-errors release rebuild",
+    "compiler unit/native checks",
+    "static ABI producer/consumer",
+    "cross-assembly in optimized and baseline modes",
+    "Bake native integration",
+    "ASAN/UBSAN debug metadata and LLDB (outside sandbox)",
+    "focused platform host/path/identity/object checks"
+  ],
+  "limitations": [
+    "Cross-object inspection is separate from matching-host runtime verification.",
+    "Windows-specific path checks await the native runner.",
+    "Dedicated isolated Linux/Windows benchmark reports remain unavailable.",
+    "Public ABI stage-2 freeze remains open."
+  ],
+  "source_sha256": {
+    "include/target.h": "c88d1beccb16273506bff8775918dc164c098a7d81da26adf982de11891cdf09",
+    "src/target.c": "89983f4b4f1427948feb474946493951674240137efeb802d6a80c53d83af5a5",
+    "src/range.c": "c589dc8e7a1d2b253b5ddc0f4e52695e4dd843afb1318f5405cbe9c4a89cd4cc",
+    "src/main.c": "77f0ef5db6cbe8e225f46bd0341fa0395267a2955ab21373f04d091751556848",
+    "src/compiler.c": "c52288838cbd55f49b416993143a7539bed91132bd099bce763f67e63d6fc86e",
+    "src/emit_arm64.c": "d8ed49a655132c9f32aa87a805673f54162c6a4b24879132cd1c4146f25f6c13",
+    "src/emit_x64.c": "ea19453d88ee61e23575ba58aa6048f301c8d0baad2f74560a55da666fc268cf",
+    "src/raw_native.c": "535d97782f97a09418aa9ce7a5fc693782223b0139292fc76f0c0f68b6f9b6c1",
+    "tests/test_ranges.c": "35c13294246e92d767c65a46919e6cee813c480506143b207307710ec125407f",
+    "tests/check_platform.py": "d12f4a80d221c597e349601653923e64a3f3170d6ce94e9946893df79806e665",
+    "Makefile": "f38808aef325849ca6682acffec2eea6b95154ed532b1dae65e0dc524436d4bf",
+    ".github/workflows/bake.yml": "abc5bd2c6e18dfe2c9dcd6ced00ce7aaeef1e2e53cddc672b1178f648bc020df"
+  }
+}

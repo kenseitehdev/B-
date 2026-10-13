@@ -71,7 +71,12 @@ Release 1.0.16 closes these gates with all 18 jobs / 19 execution profiles in
 implementation `2c817e176897d0addfd7df624b01d4e136ac1f57`.
 [verification-1.0.16.json](verification-1.0.16.json) retains exact job IDs,
 toolchain identity, sanitizer probe results and transcript artifact digests.
-Hosted macOS TSAN has a 25-minute overall job limit to accommodate its complete
-sequential suite; native/fuzz/stress and differential commands retain 600-second
-deadlines and their per-process resource limits. Other Unix jobs keep a
+Hosted macOS TSAN has a 35-minute overall job limit to accommodate its complete
+sequential suite; native/fuzz/stress commands retain 600-second deadlines; its full 64-seed
+differential suite has a 900-second deadline and their per-process resource limits. Other Unix jobs keep a
 15-minute overall limit. Unsupported sanitizer flavors remain explicit results.
+
+The 1.0.18 platform gate (`check-platform`) inspects actual cross-target object
+bytes and matching-host paths/identity safeguards. See [platform-support.md](platform-support.md).
+Object inspection evidence is retained separately from matching-host execution
+and does not promote cross-assembled targets to native verified.
