@@ -400,6 +400,9 @@ class Project:
 
 
 def main():
+    if os.name == "nt":
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Bake native B++ programs and static ABI libraries")
     parser.add_argument("--version", action="version", version="Bake 1.0.17")
     parser.add_argument("-f", "--file", default="Bakefile")

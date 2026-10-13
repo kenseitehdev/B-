@@ -335,16 +335,17 @@ Priority carryover:
 - [ ] Add Bakefile examples and end-to-end builds for an executable, a static-library producer/consumer and transitive static dependencies; verify incremental rebuilds and ABI/target mismatch diagnostics on native runners.
 
 
-Benchmark status: the CSV harness measures native optimized and native `--no-opt` execution and executable size; earlier C comparisons remain historical evidence. Existing measurements are a smoke check, not an isolated baseline.
+Benchmark status: schema-2 `tools/benchmark.py` separates native compile/assembly/link/startup phases from in-process ABI work, with raw samples, median/MAD, per-process compile peak RSS and separate untimed native profiling. The local macOS ARM64 16-case smoke run passes. Matching-host retained CI measurements remain a gate; shared CI is not an isolated hardware baseline. Earlier schema-1/C measurements remain historical evidence; see `docs/benchmarking.md`.
 
-- [ ] Separate compile time, assembly time, link time, startup time and steady-state execution time.
-- [ ] Add warmup, repeated samples, median/dispersion, environment metadata and stable machine identifiers.
-- [ ] Measure code size, read-only data, frame size, maximum stack depth, spill/reload count, helper-call count, and compilation peak memory.
-- [ ] Include integer-heavy, branch-heavy, recursive, call-heavy, object-heavy, string/buffer/array, and large-source programs.
-- [ ] Compare optimized native, unoptimized native, and later assembler/linker builds; retain older C comparison measurements as historical baselines.
+- [x] Separate compile time, assembly time, link time, startup time and steady-state execution time.
+- [x] Add warmup, repeated samples, median/dispersion, environment metadata and stable machine identifiers.
+- [x] Measure generated code/read-only data and frame sizes, dynamic native call depth/frame-stack span and boundary-helper calls, actual emitted spill/reload sites, and per-process compile peak memory. Native frame span excludes deeper C-helper stack usage; static spill/reload sites are not dynamic traffic counts.
+- [x] Include integer, branch, recursion, call, owned-state, byte-string/buffer and large-source workloads; record retired managed string/Array source constructs as unsupported rather than benchmarking nonexistent features.
+- [x] Compare native optimized and `--no-opt` builds; retain older C measurements as historical evidence and record the future custom assembler/linker as unavailable until implemented.
 - [ ] Run on macOS ARM64, Linux x86-64, Linux ARM64 and Windows x86-64 native hosts.
-- [ ] Keep results in versioned CSV/JSON with compiler revision, flags, target triple, CPU/OS and sanitizer mode.
-- [ ] Set performance expectations only after repeatable runs; avoid pass/fail thresholds sensitive to shared CI noise.
+- [x] Keep results in versioned CSV/JSON with compiler revision, flags, target triple, CPU/OS and sanitizer mode.
+- [x] Set performance expectations only after repeatable runs; avoid pass/fail thresholds sensitive to shared CI noise.
+
 
 ### 18. Target support and platform-specific integration
 

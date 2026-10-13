@@ -107,3 +107,7 @@ same target/profile is rejected by a lock; stale locks are reported explicitly.
 Exit codes: 0 success, 1 build/test failure, 2 invalid configuration/invocation.
 This tool does not implement broad FFI, shared libraries, dynamic loading or
 the separate NBL/self-hosted operating-system project.
+
+Windows compiler builds embed a UTF-8 process-code-page manifest so the narrow
+CRT/file APIs receive Unicode paths consistently on Windows 10 version 1903
+and newer. See [Microsoft's UTF-8 process documentation](https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page). Native CI uses Windows Server 2022.

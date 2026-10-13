@@ -446,6 +446,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
             if(win){fprintf(o,"    movq $%zu, %%rax\n    call ___chkstk_ms\n    movq $%zu, %%rax\n    subq %%rax, %%rsp\n    .seh_stackalloc %zu\n    leaq 64(%%rsp), %%r12\n    .seh_setframe %%r12, 64\n    .seh_endprologue\n",alloc+4096,alloc,alloc);fprintf(o,"    movq %zu(%%rsp), %%rbp\n",alloc+e->saved_count*8+40);}
             else{fprintf(o,"    movq %%r8, -%zu(%%rbp)\n",e->saved_count*8);size_t remaining=alloc;while(remaining>=4096){fputs("    subq $4096, %rsp\n    movb $0, (%rsp)\n",o);remaining-=4096;}if(remaining)fprintf(o,"    subq $%zu, %%rsp\n",remaining);}
             fputs("    leaq 64(%rsp), %r12\n",o);frame_init(e);
+            if(m->benchmark_metrics){arg(e,0,"%rsp",0);number(e,1,alloc+e->saved_count*8);call(e,"bpp_bench_enter");}
             if(m->truth_states){arg(e,0,"%r12",0);number(e,1,f==0?1:0);call(e,"bpp_a_truth_enable");}
             if(m->instrument_native){char caller[64];if(win)snprintf(caller,sizeof caller,"%zu(%%rsp)",alloc+e->saved_count*8);else snprintf(caller,sizeof caller,"8(%%rbp)");arg(e,0,caller,0);call(e,"bpp_a_trace_enter");}
             for(size_t b=0;b<e->fn->block_count;++b){e->b=b;bpp_value_facts_begin_block(&e->facts,b,e->fact_regs,e->fact_locals,e->fact_globals);sync_known(e);memset(e->dirty,0,e->fn->register_count);memset(e->dirty_phys,0,e->fn->register_count*sizeof *e->dirty_phys);memset(e->loaded_phys,0,e->fn->register_count*sizeof *e->loaded_phys);if(!m->instrument_native)for(size_t r=0;r<e->fn->register_count;++r){unsigned p=bpp_reg_dirty_entry(&e->plan,b,r);if(p){e->dirty[r]=1;e->dirty_phys[r]=p;e->loaded_phys[r]=p;}}fprintf(o,"L_f%zu_b%zu:\n",f,b);
@@ -475,6 +476,7 @@ int bpp_emit_x64(BLIRModule *m,FILE *o,int print,int win){
             }
             fprintf(o,"L_fail_%zu:\n    movq $0, %u(%%r12)\nL_cleanup_%zu:\n    movq %u(%%r12), %%rdx\n    movq %u(%%r12), %%rax\n    testq %%rax, %%rax\n    je L_cleanup_null_%zu\n    movl (%%rax), %%r10d\n    movq 8(%%rax), %%r11\n    movl %%r10d, (%%rdx)\n    movq %%r11, 8(%%rdx)\n    movl $0, (%%rax)\n    movq $0, 8(%%rax)\n    jmp L_cleanup_release_%zu\nL_cleanup_null_%zu:\n    movl $0, (%%rdx)\n    movq $0, 8(%%rdx)\nL_cleanup_release_%zu:\n",f,BPP_CG_CALL_OUTPUT_OFFSET,f,BPP_CG_FRAME_OUTPUT_OFFSET,BPP_CG_CALL_OUTPUT_OFFSET,f,f,f,f);cleanup_frame(e);
             if(m->instrument_native)call(e,"bpp_a_trace_exit");
+            if(m->benchmark_metrics)call(e,"bpp_bench_exit");
             fprintf(o,"    addq $%zu, %%rsp\n",alloc);for(size_t s=e->saved_count;s-- >0;){const char *name=cache(e,e->saved[s]);fprintf(o,"    popq %s\n",name);
     if(!win)fprintf(o,"    .cfi_restore %s\n",name);}
             if(!win)fputs("    .cfi_def_cfa %rsp, 8\n",o);

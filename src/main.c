@@ -49,7 +49,7 @@
 #define BPP_OPTIMIZATION "-O2"
 #endif
 static void usage(const char *name) {
-    fprintf(stderr, "usage: %s [--check | --emit-ir | --emit-asm | --emit-map | --emit-link-map | --emit-library-manifest | --emit-dependencies] [--print-result] [--backend native|arm64|x86_64] [--target TARGET] [-L directory] [--alloc-profile FILE] [--no-opt] [--debug-info] [--asm-comments] [--strict-native-runtime] [--native-sanitizers] [--emit-library --library-name NAME] [-o output] [file.bpp]\n       %s --list-targets | --target-info TARGET | --build-info\n\nWith no source path, B++ compiles ./main.bpp and requires define proc main().\n", name,name);
+    fprintf(stderr, "usage: %s [--check | --emit-ir | --emit-asm | --emit-map | --emit-link-map | --emit-library-manifest | --emit-dependencies] [--print-result] [--backend native|arm64|x86_64] [--target TARGET] [-L directory] [--alloc-profile FILE] [--no-opt] [--debug-info] [--asm-comments] [--benchmark-metrics] [--strict-native-runtime] [--native-sanitizers] [--emit-library --library-name NAME] [-o output] [file.bpp]\n       %s --list-targets | --target-info TARGET | --build-info\n\nWith no source path, B++ compiles ./main.bpp and requires define proc main().\n", name,name);
 }
 static const char *format_name(BPPObjectFormat f){return f==BPP_FORMAT_MACHO?"macho":f==BPP_FORMAT_ELF?"elf":"coff";}
 static const char *isa_name(BPPISA i){return i==BPP_ISA_ARM64?"arm64":"x86_64";}
@@ -67,6 +67,7 @@ static void build_info(void){
     fputs("{\"schema\":1,\"host_target\":",stdout);json_string(stdout,bpp_target_name(bpp_host_target()));
     fprintf(stdout,",\"host_supported\":%s,\"sanitizers\":",bpp_host_supported()?"true":"false");json_string(stdout,BPP_SANITIZERS);
     fputs(",\"host_cc\":",stdout);json_string(stdout,BPP_HOST_CC);
+    fputs(",\"optimization\":",stdout);json_string(stdout,BPP_OPTIMIZATION);
     const char *objects[]={BPP_RUNTIME_OBJECT,BPP_VALUE_OBJECT,BPP_NATIVE_RUNTIME_OBJECT,BPP_STATIC_ABI_OBJECT,BPP_TRUTH_OBJECT};
     fputs(",\"runtime_objects\":[",stdout);
     for(size_t i=0;i<sizeof objects/sizeof objects[0];++i){if(i)fputc(',',stdout);json_string(stdout,objects[i]);}
@@ -289,7 +290,7 @@ static int emit_dependencies(const BLIRModule *ir,FILE *out){
 }
 int main(int argc, char **argv) {
     int query=target_query(argc,argv);if(query)return query>0?0:2;
-    const char *path = NULL, *output = NULL, *alloc_profile=NULL,*library_name=NULL; int mode = 0, print_result = 0, optimize=1, debug_info=BPP_SANITIZERS[0]!=0,asm_comments=0,emit_library=0,emit_library_manifest_mode=0,strict_native_runtime=0,native_checks=0; BPPTarget target=bpp_host_target();int explicit_target=0;
+    const char *path = NULL, *output = NULL, *alloc_profile=NULL,*library_name=NULL; int mode = 0, print_result = 0, optimize=1, debug_info=BPP_SANITIZERS[0]!=0,asm_comments=0,emit_library=0,emit_library_manifest_mode=0,strict_native_runtime=0,native_checks=0,benchmark_metrics=0; BPPTarget target=bpp_host_target();int explicit_target=0;
     const char **library_paths = NULL; size_t library_path_count = 0, library_path_capacity = 0;
     for (int j = 1; j < argc; ++j) {
         if (!strcmp(argv[j], "--help")) { usage(argv[0]); return 0; }
@@ -299,6 +300,7 @@ int main(int argc, char **argv) {
         if(!strcmp(argv[j],"--debug-info")){debug_info=1;continue;}
         if(!strcmp(argv[j],"--native-sanitizers")){native_checks=1;debug_info=1;continue;}
         if(!strcmp(argv[j],"--strict-native-runtime")){strict_native_runtime=1;continue;}
+        if(!strcmp(argv[j],"--benchmark-metrics")){benchmark_metrics=1;continue;}
         if(!strcmp(argv[j],"--asm-comments")){asm_comments=1;continue;}
         if(!strcmp(argv[j],"--emit-library")){emit_library=1;continue;}
         if(!strcmp(argv[j],"--emit-library-manifest")){if(mode){fputs("select only one output mode\n",stderr);free(library_paths);return 2;}mode=6;emit_library_manifest_mode=1;continue;}
@@ -323,7 +325,7 @@ int main(int argc, char **argv) {
         path = argv[j];
     }
     if (!path && !emit_library && !emit_library_manifest_mode) path = "main.bpp";
-    if (!path || (mode == 1 && output) || (asm_comments && mode != 4) || (emit_library&&mode!=4&&mode!=8) || (emit_library&&!library_name) || (emit_library_manifest_mode&&!library_name) || (!emit_library&&!emit_library_manifest_mode&&library_name) || (native_checks&&(strict_native_runtime||emit_library))) { usage(argv[0]); free(library_paths); return 2; }
+    if (!path || (mode == 1 && output) || (asm_comments && mode != 4) || (emit_library&&mode!=4&&mode!=5&&mode!=8) || (emit_library&&!library_name) || (emit_library_manifest_mode&&!library_name) || (!emit_library&&!emit_library_manifest_mode&&library_name) || (native_checks&&(strict_native_runtime||emit_library)) || (benchmark_metrics&&(!emit_library||mode!=4||BPP_SANITIZERS[0]||strict_native_runtime||native_checks))) { usage(argv[0]); free(library_paths); return 2; }
     if(!mode&&!bpp_target_is_host(target)){
         fprintf(stderr,"native executables require a matching host and runtime objects; use --emit-asm --target %s for cross-target output\n",bpp_target_name(target));free(library_paths);return 2;
     }
@@ -341,6 +343,7 @@ int main(int argc, char **argv) {
         if (is_main_source(path) || declares_main) ok = bl_ir_require_zero_argument_main(&ir);
     }
     ir.emit_asm_comments=asm_comments;
+    ir.benchmark_metrics=benchmark_metrics;
     ir.emit_library=emit_library||emit_library_manifest_mode;
     ir.strict_native_runtime=strict_native_runtime;
     ir.library_name=library_name;

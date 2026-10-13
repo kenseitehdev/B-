@@ -1,5 +1,11 @@
 # Native timing harness
 
+The 1.0.17 schema-2 harness separates compilation, assembly, linking, startup
+and in-process ABI work, with repeated samples and a separate profiling run.
+Run `make BUILD_MODE=release benchmark-native`; see [measurement boundaries and
+policy](docs/benchmarking.md). The following table and older harness remain
+historical evidence.
+
 These older C-backend measurements are historical. The C output backend was
 retired in 1.0.15; current comparisons use native optimized and baseline output.
 

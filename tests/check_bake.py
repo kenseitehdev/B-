@@ -16,7 +16,7 @@ SANITIZED = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else None
 
 def run(argv, cwd, code=0):
     result = subprocess.run([str(x) for x in argv], cwd=cwd, capture_output=True,
-                            text=True, timeout=120)
+                            text=True, encoding="utf-8", timeout=120)
     assert result.returncode == code, (argv, result.returncode, result.stdout, result.stderr)
     return result.stdout + result.stderr
 
