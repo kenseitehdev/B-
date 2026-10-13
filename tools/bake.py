@@ -257,7 +257,7 @@ class Project:
         require(info.get("sanitizers") == "", "Bake requires an unsanitized compiler/runtime; build B++ with BUILD_MODE=release")
         require(info.get("host_target") == self.host, "compiler does not match the native host")
         assembler = self.tool(self.args.assembler or self.settings.get("assembler", info["host_cc"]))
-        archiver = self.tool(self.args.archiver or self.settings.get("archiver", "ar"))
+        archiver = self.tool(self.args.archiver or self.settings.get("archiver", "llvm-ar" if shutil.which("llvm-ar") else "ar"))
         self.tools = {"compiler": compiler, "assembler": assembler, "archiver": archiver}
         self.tool_identity = {k: {"path": p, "sha256": digest(p)} for k, p in self.tools.items()}
         for key in ("assembler", "archiver"):

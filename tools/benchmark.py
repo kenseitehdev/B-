@@ -247,7 +247,8 @@ def main():
               "results": results}
     output.with_suffix(".json").write_text(json.dumps(report, indent=2, sort_keys=True)+"\n")
     with output.with_suffix(".csv").open("w", newline="") as stream:
-        fields = ["schema", "case", "selection", "target", "machine_id", "compiler_revision", "sanitizers",
+        fields = ["schema", "case", "selection", "target", "target_triple", "machine_id", "compiler_revision", "compiler_sha256", "sanitizers",
+                  "host_os", "host_arch", "cpu", "host_cc_identity", "flags_json", "samples", "warmup", "repetitions",
                   "compile_ms", "assembly_ms", "link_ms", "startup_ms", "steady_abi_ms", "steady_mad_ms",
                   "compile_peak_rss_bytes", "text_bytes", "readonly_data_bytes", "executable_bytes",
                   "max_native_call_depth", "native_frame_stack_span_bytes", "boundary_helper_calls",
@@ -256,7 +257,9 @@ def main():
         writer.writeheader()
         for result in results:
             row = {k: result[k] for k in ("schema", "case", "selection", "static_spill_sites", "static_reload_sites")}
-            row.update({k: host[k] for k in ("target", "machine_id", "compiler_revision", "sanitizers")})
+            row.update({k: host[k] for k in ("target", "target_triple", "machine_id", "compiler_revision", "compiler_sha256", "sanitizers", "cpu", "host_cc_identity")})
+            row.update({"host_os": host["os"], "host_arch": host["architecture"], "flags_json": json.dumps(result["flags"]),
+                        "samples": args.samples, "warmup": args.warmup, "repetitions": args.repetitions})
             row.update({phase+"_ms": result["phase_wall_ms"][phase]["median"] for phase in ("compile", "assembly", "link", "startup")})
             row.update({"steady_abi_ms": result["steady_abi_work_ms"]["median"], "steady_mad_ms": result["steady_abi_work_ms"]["mad"],
                         "compile_peak_rss_bytes": max(v for v in result["compilation_peak_rss_bytes"] if v is not None) if any(v is not None for v in result["compilation_peak_rss_bytes"]) else None})

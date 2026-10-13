@@ -325,7 +325,8 @@ int main(int argc, char **argv) {
         path = argv[j];
     }
     if (!path && !emit_library && !emit_library_manifest_mode) path = "main.bpp";
-    if (!path || (mode == 1 && output) || (asm_comments && mode != 4) || (emit_library&&mode!=4&&mode!=5&&mode!=8) || (emit_library&&!library_name) || (emit_library_manifest_mode&&!library_name) || (!emit_library&&!emit_library_manifest_mode&&library_name) || (native_checks&&(strict_native_runtime||emit_library)) || (benchmark_metrics&&(!emit_library||mode!=4||BPP_SANITIZERS[0]||strict_native_runtime||native_checks))) { usage(argv[0]); free(library_paths); return 2; }
+    int compiler_has_sanitizers=BPP_SANITIZERS[0]!=0;
+    if (!path || (mode == 1 && output) || (asm_comments && mode != 4) || (emit_library&&mode!=4&&mode!=5&&mode!=8) || (emit_library&&!library_name) || (emit_library_manifest_mode&&!library_name) || (!emit_library&&!emit_library_manifest_mode&&library_name) || (native_checks&&(strict_native_runtime||emit_library)) || (benchmark_metrics&&(!emit_library||mode!=4||compiler_has_sanitizers||strict_native_runtime||native_checks))) { usage(argv[0]); free(library_paths); return 2; }
     if(!mode&&!bpp_target_is_host(target)){
         fprintf(stderr,"native executables require a matching host and runtime objects; use --emit-asm --target %s for cross-target output\n",bpp_target_name(target));free(library_paths);return 2;
     }
