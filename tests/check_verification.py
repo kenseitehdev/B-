@@ -229,7 +229,6 @@ def differential(compiler, generator, work, cases):
                 dest = Path(os.environ.get("BPP_FAILURE_DIR", "build/verification-failures")) / label
                 dest.mkdir(parents=True, exist_ok=True)
                 (dest / "expected.txt").write_bytes(smallest[1])
-                (dest / "original.bpp").write_bytes(original if original is not None else source)
                 failure(work, label, smallest[2], smallest[0], original=source)
     print(f"Passed {cases} independently evaluated seeds in optimized and baseline native modes; arithmetic/comparisons/division/modulo/branches/loops/calls/recursion/byte buffers")
 
