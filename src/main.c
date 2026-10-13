@@ -195,7 +195,9 @@ static int native_compile(const char *temp, const char *output, BPPTarget target
         n=0;
     }
     command[n++] = (char *)cc;
-    if(coff_debug){command[n++]="-fuse-ld=lld";command[n++]=pdb_flag;}
+    /* LLVM tools preserve UTF-8 paths; the UCRT GNU linker uses legacy ACP. */
+    if(!object&&cap&&cap->format==BPP_FORMAT_COFF)command[n++]="-fuse-ld=lld";
+    if(coff_debug)command[n++]=pdb_flag;
     if(!macho_debug)command[n++] = BPP_OPTIMIZATION;
     if (BPP_SANITIZERS[0]) {
         command[n++] = sanitizer_flag; command[n++] = "-g";

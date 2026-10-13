@@ -44,7 +44,8 @@ and `profile` (default `release`). The default compiler
 is `bin/release/bpp` (`.exe` on Windows); the assembler defaults to that
 compiler's recorded host driver. The archiver defaults to `llvm-ar` when
 available, otherwise `ar`. Windows Unicode paths require an archiver that
-supports them; matching UCRT64 CI uses LLVM's archiver.
+supports them; matching UCRT64 CI uses LLVM's archiver. Windows executable
+linking uses LLD for the same UTF-8 path guarantee in release and debug output.
 
 Target fields: `kind` (`executable`, `library`, `test`, or `group`), `source`,
 `deps`, `inputs`, `options`, `output`, `args`, `expect`, and `expect-exit`.

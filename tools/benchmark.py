@@ -174,7 +174,7 @@ def main():
         measure([cc_path, *includes, "-c", ROOT/"tests/benchmark_runner.c", "-o", runner_obj], ROOT)
         measure([cc_path, *includes, "-DBPP_BENCHMARK_METRICS", "-c", ROOT/"tests/benchmark_runner.c", "-o", profile_runner], ROOT)
         measure([cc_path, *includes, "-DBPP_BENCHMARK_METRICS", "-c", ROOT/"src/codegen_runtime.c", "-o", profile_runtime], ROOT)
-        link_flags = ["-no-pie"] if target == "linux-x86_64" else []
+        link_flags = ["-no-pie"] if target == "linux-x86_64" else ["-fuse-ld=lld"] if target == "windows-x86_64" else []
         libraries = [*info["runtime_objects"]]
         profile_libraries = [str(profile_runtime) if Path(p).name=="codegen_runtime.o" else p for p in libraries]
         for name in ("integer", "branches", "calls", "recursion", "states", "buffers", "byte_strings", "large_source"):
