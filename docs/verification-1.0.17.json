@@ -415,7 +415,7 @@
     "Native MSAN covers checked byte definedness and instrumented C accesses, not arbitrary assembly/FFI shadow propagation.",
     "Hosted transcript artifacts expire after 30 days; the benchmark CSV/JSON files are retained in the repository."
   ],
-  "passed_job_count": 23,
+  "passed_job_count": 24,
   "previous_verification": {
     "failure": "macOS TSAN differential suite exceeded its 600-second overall bound without a reported semantic mismatch; all other stages passed.",
     "passed_jobs": 17,
@@ -834,6 +834,15 @@
     },
     {
       "artifacts": [
+        {
+          "created_at": "2026-10-13T16:47:38Z",
+          "digest": "sha256:7d4b5cccaa14ae5952a9b8ebdc0b793ed32ce89f239b5bde9633fd013439f60d",
+          "expires_at": "2026-11-12T16:47:37Z",
+          "id": 11832256991,
+          "name": "verification-macos-15-tsan-clang",
+          "size_in_bytes": 5580,
+          "url": "https://api.github.com/repos/kenseitehdev/B-/actions/artifacts/11832256991"
+        },
         {
           "created_at": "2026-10-13T16:32:06Z",
           "digest": "sha256:866e089acf0d39178f0b08f30c25c4e1f8373f7e7387733a59e3555a2fd84e47",
@@ -1851,10 +1860,10 @@
           "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296833"
         },
         {
-          "conclusion": null,
+          "conclusion": "success",
           "id": 115410296840,
           "name": "unix (macos-15, tsan, clang)",
-          "status": "in_progress",
+          "status": "completed",
           "steps": [
             {
               "conclusion": "success",
@@ -1897,36 +1906,40 @@
               "name": "Compiler and native execution"
             },
             {
-              "conclusion": null,
+              "conclusion": "success",
               "name": "Bounded fuzz, stress and reproducibility"
             },
             {
-              "conclusion": null,
+              "conclusion": "success",
               "name": "Differential execution"
             },
             {
-              "conclusion": null,
+              "conclusion": "skipped",
               "name": "Native ASAN access hook"
             },
             {
-              "conclusion": null,
+              "conclusion": "skipped",
               "name": "Cross-target assembly"
             },
             {
-              "conclusion": null,
+              "conclusion": "skipped",
               "name": "Large procedure and branches"
             },
             {
-              "conclusion": null,
+              "conclusion": "success",
               "name": "Upload failing metadata evidence"
             },
             {
-              "conclusion": null,
+              "conclusion": "success",
               "name": "Upload native verification transcript"
             },
             {
-              "conclusion": null,
+              "conclusion": "success",
               "name": "Post Run actions/checkout@v4"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job"
             }
           ],
           "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985/job/115410296840"
@@ -2446,6 +2459,6 @@
       "url": "https://github.com/kenseitehdev/B-/actions/runs/38430265985"
     }
   ],
-  "status": "implementation_complete_native_regression_rerun_pending",
+  "status": "verified",
   "workflow_checkout_revision": "6095ebc0bbfd60c0da12673f83d906842fdc807b"
 }
