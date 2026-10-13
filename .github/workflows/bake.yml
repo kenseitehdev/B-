@@ -1,0 +1,109 @@
+name: Bake native builds
+on:
+  push:
+    branches: [main, "1.0.*"]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: bake-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04, ubuntu-24.04-arm]
+        compiler: [clang]
+        include:
+          - {os: ubuntu-24.04, compiler: gcc}
+          - {os: ubuntu-24.04-arm, compiler: gcc}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Discard checked-in build artifacts
+        run: rm -rf build bin/release bin/debug
+      - name: Homebrew LLVM
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+      - name: Record runner and toolchain
+        run: |
+          {
+            echo "revision=$GITHUB_SHA"
+            uname -a
+            ${{ matrix.compiler }} --version
+            python3 --version
+          } | tee -a verification-bake.log
+      - name: Build ordinary and instrumented compilers
+        run: |
+          set -o pipefail
+          make CC=${{ matrix.compiler }} BUILD_MODE=release CFLAGS='-std=c11 -Wall -Wextra -Wpedantic -Werror' -j2 all 2>&1 | tee -a verification-bake.log
+          make CC=${{ matrix.compiler }} BUILD_MODE=debug -j2 all 2>&1 | tee -a verification-bake.log
+      - name: Native Bake and sanitizer exclusion
+        run: |
+          set -o pipefail
+          python3 tests/run_bounded.py 600 make CC=${{ matrix.compiler }} BUILD_MODE=release BAKE_SANITIZED_COMPILER=bin/debug/bpp check-bake 2>&1 | tee -a verification-bake.log
+      - name: Root Bakefile
+        run: |
+          set -o pipefail
+          python3 tools/bake.py build app 2>&1 | tee -a verification-bake.log
+          python3 tools/bake.py test 2>&1 | tee -a verification-bake.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bake-${{ matrix.os }}-${{ matrix.compiler }}
+          path: verification-bake.log
+          retention-days: 30
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Discard checked-in build artifacts
+        shell: bash
+        run: rm -rf build bin/release bin/debug
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-llvm
+            mingw-w64-ucrt-x86_64-lld
+      - name: Record runner and toolchain
+        run: |
+          {
+            echo "revision=$GITHUB_SHA"
+            uname -a
+            clang --version
+            python --version
+          } | tee -a verification-bake.log
+      - name: Build ordinary and instrumented compilers
+        run: |
+          set -o pipefail
+          make CC=clang BUILD_MODE=release CFLAGS='-std=c11 -Wall -Wextra -Wpedantic -Werror' -j2 all 2>&1 | tee -a verification-bake.log
+          make CC=clang BUILD_MODE=debug DEBUG_SANITIZERS=undefined -j2 all 2>&1 | tee -a verification-bake.log
+      - name: Native Bake and sanitizer exclusion
+        run: |
+          set -o pipefail
+          python tests/run_bounded.py 600 make CC=clang BUILD_MODE=release BAKE_SANITIZED_COMPILER=bin/debug/bpp.exe check-bake 2>&1 | tee -a verification-bake.log
+      - name: Root Bakefile
+        run: |
+          set -o pipefail
+          python tools/bake.py build app 2>&1 | tee -a verification-bake.log
+          python tools/bake.py test 2>&1 | tee -a verification-bake.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bake-windows-2022-clang
+          path: verification-bake.log
+          retention-days: 30

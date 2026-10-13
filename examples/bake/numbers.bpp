@@ -1,0 +1,1 @@
+define proc increment(n){return n+1;}
