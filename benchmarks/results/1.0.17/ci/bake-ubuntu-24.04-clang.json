@@ -1,0 +1,2886 @@
+{
+  "host": {
+    "architecture": "x86_64",
+    "benchmark_driver_sha256": "07b1d3e8b77a9a3e2855e1a043e4213ddd0cff0729ee0512821ee8e5b518b2d3",
+    "compiler_build_optimization": "-O2",
+    "compiler_revision": "6095ebc0bbfd60c0da12673f83d906842fdc807b",
+    "compiler_revision_origin": "github-actions",
+    "compiler_sha256": "8fa70c05db36a1cc7ed8fb1a878e28a024209e62d7d77af9403ce41d9f1ffb84",
+    "compiler_worktree_dirty": false,
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "fixture_source_sha256": "a69c2305fd3aa917f704712268be166fafd3e9e6e145314217822a516c9ec7e8",
+    "host_cc": "/usr/bin/clang",
+    "host_cc_identity": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+    "hostname_hash": "c278f5569b1072258c3e6b72",
+    "machine_id": "515dd7570282989eca5a0202",
+    "machine_id_kind": "host-fingerprint",
+    "os": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+    "runtime_objects_sha256": {
+      "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o": "d4a3477ae657f98615f636a9711bdc14831ea42f0dea5dfa3045589414dfd43f",
+      "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o": "ced09b5f392d3ff10a12fdaa2ce629aadb1002a8cc8e19da4e68a2a490ce11a5",
+      "/home/runner/work/B-/B-/build/release/obj/src/runtime.o": "ab4157b80e29ebe9a0419a8eb0a5bc79651fc598c7fc2f9d1e4b0c82c65501b4",
+      "/home/runner/work/B-/B-/build/release/obj/src/truth.o": "9dda1874a381745e3361b2101832010e998a10f756ee916f8c7581563f1021af",
+      "/home/runner/work/B-/B-/build/release/obj/src/value.o": "7fe7c3ad3ebf7c12e1edc5137e47ed93ff89c7ea3c297e0d43aa3a859d26fa4f"
+    },
+    "sanitizers": "",
+    "target": "linux-x86_64",
+    "target_triple": "x86_64-unknown-linux-gnu"
+  },
+  "limitations": [
+    "startup includes process creation, CRT initialization and immediate driver exit",
+    "steady timing includes the static ABI call, correctness check and owned-result release",
+    "native stack span excludes deeper C helper frames; profiling runs are separate from timing",
+    "spill/reload counts are actual emitted static sites, not dynamic event counts",
+    "Python process timing includes wait/poll overhead; shared CI is not a hardware baseline"
+  ],
+  "release": "1.0.17",
+  "results": [
+    {
+      "case": "integer",
+      "compilation_peak_rss_bytes": [
+        20946944,
+        20946944,
+        20946944
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 1,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 360
+      },
+      "expected": 130816,
+      "flags": [],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 360,
+          "frame_data_bytes": 240,
+          "header_offset": 0,
+          "local_flags_bytes": 3,
+          "local_flags_offset": 224,
+          "locals_bytes": 48,
+          "locals_offset": 176,
+          "ordinary_spills_offset": 176,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 240,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 40,
+          "stack_allocation_bytes": 320,
+          "value_bytes": 48
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/integer.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.06681999999999988,
+          "maximum": 23.624094,
+          "median": 22.620735,
+          "minimum": 22.553915,
+          "samples": [
+            23.624094,
+            22.553915,
+            22.620735
+          ]
+        },
+        "compile": {
+          "mad": 0.004946000000000117,
+          "maximum": 1.328258,
+          "median": 1.305503,
+          "minimum": 1.300557,
+          "samples": [
+            1.328258,
+            1.300557,
+            1.305503
+          ]
+        },
+        "link": {
+          "mad": 0.04310499999999706,
+          "maximum": 36.553352,
+          "median": 36.510247,
+          "minimum": 35.399216,
+          "samples": [
+            36.553352,
+            36.510247,
+            35.399216
+          ]
+        },
+        "startup": {
+          "mad": 0.006600000000000161,
+          "maximum": 1.394187,
+          "median": 1.387587,
+          "minimum": 1.361688,
+          "samples": [
+            1.361688,
+            1.394187,
+            1.387587
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "optimized",
+      "sizes": {
+        "assembly_source_bytes": 30129,
+        "executable_bytes": 71912,
+        "object_bytes": 13120,
+        "readonly_data_bytes": 344,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 5004
+      },
+      "source": "define proc work(n){new int i=0;new int sum=0;while(i<n){sum=sum+i;i=i+1;}return sum;}\n",
+      "source_sha256": "36132f34ebc6affafdaa746437bcde15618b07bcee41284741a8b316f500f1da",
+      "static_reload_sites": 7,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 4.049999999999887e-05,
+        "maximum": 0.0089085,
+        "median": 0.0088385,
+        "minimum": 0.008798,
+        "samples": [
+          0.0089085,
+          0.0088385,
+          0.008798
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "integer",
+      "compilation_peak_rss_bytes": [
+        20946944,
+        20946944,
+        20946944
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 1,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 376
+      },
+      "expected": 130816,
+      "flags": [
+        "--no-opt"
+      ],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 376,
+          "frame_data_bytes": 256,
+          "header_offset": 0,
+          "local_flags_bytes": 3,
+          "local_flags_offset": 240,
+          "locals_bytes": 48,
+          "locals_offset": 192,
+          "ordinary_spills_offset": 192,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 256,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 40,
+          "stack_allocation_bytes": 336,
+          "value_bytes": 64
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--no-opt",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/integer.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.01234799999999936,
+          "maximum": 22.825613,
+          "median": 22.573754,
+          "minimum": 22.561406,
+          "samples": [
+            22.561406,
+            22.573754,
+            22.825613
+          ]
+        },
+        "compile": {
+          "mad": 0.013018999999999892,
+          "maximum": 1.327907,
+          "median": 1.314888,
+          "minimum": 1.293165,
+          "samples": [
+            1.327907,
+            1.293165,
+            1.314888
+          ]
+        },
+        "link": {
+          "mad": 0.042363000000001705,
+          "maximum": 37.538243,
+          "median": 35.655231,
+          "minimum": 35.612868,
+          "samples": [
+            35.655231,
+            35.612868,
+            37.538243
+          ]
+        },
+        "startup": {
+          "mad": 0.005448999999999815,
+          "maximum": 1.399425,
+          "median": 1.393976,
+          "minimum": 1.345544,
+          "samples": [
+            1.345544,
+            1.393976,
+            1.399425
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "no-opt",
+      "sizes": {
+        "assembly_source_bytes": 33926,
+        "executable_bytes": 72544,
+        "object_bytes": 14688,
+        "readonly_data_bytes": 344,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 5667
+      },
+      "source": "define proc work(n){new int i=0;new int sum=0;while(i<n){sum=sum+i;i=i+1;}return sum;}\n",
+      "source_sha256": "36132f34ebc6affafdaa746437bcde15618b07bcee41284741a8b316f500f1da",
+      "static_reload_sites": 7,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 2.549999999999948e-05,
+        "maximum": 0.0089285,
+        "median": 0.0088335,
+        "minimum": 0.008808,
+        "samples": [
+          0.0089285,
+          0.0088335,
+          0.008808
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "branches",
+      "compilation_peak_rss_bytes": [
+        20946944,
+        20946944,
+        20946944
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 1,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 360
+      },
+      "expected": 683,
+      "flags": [],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 360,
+          "frame_data_bytes": 240,
+          "header_offset": 0,
+          "local_flags_bytes": 3,
+          "local_flags_offset": 224,
+          "locals_bytes": 48,
+          "locals_offset": 176,
+          "ordinary_spills_offset": 176,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 240,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 40,
+          "stack_allocation_bytes": 320,
+          "value_bytes": 48
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/branches.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.03531200000000112,
+          "maximum": 24.691159,
+          "median": 23.692627,
+          "minimum": 23.657315,
+          "samples": [
+            24.691159,
+            23.657315,
+            23.692627
+          ]
+        },
+        "compile": {
+          "mad": 0.02371599999999985,
+          "maximum": 2.42007,
+          "median": 2.391137,
+          "minimum": 2.367421,
+          "samples": [
+            2.367421,
+            2.391137,
+            2.42007
+          ]
+        },
+        "link": {
+          "mad": 0.28539999999999566,
+          "maximum": 36.742858,
+          "median": 36.457458,
+          "minimum": 35.969664,
+          "samples": [
+            36.742858,
+            35.969664,
+            36.457458
+          ]
+        },
+        "startup": {
+          "mad": 0.007220000000000004,
+          "maximum": 1.382419,
+          "median": 1.375199,
+          "minimum": 1.324693,
+          "samples": [
+            1.375199,
+            1.382419,
+            1.324693
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "optimized",
+      "sizes": {
+        "assembly_source_bytes": 41891,
+        "executable_bytes": 73752,
+        "object_bytes": 17744,
+        "readonly_data_bytes": 408,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 6931
+      },
+      "source": "define proc work(n){new int i=0;new int sum=0;while(i<n){if(i%3==0){sum=sum+2;}else{sum=sum+1;}i=i+1;}return sum;}\n",
+      "source_sha256": "ce6133fbee16ae9a144ec4647c537a9df7aae0a91a256c23b1feb90bda672e50",
+      "static_reload_sites": 10,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 0.0005055000000000025,
+        "maximum": 0.024101,
+        "median": 0.0235955,
+        "minimum": 0.0229495,
+        "samples": [
+          0.0235955,
+          0.024101,
+          0.0229495
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "branches",
+      "compilation_peak_rss_bytes": [
+        20946944,
+        20946944,
+        20946944
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 1,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 376
+      },
+      "expected": 683,
+      "flags": [
+        "--no-opt"
+      ],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 376,
+          "frame_data_bytes": 256,
+          "header_offset": 0,
+          "local_flags_bytes": 3,
+          "local_flags_offset": 240,
+          "locals_bytes": 48,
+          "locals_offset": 192,
+          "ordinary_spills_offset": 192,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 256,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 40,
+          "stack_allocation_bytes": 336,
+          "value_bytes": 64
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--no-opt",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/branches.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.02657999999999916,
+          "maximum": 24.808156,
+          "median": 24.714665,
+          "minimum": 24.688085,
+          "samples": [
+            24.808156,
+            24.714665,
+            24.688085
+          ]
+        },
+        "compile": {
+          "mad": 0.004357999999999862,
+          "maximum": 2.386821,
+          "median": 2.382463,
+          "minimum": 2.371608,
+          "samples": [
+            2.386821,
+            2.382463,
+            2.371608
+          ]
+        },
+        "link": {
+          "mad": 0.0401510000000016,
+          "maximum": 38.907202,
+          "median": 36.574394,
+          "minimum": 36.534243,
+          "samples": [
+            38.907202,
+            36.534243,
+            36.574394
+          ]
+        },
+        "startup": {
+          "mad": 0.005969000000000113,
+          "maximum": 1.40969,
+          "median": 1.374878,
+          "minimum": 1.368909,
+          "samples": [
+            1.40969,
+            1.374878,
+            1.368909
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "no-opt",
+      "sizes": {
+        "assembly_source_bytes": 50618,
+        "executable_bytes": 75192,
+        "object_bytes": 21304,
+        "readonly_data_bytes": 408,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 8441
+      },
+      "source": "define proc work(n){new int i=0;new int sum=0;while(i<n){if(i%3==0){sum=sum+2;}else{sum=sum+1;}i=i+1;}return sum;}\n",
+      "source_sha256": "ce6133fbee16ae9a144ec4647c537a9df7aae0a91a256c23b1feb90bda672e50",
+      "static_reload_sites": 10,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 4.999999999999796e-06,
+        "maximum": 0.0137655,
+        "median": 0.0137605,
+        "minimum": 0.0136955,
+        "samples": [
+          0.0137655,
+          0.0137605,
+          0.0136955
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "calls",
+      "compilation_peak_rss_bytes": [
+        20992000,
+        20992000,
+        20992000
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 2049,
+        "max_native_call_depth": 2,
+        "native_calls": 513,
+        "native_frame_stack_span_bytes": 696
+      },
+      "expected": 131328,
+      "flags": [],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "step": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 312,
+          "frame_data_bytes": 208,
+          "header_offset": 0,
+          "local_flags_bytes": 1,
+          "local_flags_offset": 192,
+          "locals_bytes": 16,
+          "locals_offset": 176,
+          "ordinary_spills_offset": 160,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 208,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 24,
+          "stack_allocation_bytes": 288,
+          "value_bytes": 48
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 376,
+          "frame_data_bytes": 256,
+          "header_offset": 0,
+          "local_flags_bytes": 3,
+          "local_flags_offset": 224,
+          "locals_bytes": 48,
+          "locals_offset": 176,
+          "ordinary_spills_offset": 176,
+          "outgoing_argument_bytes": 16,
+          "outgoing_argument_cells": 1,
+          "outgoing_arguments_offset": 240,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 40,
+          "stack_allocation_bytes": 336,
+          "value_bytes": 48
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/calls.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.009084000000001424,
+          "maximum": 23.673379,
+          "median": 23.664295,
+          "minimum": 23.644345,
+          "samples": [
+            23.664295,
+            23.644345,
+            23.673379
+          ]
+        },
+        "compile": {
+          "mad": 0.0029040000000000177,
+          "maximum": 2.403005,
+          "median": 2.365748,
+          "minimum": 2.362844,
+          "samples": [
+            2.362844,
+            2.403005,
+            2.365748
+          ]
+        },
+        "link": {
+          "mad": 0.05566300000000268,
+          "maximum": 36.559532,
+          "median": 36.496887,
+          "minimum": 36.441224,
+          "samples": [
+            36.496887,
+            36.559532,
+            36.441224
+          ]
+        },
+        "startup": {
+          "mad": 2.1000000000048757e-05,
+          "maximum": 1.394377,
+          "median": 1.377903,
+          "minimum": 1.377882,
+          "samples": [
+            1.377903,
+            1.394377,
+            1.377882
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "optimized",
+      "sizes": {
+        "assembly_source_bytes": 38991,
+        "executable_bytes": 73288,
+        "object_bytes": 16864,
+        "readonly_data_bytes": 464,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 6477
+      },
+      "source": "define proc step(n){return n+1;}define proc work(n){new int i=0;new int sum=0;while(i<n){sum=sum+step(i);i=i+1;}return sum;}\n",
+      "source_sha256": "77d4a7fa1d44ccb2c707f387194b1f54dd0e58c9d491716236a1c4a1682ebf1e",
+      "static_reload_sites": 8,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 4.950000000000093e-05,
+        "maximum": 0.022839,
+        "median": 0.0227895,
+        "minimum": 0.022729,
+        "samples": [
+          0.022839,
+          0.0227895,
+          0.022729
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "calls",
+      "compilation_peak_rss_bytes": [
+        20992000,
+        20992000,
+        20992000
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 2049,
+        "max_native_call_depth": 2,
+        "native_calls": 513,
+        "native_frame_stack_span_bytes": 712
+      },
+      "expected": 131328,
+      "flags": [
+        "--no-opt"
+      ],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "step": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 312,
+          "frame_data_bytes": 208,
+          "header_offset": 0,
+          "local_flags_bytes": 1,
+          "local_flags_offset": 192,
+          "locals_bytes": 16,
+          "locals_offset": 176,
+          "ordinary_spills_offset": 160,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 208,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 24,
+          "stack_allocation_bytes": 288,
+          "value_bytes": 48
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 392,
+          "frame_data_bytes": 272,
+          "header_offset": 0,
+          "local_flags_bytes": 3,
+          "local_flags_offset": 240,
+          "locals_bytes": 48,
+          "locals_offset": 192,
+          "ordinary_spills_offset": 192,
+          "outgoing_argument_bytes": 16,
+          "outgoing_argument_cells": 1,
+          "outgoing_arguments_offset": 256,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 40,
+          "stack_allocation_bytes": 352,
+          "value_bytes": 64
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--no-opt",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/calls.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.09242900000000276,
+          "maximum": 24.710719,
+          "median": 23.746839,
+          "minimum": 23.65441,
+          "samples": [
+            24.710719,
+            23.65441,
+            23.746839
+          ]
+        },
+        "compile": {
+          "mad": 0.009374999999999911,
+          "maximum": 2.398247,
+          "median": 2.384667,
+          "minimum": 2.375292,
+          "samples": [
+            2.398247,
+            2.375292,
+            2.384667
+          ]
+        },
+        "link": {
+          "mad": 0.05220899999999773,
+          "maximum": 36.558861,
+          "median": 36.506652,
+          "minimum": 35.423633,
+          "samples": [
+            36.558861,
+            35.423633,
+            36.506652
+          ]
+        },
+        "startup": {
+          "mad": 0.010264999999999969,
+          "maximum": 1.385373,
+          "median": 1.375108,
+          "minimum": 1.359755,
+          "samples": [
+            1.385373,
+            1.359755,
+            1.375108
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "no-opt",
+      "sizes": {
+        "assembly_source_bytes": 43488,
+        "executable_bytes": 74040,
+        "object_bytes": 18712,
+        "readonly_data_bytes": 464,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 7268
+      },
+      "source": "define proc step(n){return n+1;}define proc work(n){new int i=0;new int sum=0;while(i<n){sum=sum+step(i);i=i+1;}return sum;}\n",
+      "source_sha256": "77d4a7fa1d44ccb2c707f387194b1f54dd0e58c9d491716236a1c4a1682ebf1e",
+      "static_reload_sites": 8,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 4.49999999999999e-05,
+        "maximum": 0.0228495,
+        "median": 0.0228045,
+        "minimum": 0.0227495,
+        "samples": [
+          0.0228495,
+          0.0228045,
+          0.0227495
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "recursion",
+      "compilation_peak_rss_bytes": [
+        20992000,
+        20992000,
+        20992000
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 133,
+        "max_native_call_depth": 34,
+        "native_calls": 34,
+        "native_frame_stack_span_bytes": 11912
+      },
+      "expected": 32,
+      "flags": [],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "rec": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 344,
+          "frame_data_bytes": 240,
+          "header_offset": 0,
+          "local_flags_bytes": 1,
+          "local_flags_offset": 208,
+          "locals_bytes": 16,
+          "locals_offset": 192,
+          "ordinary_spills_offset": 192,
+          "outgoing_argument_bytes": 16,
+          "outgoing_argument_cells": 1,
+          "outgoing_arguments_offset": 224,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 32,
+          "stack_allocation_bytes": 312,
+          "value_bytes": 64
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 296,
+          "frame_data_bytes": 208,
+          "header_offset": 0,
+          "local_flags_bytes": 1,
+          "local_flags_offset": 176,
+          "locals_bytes": 16,
+          "locals_offset": 160,
+          "ordinary_spills_offset": 160,
+          "outgoing_argument_bytes": 16,
+          "outgoing_argument_cells": 1,
+          "outgoing_arguments_offset": 192,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 280,
+          "value_bytes": 32
+        }
+      },
+      "input": 32,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/recursion.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.007701000000000846,
+          "maximum": 22.625392,
+          "median": 22.59103,
+          "minimum": 22.583329,
+          "samples": [
+            22.625392,
+            22.59103,
+            22.583329
+          ]
+        },
+        "compile": {
+          "mad": 0.0049479999999999524,
+          "maximum": 1.32301,
+          "median": 1.318062,
+          "minimum": 1.310481,
+          "samples": [
+            1.318062,
+            1.32301,
+            1.310481
+          ]
+        },
+        "link": {
+          "mad": 0.011666000000005283,
+          "maximum": 36.556206,
+          "median": 36.54454,
+          "minimum": 36.528104,
+          "samples": [
+            36.556206,
+            36.54454,
+            36.528104
+          ]
+        },
+        "startup": {
+          "mad": 0.013850999999999836,
+          "maximum": 1.415609,
+          "median": 1.374367,
+          "minimum": 1.360516,
+          "samples": [
+            1.374367,
+            1.415609,
+            1.360516
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "optimized",
+      "sizes": {
+        "assembly_source_bytes": 26577,
+        "executable_bytes": 67360,
+        "object_bytes": 12160,
+        "readonly_data_bytes": 424,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 4379
+      },
+      "source": "define proc rec(n){if(n<=0){return 0;}return 1+rec(n-1);}define proc work(n){return rec(n);}\n",
+      "source_sha256": "a4e09a9f14d0a9a9ee05568193a2075079406eb17ea67291e0dfedba94f0f7da",
+      "static_reload_sites": 3,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 4.0499999999999954e-05,
+        "maximum": 0.0015375,
+        "median": 0.0014525,
+        "minimum": 0.001412,
+        "samples": [
+          0.0015375,
+          0.0014525,
+          0.001412
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "recursion",
+      "compilation_peak_rss_bytes": [
+        20992000,
+        20992000,
+        20992000
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 133,
+        "max_native_call_depth": 34,
+        "native_calls": 34,
+        "native_frame_stack_span_bytes": 11912
+      },
+      "expected": 32,
+      "flags": [
+        "--no-opt"
+      ],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "rec": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 344,
+          "frame_data_bytes": 240,
+          "header_offset": 0,
+          "local_flags_bytes": 1,
+          "local_flags_offset": 208,
+          "locals_bytes": 16,
+          "locals_offset": 192,
+          "ordinary_spills_offset": 192,
+          "outgoing_argument_bytes": 16,
+          "outgoing_argument_cells": 1,
+          "outgoing_arguments_offset": 224,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 32,
+          "stack_allocation_bytes": 312,
+          "value_bytes": 64
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 296,
+          "frame_data_bytes": 208,
+          "header_offset": 0,
+          "local_flags_bytes": 1,
+          "local_flags_offset": 176,
+          "locals_bytes": 16,
+          "locals_offset": 160,
+          "ordinary_spills_offset": 160,
+          "outgoing_argument_bytes": 16,
+          "outgoing_argument_cells": 1,
+          "outgoing_arguments_offset": 192,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 280,
+          "value_bytes": 32
+        }
+      },
+      "input": 32,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--no-opt",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/recursion.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.02410499999999871,
+          "maximum": 23.635942,
+          "median": 23.611837,
+          "minimum": 22.77706,
+          "samples": [
+            22.77706,
+            23.635942,
+            23.611837
+          ]
+        },
+        "compile": {
+          "mad": 0.004456999999999933,
+          "maximum": 1.337391,
+          "median": 1.321628,
+          "minimum": 1.317171,
+          "samples": [
+            1.317171,
+            1.321628,
+            1.337391
+          ]
+        },
+        "link": {
+          "mad": 0.07238699999999909,
+          "maximum": 37.613597,
+          "median": 36.539981,
+          "minimum": 36.467594,
+          "samples": [
+            37.613597,
+            36.467594,
+            36.539981
+          ]
+        },
+        "startup": {
+          "mad": 0.0036639999999998896,
+          "maximum": 1.386225,
+          "median": 1.381297,
+          "minimum": 1.377633,
+          "samples": [
+            1.386225,
+            1.377633,
+            1.381297
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "no-opt",
+      "sizes": {
+        "assembly_source_bytes": 30919,
+        "executable_bytes": 72184,
+        "object_bytes": 13904,
+        "readonly_data_bytes": 424,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 5099
+      },
+      "source": "define proc rec(n){if(n<=0){return 0;}return 1+rec(n-1);}define proc work(n){return rec(n);}\n",
+      "source_sha256": "a4e09a9f14d0a9a9ee05568193a2075079406eb17ea67291e0dfedba94f0f7da",
+      "static_reload_sites": 3,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 4.9999999999999914e-05,
+        "maximum": 0.0015775,
+        "median": 0.0015275,
+        "minimum": 0.001447,
+        "samples": [
+          0.0015775,
+          0.0015275,
+          0.001447
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "states",
+      "compilation_peak_rss_bytes": [
+        20992000,
+        20992000,
+        20992000
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 8202,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 392
+      },
+      "expected": 0,
+      "flags": [],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 392,
+          "frame_data_bytes": 272,
+          "header_offset": 0,
+          "local_flags_bytes": 3,
+          "local_flags_offset": 224,
+          "locals_bytes": 48,
+          "locals_offset": 176,
+          "ordinary_spills_offset": 176,
+          "outgoing_argument_bytes": 32,
+          "outgoing_argument_cells": 2,
+          "outgoing_arguments_offset": 240,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 40,
+          "stack_allocation_bytes": 352,
+          "value_bytes": 48
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/states.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.06094200000000072,
+          "maximum": 24.739933,
+          "median": 23.683073,
+          "minimum": 23.622131,
+          "samples": [
+            24.739933,
+            23.683073,
+            23.622131
+          ]
+        },
+        "compile": {
+          "mad": 0.004107000000000305,
+          "maximum": 2.377937,
+          "median": 2.37383,
+          "minimum": 2.362664,
+          "samples": [
+            2.377937,
+            2.37383,
+            2.362664
+          ]
+        },
+        "link": {
+          "mad": 0.04844200000000143,
+          "maximum": 36.567513,
+          "median": 36.519071,
+          "minimum": 35.611847,
+          "samples": [
+            36.519071,
+            36.567513,
+            35.611847
+          ]
+        },
+        "startup": {
+          "mad": 0.009033999999999986,
+          "maximum": 1.392024,
+          "median": 1.370572,
+          "minimum": 1.361538,
+          "samples": [
+            1.361538,
+            1.392024,
+            1.370572
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "optimized",
+      "sizes": {
+        "assembly_source_bytes": 42693,
+        "executable_bytes": 73880,
+        "object_bytes": 18264,
+        "readonly_data_bytes": 472,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 7025
+      },
+      "source": "define proc work(n){new state s=0.5;new int i=0;while(i<n){s=XOR(s,-0.5);s=OR(s,0.5);i=i+1;}return faults(s);}\n",
+      "source_sha256": "661cc5632d72a534cd4991bba1875727b3089b33888b6dba6b35ec5f254103f1",
+      "static_reload_sites": 8,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 0.00018999999999996797,
+        "maximum": 0.303967,
+        "median": 0.303777,
+        "minimum": 0.2954695,
+        "samples": [
+          0.303967,
+          0.2954695,
+          0.303777
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "states",
+      "compilation_peak_rss_bytes": [
+        20992000,
+        20992000,
+        20992000
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 8202,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 408
+      },
+      "expected": 0,
+      "flags": [
+        "--no-opt"
+      ],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 408,
+          "frame_data_bytes": 288,
+          "header_offset": 0,
+          "local_flags_bytes": 3,
+          "local_flags_offset": 240,
+          "locals_bytes": 48,
+          "locals_offset": 192,
+          "ordinary_spills_offset": 192,
+          "outgoing_argument_bytes": 32,
+          "outgoing_argument_cells": 2,
+          "outgoing_arguments_offset": 256,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 40,
+          "stack_allocation_bytes": 368,
+          "value_bytes": 64
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--no-opt",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/states.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.020450999999997777,
+          "maximum": 24.770649,
+          "median": 24.750198,
+          "minimum": 24.669577,
+          "samples": [
+            24.770649,
+            24.750198,
+            24.669577
+          ]
+        },
+        "compile": {
+          "mad": 0.0006109999999996951,
+          "maximum": 2.388603,
+          "median": 2.375653,
+          "minimum": 2.375042,
+          "samples": [
+            2.375653,
+            2.375042,
+            2.388603
+          ]
+        },
+        "link": {
+          "mad": 0.11653400000000147,
+          "maximum": 36.806803,
+          "median": 36.690269,
+          "minimum": 35.646337,
+          "samples": [
+            36.806803,
+            36.690269,
+            35.646337
+          ]
+        },
+        "startup": {
+          "mad": 0.0007410000000001027,
+          "maximum": 1.38266,
+          "median": 1.381919,
+          "minimum": 1.359214,
+          "samples": [
+            1.381919,
+            1.359214,
+            1.38266
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "no-opt",
+      "sizes": {
+        "assembly_source_bytes": 48680,
+        "executable_bytes": 74872,
+        "object_bytes": 20680,
+        "readonly_data_bytes": 472,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 8048
+      },
+      "source": "define proc work(n){new state s=0.5;new int i=0;while(i<n){s=XOR(s,-0.5);s=OR(s,0.5);i=i+1;}return faults(s);}\n",
+      "source_sha256": "661cc5632d72a534cd4991bba1875727b3089b33888b6dba6b35ec5f254103f1",
+      "static_reload_sites": 8,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 0.000130000000000019,
+        "maximum": 0.3086495,
+        "median": 0.3085195,
+        "minimum": 0.2987645,
+        "samples": [
+          0.2987645,
+          0.3085195,
+          0.3086495
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "buffers",
+      "compilation_peak_rss_bytes": [
+        20992000,
+        20992000,
+        20992000
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 3078,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 408
+      },
+      "expected": 65280,
+      "flags": [],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 408,
+          "frame_data_bytes": 288,
+          "header_offset": 0,
+          "local_flags_bytes": 4,
+          "local_flags_offset": 272,
+          "locals_bytes": 64,
+          "locals_offset": 208,
+          "ordinary_spills_offset": 192,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 288,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 48,
+          "stack_allocation_bytes": 360,
+          "value_bytes": 80
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/buffers.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.016875000000002416,
+          "maximum": 24.725601,
+          "median": 24.708726,
+          "minimum": 24.672902,
+          "samples": [
+            24.708726,
+            24.725601,
+            24.672902
+          ]
+        },
+        "compile": {
+          "mad": 0.0071910000000001695,
+          "maximum": 2.371157,
+          "median": 2.363966,
+          "minimum": 2.326139,
+          "samples": [
+            2.363966,
+            2.326139,
+            2.371157
+          ]
+        },
+        "link": {
+          "mad": 0.046570000000002665,
+          "maximum": 36.746974,
+          "median": 36.581715,
+          "minimum": 36.535145,
+          "samples": [
+            36.746974,
+            36.581715,
+            36.535145
+          ]
+        },
+        "startup": {
+          "mad": 0.007430999999999965,
+          "maximum": 1.413476,
+          "median": 1.382199,
+          "minimum": 1.374768,
+          "samples": [
+            1.382199,
+            1.413476,
+            1.374768
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "optimized",
+      "sizes": {
+        "assembly_source_bytes": 49721,
+        "executable_bytes": 74888,
+        "object_bytes": 20848,
+        "readonly_data_bytes": 448,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 8324
+      },
+      "source": "define proc work(n){new ptr p=malloc 64;new int i=0;new int sum=0;while(i<n){p[i%64]=i%256;sum=sum+p[i%64];i=i+1;}free p;return sum;}\n",
+      "source_sha256": "b38640d80af2246ce0b715968a0160d589c44e49b412e861b7d3a7af222add1b",
+      "static_reload_sites": 11,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 5.000000000005e-07,
+        "maximum": 0.0552935,
+        "median": 0.055293,
+        "minimum": 0.0548775,
+        "samples": [
+          0.055293,
+          0.0552935,
+          0.0548775
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "buffers",
+      "compilation_peak_rss_bytes": [
+        20992000,
+        20992000,
+        20992000
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 3078,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 424
+      },
+      "expected": 65280,
+      "flags": [
+        "--no-opt"
+      ],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 424,
+          "frame_data_bytes": 304,
+          "header_offset": 0,
+          "local_flags_bytes": 4,
+          "local_flags_offset": 288,
+          "locals_bytes": 64,
+          "locals_offset": 224,
+          "ordinary_spills_offset": 208,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 304,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 48,
+          "stack_allocation_bytes": 376,
+          "value_bytes": 96
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--no-opt",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/buffers.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.025398000000002696,
+          "maximum": 24.715686,
+          "median": 24.690288,
+          "minimum": 24.6581,
+          "samples": [
+            24.6581,
+            24.690288,
+            24.715686
+          ]
+        },
+        "compile": {
+          "mad": 0.007681999999999967,
+          "maximum": 2.388332,
+          "median": 2.368933,
+          "minimum": 2.361251,
+          "samples": [
+            2.368933,
+            2.388332,
+            2.361251
+          ]
+        },
+        "link": {
+          "mad": 0.0907060000000044,
+          "maximum": 36.621484,
+          "median": 36.530778,
+          "minimum": 36.429025,
+          "samples": [
+            36.621484,
+            36.530778,
+            36.429025
+          ]
+        },
+        "startup": {
+          "mad": 0.010696999999999957,
+          "maximum": 1.376851,
+          "median": 1.366154,
+          "minimum": 1.353115,
+          "samples": [
+            1.366154,
+            1.376851,
+            1.353115
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "no-opt",
+      "sizes": {
+        "assembly_source_bytes": 59238,
+        "executable_bytes": 80568,
+        "object_bytes": 24720,
+        "readonly_data_bytes": 448,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 9954
+      },
+      "source": "define proc work(n){new ptr p=malloc 64;new int i=0;new int sum=0;while(i<n){p[i%64]=i%256;sum=sum+p[i%64];i=i+1;}free p;return sum;}\n",
+      "source_sha256": "b38640d80af2246ce0b715968a0160d589c44e49b412e861b7d3a7af222add1b",
+      "static_reload_sites": 11,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 0.00011499999999999705,
+        "maximum": 0.0555735,
+        "median": 0.0554585,
+        "minimum": 0.055253,
+        "samples": [
+          0.0555735,
+          0.0554585,
+          0.055253
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "byte_strings",
+      "compilation_peak_rss_bytes": [
+        21123072,
+        21123072,
+        21123072
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 1734,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 408
+      },
+      "expected": 39008,
+      "flags": [],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 408,
+          "frame_data_bytes": 288,
+          "header_offset": 0,
+          "local_flags_bytes": 4,
+          "local_flags_offset": 272,
+          "locals_bytes": 64,
+          "locals_offset": 208,
+          "ordinary_spills_offset": 208,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 288,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 40,
+          "stack_allocation_bytes": 368,
+          "value_bytes": 80
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/byte_strings.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.031097000000002595,
+          "maximum": 26.840843,
+          "median": 24.706392,
+          "minimum": 24.675295,
+          "samples": [
+            24.675295,
+            26.840843,
+            24.706392
+          ]
+        },
+        "compile": {
+          "mad": 0.0015519999999997758,
+          "maximum": 2.44625,
+          "median": 2.37355,
+          "minimum": 2.371998,
+          "samples": [
+            2.371998,
+            2.44625,
+            2.37355
+          ]
+        },
+        "link": {
+          "mad": 0.0017420000000001323,
+          "maximum": 37.610282,
+          "median": 37.60854,
+          "minimum": 36.576888,
+          "samples": [
+            37.610282,
+            37.60854,
+            36.576888
+          ]
+        },
+        "startup": {
+          "mad": 0.013881000000000032,
+          "maximum": 1.456811,
+          "median": 1.382219,
+          "minimum": 1.368338,
+          "samples": [
+            1.456811,
+            1.382219,
+            1.368338
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "optimized",
+      "sizes": {
+        "assembly_source_bytes": 62624,
+        "executable_bytes": 80984,
+        "object_bytes": 25944,
+        "readonly_data_bytes": 512,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 10476
+      },
+      "source": "define proc work(n){new ptr p=malloc 64;new int i=0;while(i<64){p[i]=65+i%26;i=i+1;}i=0;new int sum=0;while(i<n){sum=sum+p[i%64];i=i+1;}free p;return sum;}\n",
+      "source_sha256": "03fbd1935ff47df94a5181f26a73bad7c607de11ca389c4cd67b667695180ad0",
+      "static_reload_sites": 14,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 0.0002554999999999988,
+        "maximum": 0.034657,
+        "median": 0.0336905,
+        "minimum": 0.033435,
+        "samples": [
+          0.034657,
+          0.0336905,
+          0.033435
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "byte_strings",
+      "compilation_peak_rss_bytes": [
+        21254144,
+        21254144,
+        21254144
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 1734,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 424
+      },
+      "expected": 39008,
+      "flags": [
+        "--no-opt"
+      ],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 424,
+          "frame_data_bytes": 304,
+          "header_offset": 0,
+          "local_flags_bytes": 4,
+          "local_flags_offset": 288,
+          "locals_bytes": 64,
+          "locals_offset": 224,
+          "ordinary_spills_offset": 224,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 304,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 40,
+          "stack_allocation_bytes": 384,
+          "value_bytes": 96
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--no-opt",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/byte_strings.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 0.0005410000000019011,
+          "maximum": 26.832,
+          "median": 25.756392,
+          "minimum": 25.755851,
+          "samples": [
+            25.756392,
+            25.755851,
+            26.832
+          ]
+        },
+        "compile": {
+          "mad": 0.0009109999999998841,
+          "maximum": 2.384537,
+          "median": 2.364296,
+          "minimum": 2.363385,
+          "samples": [
+            2.364296,
+            2.363385,
+            2.384537
+          ]
+        },
+        "link": {
+          "mad": 0.00010999999999938836,
+          "maximum": 37.79509,
+          "median": 36.737829,
+          "minimum": 36.737719,
+          "samples": [
+            36.737719,
+            36.737829,
+            37.79509
+          ]
+        },
+        "startup": {
+          "mad": 0.0006500000000000394,
+          "maximum": 1.391673,
+          "median": 1.391023,
+          "minimum": 1.374618,
+          "samples": [
+            1.391673,
+            1.391023,
+            1.374618
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "no-opt",
+      "sizes": {
+        "assembly_source_bytes": 74994,
+        "executable_bytes": 83032,
+        "object_bytes": 30960,
+        "readonly_data_bytes": 512,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 12600
+      },
+      "source": "define proc work(n){new ptr p=malloc 64;new int i=0;while(i<64){p[i]=65+i%26;i=i+1;}i=0;new int sum=0;while(i<n){sum=sum+p[i%64];i=i+1;}free p;return sum;}\n",
+      "source_sha256": "03fbd1935ff47df94a5181f26a73bad7c607de11ca389c4cd67b667695180ad0",
+      "static_reload_sites": 14,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 0.00011450000000000349,
+        "maximum": 0.03678,
+        "median": 0.0366655,
+        "minimum": 0.0362945,
+        "samples": [
+          0.03678,
+          0.0366655,
+          0.0362945
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "large_source",
+      "compilation_peak_rss_bytes": [
+        21254144,
+        21254144,
+        21254144
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 2,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 312
+      },
+      "expected": 1536,
+      "flags": [],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 312,
+          "frame_data_bytes": 208,
+          "header_offset": 0,
+          "local_flags_bytes": 1,
+          "local_flags_offset": 192,
+          "locals_bytes": 16,
+          "locals_offset": 176,
+          "ordinary_spills_offset": 160,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 208,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 32,
+          "stack_allocation_bytes": 280,
+          "value_bytes": 48
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/large_source.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 1.2642280000000028,
+          "maximum": 429.498901,
+          "median": 423.155125,
+          "minimum": 421.890897,
+          "samples": [
+            421.890897,
+            423.155125,
+            429.498901
+          ]
+        },
+        "compile": {
+          "mad": 0.19057900000001382,
+          "maximum": 340.951192,
+          "median": 340.760613,
+          "minimum": 339.604427,
+          "samples": [
+            339.604427,
+            340.760613,
+            340.951192
+          ]
+        },
+        "link": {
+          "mad": 0.1537530000000018,
+          "maximum": 49.530566,
+          "median": 49.376813,
+          "minimum": 48.335243,
+          "samples": [
+            48.335243,
+            49.530566,
+            49.376813
+          ]
+        },
+        "startup": {
+          "mad": 0.014221999999999957,
+          "maximum": 1.433525,
+          "median": 1.413986,
+          "minimum": 1.399764,
+          "samples": [
+            1.433525,
+            1.399764,
+            1.413986
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "optimized",
+      "sizes": {
+        "assembly_source_bytes": 5897720,
+        "executable_bytes": 1942056,
+        "object_bytes": 2250304,
+        "readonly_data_bytes": 24864,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 963194
+      },
+      "source": "define proc work(n){new int sum=n;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;return sum;}\n",
+      "source_sha256": "29811ba5f05658cf00b05f1cb43cdd7794fb41280a9ed706b34d4f774e0e4a78",
+      "static_reload_sites": 2048,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 0.0016075000000000013,
+        "maximum": 0.058083,
+        "median": 0.029099,
+        "minimum": 0.0274915,
+        "samples": [
+          0.0274915,
+          0.058083,
+          0.029099
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    },
+    {
+      "case": "large_source",
+      "compilation_peak_rss_bytes": [
+        39882752,
+        39882752,
+        39882752
+      ],
+      "dynamic_profile": {
+        "boundary_helper_calls": 2,
+        "max_native_call_depth": 1,
+        "native_calls": 1,
+        "native_frame_stack_span_bytes": 312
+      },
+      "expected": 1536,
+      "flags": [
+        "--no-opt"
+      ],
+      "frames": {
+        "<module>": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 232,
+          "frame_data_bytes": 144,
+          "header_offset": 0,
+          "local_flags_bytes": 0,
+          "local_flags_offset": 144,
+          "locals_bytes": 0,
+          "locals_offset": 144,
+          "ordinary_spills_offset": 128,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 144,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 16,
+          "stack_allocation_bytes": 216,
+          "value_bytes": 16
+        },
+        "work": {
+          "abi_shadow_bytes": 0,
+          "alignment": 16,
+          "frame_bytes": 312,
+          "frame_data_bytes": 208,
+          "header_offset": 0,
+          "local_flags_bytes": 1,
+          "local_flags_offset": 192,
+          "locals_bytes": 16,
+          "locals_offset": 176,
+          "ordinary_spills_offset": 160,
+          "outgoing_argument_bytes": 0,
+          "outgoing_argument_cells": 0,
+          "outgoing_arguments_offset": 208,
+          "root_cells_offset": 128,
+          "saved_register_bytes": 32,
+          "stack_allocation_bytes": 280,
+          "value_bytes": 48
+        }
+      },
+      "input": 512,
+      "measurement_commands": {
+        "assembly": [
+          "/usr/bin/clang",
+          "-c",
+          "-x",
+          "assembler",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.o"
+        ],
+        "compile": [
+          "/home/runner/work/B-/B-/bin/release/bpp",
+          "--no-opt",
+          "--target",
+          "linux-x86_64",
+          "--emit-library",
+          "--library-name",
+          "bench",
+          "--asm-comments",
+          "--emit-asm",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/unit.s",
+          "/tmp/bpp-benchmark-dues7967/large_source.bpp"
+        ],
+        "link": [
+          "/usr/bin/clang",
+          "-no-pie",
+          "/tmp/bpp-benchmark-dues7967/runner.o",
+          "/tmp/bpp-benchmark-dues7967/unit.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/value.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/codegen_runtime.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/bpp_abi.o",
+          "/home/runner/work/B-/B-/build/release/obj/src/truth.o",
+          "-o",
+          "/tmp/bpp-benchmark-dues7967/runner"
+        ],
+        "startup": [
+          "/tmp/bpp-benchmark-dues7967/runner",
+          "startup"
+        ]
+      },
+      "phase_wall_ms": {
+        "assembly": {
+          "mad": 1.7062230000000227,
+          "maximum": 504.070294,
+          "median": 485.559793,
+          "minimum": 483.85357,
+          "samples": [
+            504.070294,
+            485.559793,
+            483.85357
+          ]
+        },
+        "compile": {
+          "mad": 0.2109879999999862,
+          "maximum": 369.759187,
+          "median": 364.299315,
+          "minimum": 364.088327,
+          "samples": [
+            369.759187,
+            364.088327,
+            364.299315
+          ]
+        },
+        "link": {
+          "mad": 0.041841999999995494,
+          "maximum": 53.66404,
+          "median": 51.535219,
+          "minimum": 51.493377,
+          "samples": [
+            53.66404,
+            51.493377,
+            51.535219
+          ]
+        },
+        "startup": {
+          "mad": 0.003475000000000117,
+          "maximum": 1.441033,
+          "median": 1.437558,
+          "minimum": 1.411237,
+          "samples": [
+            1.441033,
+            1.411237,
+            1.437558
+          ]
+        }
+      },
+      "schema": 2,
+      "selection": "no-opt",
+      "sizes": {
+        "assembly_source_bytes": 6641518,
+        "executable_bytes": 2193016,
+        "object_bytes": 2550416,
+        "readonly_data_bytes": 24864,
+        "source": "/usr/bin/size -A",
+        "text_bytes": 1086074
+      },
+      "source": "define proc work(n){new int sum=n;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;sum=sum+1;return sum;}\n",
+      "source_sha256": "29811ba5f05658cf00b05f1cb43cdd7794fb41280a9ed706b34d4f774e0e4a78",
+      "static_reload_sites": 2048,
+      "static_rematerialization_sites": 0,
+      "static_spill_sites": 0,
+      "steady_abi_work_ms": {
+        "mad": 0.004236999999999998,
+        "maximum": 0.055299,
+        "median": 0.039956,
+        "minimum": 0.035719,
+        "samples": [
+          0.039956,
+          0.055299,
+          0.035719
+        ]
+      },
+      "timing_assembly_has_profile_hooks": false
+    }
+  ],
+  "sampling": {
+    "repetitions": 2,
+    "samples": 3,
+    "warmup": 1
+  },
+  "schema": 2,
+  "unsupported_workloads": {
+    "custom_assembler_linker": "future stage; current output uses host tools",
+    "managed_arrays": "source Array constructors are retired; byte buffers are measured",
+    "managed_strings": "source string constructors are retired; byte-string processing is measured"
+  }
+}
